@@ -1,0 +1,161 @@
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import type { User } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
+
+export interface Profile {
+  id: string;
+  email: string;
+  role_name: 'super_admin' | 'inventory_manager' | 'branch_manager' | 'cashier' | 'auditor';
+  branch_id: string | null;
+  allowed_tabs: string[] | null;
+  status: 'active' | 'suspended';
+  created_at: string;
+}
+
+export interface Branch {
+  id: string;
+  name: string;
+  is_warehouse: boolean;
+  location: string | null;
+}
+
+interface AuthContextType {
+  user: User | null;
+  profile: Profile | null;
+  loading: boolean;
+  selectedBranch: Branch | null;
+  setSelectedBranch: (branch: Branch | null) => void;
+  branches: Branch[];
+  refreshProfile: () => Promise<void>;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedBranch, setSelectedBranchState] = useState<Branch | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchBranches = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('branches')
+        .select('*')
+        .order('name');
+      if (error) throw error;
+      setBranches(data || []);
+      return data || [];
+    } catch (err) {
+      console.error('Error fetching branches in AuthContext:', err);
+      return [];
+    }
+  };
+
+  const fetchProfile = async (userId: string, currentBranches: Branch[]) => {
+    try {
+      const { data: profileData, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error('Profile not found, user might not have public.profile row yet:', error);
+        setProfile(null);
+        return;
+      }
+
+      setProfile(profileData);
+
+      // Default selected branch to user's branch or the first warehouse/branch if admin
+      if (profileData.branch_id) {
+        const userBranch = currentBranches.find(b => b.id === profileData.branch_id);
+        setSelectedBranchState(userBranch || null);
+      } else if (currentBranches.length > 0) {
+        // For super admins/corporate roles, default to the warehouse or first branch
+        const warehouse = currentBranches.find(b => b.is_warehouse);
+        setSelectedBranchState(warehouse || currentBranches[0]);
+      }
+    } catch (err) {
+      console.error('Error fetching profile:', err);
+      setProfile(null);
+    }
+  };
+
+  const refreshProfile = async () => {
+    if (user) {
+      const currentBranches = await fetchBranches();
+      await fetchProfile(user.id, currentBranches);
+    }
+  };
+
+  useEffect(() => {
+    // Check active session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        const currentBranches = await fetchBranches();
+        await fetchProfile(session.user.id, currentBranches);
+      }
+      setLoading(false);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        const currentBranches = await fetchBranches();
+        await fetchProfile(session.user.id, currentBranches);
+      } else {
+        setProfile(null);
+        setSelectedBranchState(null);
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const setSelectedBranch = (branch: Branch | null) => {
+    // Only allow setting a different branch if role allows it
+    if (profile?.role_name === 'super_admin' || profile?.role_name === 'inventory_manager' || profile?.role_name === 'auditor') {
+      setSelectedBranchState(branch);
+    } else {
+      console.warn('Unauthorized: Branch can only be selected by admins, managers, or auditors.');
+    }
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        loading,
+        selectedBranch,
+        setSelectedBranch,
+        branches,
+        refreshProfile,
+        signOut,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
