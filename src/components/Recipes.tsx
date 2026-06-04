@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Plus, Edit2, BookOpen, X, RefreshCw, Trash2 } from 'lucide-react';
+import { Plus, Edit2, BookOpen, X, RefreshCw, Trash2, ChevronDown } from 'lucide-react';
 
 interface MenuItem {
   id: string;
@@ -51,6 +51,8 @@ export const Recipes: React.FC = () => {
   const [recipeIngredients, setRecipeIngredients] = useState<{ item_id: string; qty: number }[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState(1);
+  const [ingSearch, setIngSearch] = useState('');
+  const [ingDropdownOpen, setIngDropdownOpen] = useState(false);
 
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
@@ -128,6 +130,8 @@ export const Recipes: React.FC = () => {
       setCurrentSelectedItemId('');
       setCurrentQty(1);
     }
+    setIngSearch('');
+    setIngDropdownOpen(false);
     setFormError('');
     setFormSuccess('');
     setShowItemModal(true);
@@ -153,6 +157,8 @@ export const Recipes: React.FC = () => {
       setCurrentSelectedItemId('');
       setCurrentQty(1);
     }
+    setIngSearch('');
+    setIngDropdownOpen(false);
 
     try {
       // 1. Fetch recipe row
@@ -438,7 +444,7 @@ export const Recipes: React.FC = () => {
       {/* CREATE/EDIT MENU ITEM MODAL */}
       {showItemModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="glass max-w-3xl w-full rounded-xl overflow-hidden shadow-2xl">
+          <div className="glass max-w-5xl w-full rounded-xl overflow-hidden shadow-2xl">
             <div className="px-6 py-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider">
                 {selectedItem ? 'Edit Menu Item & Recipe' : 'New Menu Item & Recipe'}
@@ -594,17 +600,76 @@ export const Recipes: React.FC = () => {
                         Add Ingredient to Recipe
                       </label>
                       <div className="flex space-x-2">
-                        <select
-                          value={currentSelectedItemId}
-                          onChange={(e) => setCurrentSelectedItemId(e.target.value)}
-                          className="flex-1 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-white focus:outline-none"
-                        >
-                          {catalog.map(item => (
-                            <option key={item.id} value={item.id}>
-                              {item.item_name} ({item.base_unit})
-                            </option>
-                          ))}
-                        </select>
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            value={ingDropdownOpen ? ingSearch : (catalog.find(c => c.id === currentSelectedItemId)?.item_name ? `${catalog.find(c => c.id === currentSelectedItemId)?.item_name} (${catalog.find(c => c.id === currentSelectedItemId)?.base_unit})` : '')}
+                            onChange={(e) => {
+                              setIngSearch(e.target.value);
+                              setIngDropdownOpen(true);
+                            }}
+                            onFocus={() => {
+                              setIngDropdownOpen(true);
+                              setIngSearch('');
+                            }}
+                            onBlur={() => {
+                              setTimeout(() => {
+                                setIngDropdownOpen(false);
+                              }, 200);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const filtered = catalog.filter(item => 
+                                  item.item_name.toLowerCase().includes(ingSearch.toLowerCase())
+                                );
+                                if (filtered.length > 0) {
+                                  setCurrentSelectedItemId(filtered[0].id);
+                                  setIngSearch('');
+                                  setIngDropdownOpen(false);
+                                }
+                              }
+                            }}
+                            placeholder="Search ingredient..."
+                            className="w-full bg-slate-950 border border-slate-800 rounded pl-2 pr-8 py-1 text-xs text-white focus:outline-none focus:border-indigo-500"
+                          />
+                          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          </div>
+                          
+                          {/* Dropdown Options */}
+                          {ingDropdownOpen && (
+                            <div className="absolute z-20 left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-slate-900 border border-slate-800 rounded-md shadow-lg divide-y divide-slate-800/50">
+                              {catalog
+                                .filter(item => 
+                                  item.item_name.toLowerCase().includes(ingSearch.toLowerCase())
+                                )
+                                .map(item => (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setCurrentSelectedItemId(item.id);
+                                      setIngSearch('');
+                                      setIngDropdownOpen(false);
+                                    }}
+                                    className={`w-full text-left px-3 py-2 text-xs transition-colors hover:bg-slate-800 hover:text-white ${
+                                      item.id === currentSelectedItemId ? 'bg-indigo-600/25 text-indigo-400 font-semibold' : 'text-slate-300'
+                                    }`}
+                                  >
+                                    {item.item_name} ({item.base_unit})
+                                  </button>
+                                ))}
+                              {catalog.filter(item => 
+                                item.item_name.toLowerCase().includes(ingSearch.toLowerCase())
+                              ).length === 0 && (
+                                <div className="p-2 text-center text-slate-500 text-xs">
+                                  No matches found
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                         <input
                           type="number"
                           step="any"
