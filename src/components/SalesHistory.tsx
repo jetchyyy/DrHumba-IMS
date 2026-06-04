@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { History, Search, RefreshCw, ChevronDown, ChevronUp, Calendar, ShoppingBag, DollarSign, Eye, TrendingUp } from 'lucide-react';
+import { History, Search, RefreshCw, ChevronDown, ChevronUp, Calendar, ShoppingBag, DollarSign, TrendingUp, Printer } from 'lucide-react';
+import { settingsService, DEFAULT_SALES_INVOICE_TEMPLATE } from '../lib/settingsService';
+import { printThermalInvoice } from '../lib/printService';
 
 interface SaleItem {
   id: string;
@@ -124,6 +126,16 @@ export const SalesHistory: React.FC = () => {
 
   const toggleExpand = (id: string) => {
     setExpandedSaleId(expandedSaleId === id ? null : id);
+  };
+
+  const handlePrintReceipt = async (sale: SaleRecord) => {
+    try {
+      const settings = await settingsService.getSettings();
+      printThermalInvoice(sale, settings.sales_invoice);
+    } catch (err) {
+      console.error('Failed to print thermal receipt:', err);
+      printThermalInvoice(sale, DEFAULT_SALES_INVOICE_TEMPLATE);
+    }
   };
 
   const formatPHP = (amount: number) => {
@@ -391,9 +403,13 @@ export const SalesHistory: React.FC = () => {
                         <td className="p-4 text-right pr-6">
                           <button
                             type="button"
+                            onClick={(e) => {
+                              e.stopPropagation(); // Avoid triggering row expansion
+                              handlePrintReceipt(sale);
+                            }}
                             className="inline-flex items-center space-x-1 text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold py-1 px-2.5 bg-slate-900 border border-slate-800/80 rounded hover:bg-slate-800 transition-all"
                           >
-                            <Eye className="w-3 h-3" />
+                            <Printer className="w-3 h-3" />
                             <span>Receipt</span>
                           </button>
                         </td>
@@ -408,9 +424,19 @@ export const SalesHistory: React.FC = () => {
                                 <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider">
                                   Invoice Detail Receipt Breakdown
                                 </h4>
-                                <span className="text-[10px] text-slate-500 font-mono">
-                                  UUID: {sale.id}
-                                </span>
+                                <div className="flex items-center space-x-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePrintReceipt(sale)}
+                                    className="inline-flex items-center space-x-1 text-[10px] text-emerald-400 hover:text-emerald-350 font-bold py-1 px-2 bg-slate-900 border border-slate-800 rounded hover:bg-slate-800 transition-all"
+                                  >
+                                    <Printer className="w-3 h-3" />
+                                    <span>Print Thermal Slip</span>
+                                  </button>
+                                  <span className="text-[10px] text-slate-500 font-mono">
+                                    UUID: {sale.id}
+                                  </span>
+                                </div>
                               </div>
 
                               <div className="glass rounded-lg border border-slate-800/80 overflow-hidden bg-slate-900/20">

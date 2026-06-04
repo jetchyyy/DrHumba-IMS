@@ -19,6 +19,7 @@ export const UserManagement: React.FC = () => {
   
   const [staff, setStaff] = useState<ProfileRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedBranchFilter, setSelectedBranchFilter] = useState('All');
   
   // Modals Open State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -238,7 +239,25 @@ export const UserManagement: React.FC = () => {
           <p className="text-sm text-slate-400">Manage user credentials, branch assignments, status locks, and system permission roles.</p>
         </div>
 
-        <div className="flex space-x-3">
+        <div className="flex items-center space-x-3">
+          {/* Branch Filter Selector */}
+          <div className="flex items-center space-x-2">
+            <span className="text-xs text-slate-450 font-medium">Filter Branch:</span>
+            <select
+              value={selectedBranchFilter}
+              onChange={(e) => setSelectedBranchFilter(e.target.value)}
+              className="bg-slate-900 border border-slate-800 rounded-lg text-xs text-white px-3 py-2 focus:outline-none focus:border-indigo-500 min-w-[140px] cursor-pointer"
+            >
+              <option value="All">All Branches</option>
+              <option value="global">Corporate (Global)</option>
+              {branches.map(b => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {isSuperAdmin && (
             <button
               onClick={() => setIsCreateModalOpen(true)}
@@ -287,8 +306,25 @@ export const UserManagement: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {staff.map(member => {
-                  const isSelf = member.id === profile?.id;
+                {(() => {
+                  const filteredStaff = staff.filter(member => {
+                    if (selectedBranchFilter === 'All') return true;
+                    if (selectedBranchFilter === 'global') return member.branch_id === null;
+                    return member.branch_id === selectedBranchFilter;
+                  });
+
+                  if (filteredStaff.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={isSuperAdmin ? 6 : 5} className="p-8 text-center text-slate-500 text-xs">
+                          No staff accounts found for the selected branch filter.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return filteredStaff.map(member => {
+                    const isSelf = member.id === profile?.id;
                   return (
                     <tr key={member.id} className="hover:bg-slate-900/10 text-slate-300">
                       <td className="p-4 pl-6 font-semibold text-slate-100">{member.email}</td>
@@ -379,7 +415,8 @@ export const UserManagement: React.FC = () => {
                       )}
                     </tr>
                   );
-                })}
+                });
+                })()}
               </tbody>
             </table>
           </div>

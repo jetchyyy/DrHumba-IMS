@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { ShoppingCart, Plus, Minus, Trash2, Search, CheckCircle, AlertTriangle } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, Search, CheckCircle, AlertTriangle, Printer } from 'lucide-react';
+import { settingsService } from '../lib/settingsService';
+import { printThermalInvoice } from '../lib/printService';
 
 interface MenuItem {
   id: string;
@@ -20,7 +22,7 @@ interface CartItem {
 }
 
 export const POS: React.FC = () => {
-  const { selectedBranch } = useAuth();
+  const { selectedBranch, profile } = useAuth();
   
   const [items, setItems] = useState<MenuItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -145,6 +147,67 @@ export const POS: React.FC = () => {
       );
     } finally {
       setCheckingOut(false);
+    }
+  };
+
+  const handlePrintThermal = async (saleId: string) => {
+    try {
+      // 1. Fetch newly processed sale details from Supabase
+      const { data: saleData, error: saleError } = await supabase
+        .from('sales')
+        .select(`
+          id,
+          branch_id,
+          cashier_id,
+          total_amount,
+          status,
+          created_at,
+          branches (name),
+          sale_items (
+            id,
+            quantity,
+            unit_price,
+            subtotal,
+            menu_items (name, sku)
+          )
+        `)
+        .eq('id', saleId)
+        .single();
+
+      if (saleError) throw saleError;
+      if (!saleData) return;
+
+      // 2. Fetch cashier email details
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('id', saleData.cashier_id)
+        .single();
+
+      const mappedSale = {
+        id: saleData.id,
+        branch_id: saleData.branch_id,
+        cashier_id: saleData.cashier_id,
+        total_amount: Number(saleData.total_amount),
+        status: saleData.status,
+        created_at: saleData.created_at,
+        branch_name: (Array.isArray(saleData.branches) ? saleData.branches[0]?.name : (saleData.branches as any)?.name) || selectedBranch?.name || 'Main Branch',
+        cashier_email: profileData?.email || profile?.email || 'System',
+        items: (saleData.sale_items || []).map((si: any) => ({
+          id: si.id,
+          quantity: Number(si.quantity),
+          unit_price: Number(si.unit_price),
+          subtotal: Number(si.subtotal),
+          item_name: si.menu_items?.name || 'Unknown Dish',
+          sku: si.menu_items?.sku || ''
+        }))
+      };
+
+      const settings = await settingsService.getSettings();
+      printThermalInvoice(mappedSale, settings.sales_invoice);
+    } catch (err) {
+      console.error('Failed to load and print thermal invoice:', err);
+      alert('Failed to print receipt. Please reprint from Sales History.');
     }
   };
 
@@ -274,9 +337,18 @@ export const POS: React.FC = () => {
               <div>
                 <p className="font-bold">{success}</p>
                 {lastSaleId && (
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5 truncate max-w-[280px]">
-                    ID: {lastSaleId}
-                  </p>
+                  <div className="mt-2 space-y-2">
+                    <p className="text-[10px] text-slate-500 font-mono truncate max-w-[280px]">
+                      ID: {lastSaleId}
+                    </p>
+                    <button
+                      onClick={() => handlePrintThermal(lastSaleId)}
+                      className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-[10px] shadow-sm hover:shadow transition-all"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Print Thermal Receipt</span>
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
