@@ -14,7 +14,7 @@ import {
   Pie,
   Cell
 } from 'recharts';
-import { BarChart3, TrendingUp, RefreshCw, Clock } from 'lucide-react';
+import { BarChartIcon as BarChart3, ActivityLogIcon as TrendingUp, ReloadIcon as RefreshCw, ClockIcon as Clock } from '@radix-ui/react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Input } from './ui/input';

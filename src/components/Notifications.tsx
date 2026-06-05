@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Bell, Check, RefreshCw, AlertTriangle, ArrowRightLeft, FileWarning, Clock } from 'lucide-react';
+import { BellIcon as Bell, CheckIcon as Check, ReloadIcon as RefreshCw, ExclamationTriangleIcon as AlertTriangle, SymbolIcon as ArrowRightLeft, ExclamationTriangleIcon as FileWarning, ClockIcon as Clock } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { useToast } from '../hooks/use-toast';

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Users, Plus, Key, Mail, RefreshCw, Edit, Trash2, ShieldOff, UserCheck } from 'lucide-react';
+import { GroupIcon as Users, PlusIcon as Plus, LockClosedIcon as Key, EnvelopeClosedIcon as Mail, ReloadIcon as RefreshCw, Pencil1Icon as Edit, TrashIcon as Trash2, CrossCircledIcon as ShieldOff, PersonIcon as UserCheck } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';

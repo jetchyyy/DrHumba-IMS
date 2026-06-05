@@ -18,7 +18,7 @@ import { AuditLogs } from './components/AuditLogs';
 import { UserManagement } from './components/UserManagement';
 import { Settings } from './components/Settings';
 import { SalesHistory } from './components/SalesHistory';
-import { Mail, Key, Store, RefreshCw, ShieldAlert } from 'lucide-react';
+import { EnvelopeClosedIcon as Mail, LockClosedIcon as Key, BoxModelIcon as Store, ReloadIcon as RefreshCw, ExclamationTriangleIcon as ShieldAlert } from '@radix-ui/react-icons';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
@@ -326,8 +326,8 @@ const AppContent: React.FC = () => {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <MobileHeader activeTab={activeTab} setActiveTab={setActiveTab} />
 
-        {/* Main Content Area — pb-16 leaves room for mobile bottom nav */}
-        <main className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden pb-16 md:pb-0">
+        {/* Main Content Area — pb-28 leaves room for mobile floating bottom nav */}
+        <main className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden pb-28 md:pb-0">
           {renderContent()}
         </main>
       </div>

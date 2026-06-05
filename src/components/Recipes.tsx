@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Plus, Edit2, BookOpen, RefreshCw, Trash2 } from 'lucide-react';
+import { PlusIcon as Plus, Pencil2Icon as Edit2, ReaderIcon as BookOpen, ReloadIcon as RefreshCw, TrashIcon as Trash2 } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';

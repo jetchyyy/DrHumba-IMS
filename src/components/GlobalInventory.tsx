@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Search, RefreshCw, AlertTriangle, Layers, Eye, ChevronDown, ChevronUp, BarChart3, ShieldAlert } from 'lucide-react';
+import { MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, ExclamationTriangleIcon as AlertTriangle, LayersIcon as Layers, EyeOpenIcon as Eye, ChevronDownIcon as ChevronDown, ChevronUpIcon as ChevronUp, BarChartIcon as BarChart3, ExclamationTriangleIcon as ShieldAlert } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';

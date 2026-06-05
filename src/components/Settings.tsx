@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Settings as SettingsIcon, Database, ShieldCheck, UserCheck, Terminal } from 'lucide-react';
+import { GearIcon as SettingsIcon, StackIcon as Database, CheckCircledIcon as ShieldCheck, PersonIcon as UserCheck, CodeIcon as Terminal } from '@radix-ui/react-icons';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Badge } from './ui/badge';
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { ShoppingCart, Plus, Minus, Trash2, Search, CheckCircle } from 'lucide-react';
+import { BackpackIcon as ShoppingCart, PlusIcon as Plus, MinusIcon as Minus, TrashIcon as Trash2, MagnifyingGlassIcon as Search, CheckCircledIcon as CheckCircle } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
@@ -275,7 +275,7 @@ export const POS: React.FC = () => {
   return (
     <div className="flex-1 flex overflow-hidden h-full relative">
       {/* Menu / Catalog Panel */}
-      <div className="flex-1 flex flex-col p-4 md:p-8 overflow-y-auto pb-32 lg:pb-8">
+      <div className="flex-1 flex flex-col p-4 md:p-8 overflow-y-auto pb-48 lg:pb-8">
         {/* Header */}
         <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0">
           <div>
@@ -366,7 +366,7 @@ export const POS: React.FC = () => {
       </div>
 
       {/* Mobile Cart Floating Bottom Bar */}
-      <div className="lg:hidden fixed bottom-16 md:bottom-0 left-0 right-0 p-4 bg-background border-t shadow-[0_-10px_20px_rgba(0,0,0,0.1)] flex justify-between items-center z-40">
+      <div className="lg:hidden fixed bottom-[104px] md:bottom-0 left-4 right-4 md:left-0 md:right-0 p-4 bg-background border md:border-x-0 md:border-b-0 md:border-t rounded-2xl md:rounded-none shadow-lg flex justify-between items-center z-40">
         <div>
           <p className="text-xs text-muted-foreground font-semibold">Total ({cart.reduce((sum, item) => sum + item.quantity, 0)} items)</p>
           <p className="text-lg font-bold text-primary">₱{cartTotal.toFixed(2)}</p>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { FileText, Search, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileTextIcon as FileText, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, ChevronDownIcon as ChevronDown, ChevronUpIcon as ChevronUp } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';

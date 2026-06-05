@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Store, MapPin, Plus, Trash2, Home } from 'lucide-react';
+import { BoxModelIcon as Store, DrawingPinIcon as MapPin, PlusIcon as Plus, TrashIcon as Trash2, HomeIcon as Home } from '@radix-ui/react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';

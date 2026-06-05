@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Eye, RefreshCw, ArrowRightLeft, Trash2, Printer } from 'lucide-react';
+import { EyeOpenIcon as Eye, ReloadIcon as RefreshCw, SymbolIcon as ArrowRightLeft, TrashIcon as Trash2, FileTextIcon as Printer } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';

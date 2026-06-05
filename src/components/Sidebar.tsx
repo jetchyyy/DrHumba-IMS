@@ -2,26 +2,26 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import {
-  LayoutDashboard,
-  Store,
-  Package,
-  Boxes,
-  FilePlus,
-  ArrowLeftRight,
-  ClipboardList,
-  ChefHat,
-  ShoppingBag,
-  BarChart3,
-  Bell,
-  FileText,
-  Users,
-  Settings as SettingsIcon,
-  LogOut,
-  History,
-  Sun,
-  Moon,
-  Menu
-} from 'lucide-react';
+  DashboardIcon as LayoutDashboard,
+  BoxModelIcon as Store,
+  CubeIcon as Package,
+  LayersIcon as Boxes,
+  FilePlusIcon as FilePlus,
+  SymbolIcon as ArrowLeftRight,
+  ClipboardIcon as ClipboardList,
+  MagicWandIcon as ChefHat,
+  BackpackIcon as ShoppingBag,
+  BarChartIcon as BarChart3,
+  BellIcon as Bell,
+  FileTextIcon as FileText,
+  GroupIcon as Users,
+  GearIcon as SettingsIcon,
+  ExitIcon as LogOut,
+  CountdownTimerIcon as History,
+  SunIcon as Sun,
+  MoonIcon as Moon,
+  HamburgerMenuIcon as Menu
+} from '@radix-ui/react-icons';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Button } from './ui/button';
 import { Separator } from './ui/separator';
@@ -254,8 +254,8 @@ export const MobileBottomNav: React.FC<SidebarProps> = ({ activeTab, setActiveTa
   const visibleBottomTabs = BOTTOM_TABS.filter(bt => navItems.some(n => n.id === bt.id));
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t bg-background/95 backdrop-blur-sm">
-      <div className="flex items-stretch h-16">
+    <nav className="md:hidden fixed bottom-6 left-4 right-4 z-40 bg-background/95 backdrop-blur-sm border rounded-2xl shadow-lg">
+      <div className="flex items-stretch h-16 px-2">
         {visibleBottomTabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -263,7 +263,7 @@ export const MobileBottomNav: React.FC<SidebarProps> = ({ activeTab, setActiveTa
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 flex flex-col items-center justify-center gap-1 transition-colors ${
+              className={`relative flex-1 flex flex-col items-center justify-center gap-1 transition-colors ${
                 isActive
                   ? 'text-primary'
                   : 'text-muted-foreground hover:text-foreground'
@@ -272,7 +272,7 @@ export const MobileBottomNav: React.FC<SidebarProps> = ({ activeTab, setActiveTa
               <Icon className={`h-5 w-5 transition-transform ${isActive ? 'scale-110' : ''}`} />
               <span className="text-[10px] font-medium">{tab.label}</span>
               {isActive && (
-                <span className="absolute top-0 w-8 h-0.5 bg-primary rounded-b-full" />
+                <span className="absolute top-0 w-8 h-1 bg-primary rounded-full" />
               )}
             </button>
           );
