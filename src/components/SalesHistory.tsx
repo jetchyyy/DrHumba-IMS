@@ -10,7 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Calendar as CalendarComponent } from './ui/calendar';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
+import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
 import { format } from 'date-fns';
+import { useToast } from '../hooks/use-toast';
 
 interface SaleItem {
   id: string;
@@ -27,14 +31,31 @@ interface SaleRecord {
   cashier_id: string;
   total_amount: number;
   status: 'completed' | 'refunded';
+  payment_method: string | null;
+  amount_tendered: number | null;
+  change_given: number | null;
+  void_reason: string | null;
+  voided_at: string | null;
   created_at: string;
   branch_name: string;
   cashier_email: string;
   items: SaleItem[];
 }
 
+const PAYMENT_LABELS: Record<string, string> = {
+  cash:  'Cash',
+  card:  'Card',
+  gcash: 'GCash',
+  maya:  'Maya',
+  other: 'Other',
+};
+
+const formatPHP = (amount: number) =>
+  new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(amount);
+
 export const SalesHistory: React.FC = () => {
   const { profile, branches } = useAuth();
+  const { toast } = useToast();
   
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,6 +69,13 @@ export const SalesHistory: React.FC = () => {
   
   // UI States
   const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
+
+  // Void / Refund dialog
+  const [voidTarget, setVoidTarget] = useState<SaleRecord | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [voiding, setVoiding] = useState(false);
+
+  const canVoid = ['super_admin', 'branch_manager'].includes(profile?.role_name || '');
 
   const isAdminRole = ['super_admin', 'inventory_manager', 'auditor'].includes(profile?.role_name || '');
 
@@ -63,6 +91,11 @@ export const SalesHistory: React.FC = () => {
           cashier_id,
           total_amount,
           status,
+          payment_method,
+          amount_tendered,
+          change_given,
+          void_reason,
+          voided_at,
           created_at,
           branches (name),
           sale_items (
@@ -88,13 +121,17 @@ export const SalesHistory: React.FC = () => {
 
       const mappedSales: SaleRecord[] = (salesData || []).map((sale: any) => {
         const cashierProfile = (profilesData || []).find(p => p.id === sale.cashier_id);
-        
         return {
           id: sale.id,
           branch_id: sale.branch_id,
           cashier_id: sale.cashier_id,
           total_amount: Number(sale.total_amount),
           status: sale.status,
+          payment_method: sale.payment_method || null,
+          amount_tendered: sale.amount_tendered != null ? Number(sale.amount_tendered) : null,
+          change_given: sale.change_given != null ? Number(sale.change_given) : null,
+          void_reason: sale.void_reason || null,
+          voided_at: sale.voided_at || null,
           created_at: sale.created_at,
           branch_name: sale.branches?.name || 'Unknown Branch',
           cashier_email: cashierProfile?.email || 'System / Cashier',
@@ -130,13 +167,29 @@ export const SalesHistory: React.FC = () => {
     setExpandedSaleId(expandedSaleId === id ? null : id);
   };
 
-  const formatPHP = (amount: number) => {
-    return new Intl.NumberFormat('en-PH', {
-      style: 'currency',
-      currency: 'PHP',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }).format(amount);
+  const openVoidDialog = (sale: SaleRecord, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setVoidReason('');
+    setVoidTarget(sale);
+  };
+
+  const handleVoidSale = async () => {
+    if (!voidTarget || !voidReason.trim()) return;
+    setVoiding(true);
+    try {
+      const { error } = await supabase.rpc('fn_void_sale', {
+        p_sale_id:    voidTarget.id,
+        p_void_reason: voidReason.trim(),
+      });
+      if (error) throw error;
+      toast({ title: 'Sale Voided', description: `Invoice ${voidTarget.id.slice(0, 8)}… has been refunded and stock restored.` });
+      setVoidTarget(null);
+      loadSalesData();
+    } catch (err: any) {
+      toast({ title: 'Void Failed', description: err.message || 'Could not void sale.', variant: 'destructive' });
+    } finally {
+      setVoiding(false);
+    }
   };
 
   const filteredSales = sales.filter(sale => {
@@ -415,10 +468,22 @@ export const SalesHistory: React.FC = () => {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right pr-4">
-                          <Button variant="ghost" size="sm" className="h-8">
-                            <Eye className="w-4 h-4 mr-2" />
-                            View
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button variant="ghost" size="sm" className="h-8">
+                              <Eye className="w-4 h-4 mr-1" />
+                              View
+                            </Button>
+                            {canVoid && sale.status === 'completed' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={(e) => openVoidDialog(sale, e)}
+                              >
+                                Void
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
 
@@ -433,6 +498,32 @@ export const SalesHistory: React.FC = () => {
                                 <span className="text-[10px] text-muted-foreground font-mono">
                                   UUID: {sale.id}
                                 </span>
+                              </div>
+
+                              {/* Payment Summary Row */}
+                              <div className="flex flex-wrap gap-4 mb-4 text-xs">
+                                <div className="bg-muted/50 rounded-lg px-3 py-2 border">
+                                  <p className="text-muted-foreground uppercase tracking-wider text-[10px] mb-0.5">Payment Method</p>
+                                  <p className="font-bold">{PAYMENT_LABELS[sale.payment_method || ''] || sale.payment_method || '—'}</p>
+                                </div>
+                                {sale.amount_tendered != null && (
+                                  <div className="bg-muted/50 rounded-lg px-3 py-2 border">
+                                    <p className="text-muted-foreground uppercase tracking-wider text-[10px] mb-0.5">Tendered</p>
+                                    <p className="font-bold">{formatPHP(sale.amount_tendered)}</p>
+                                  </div>
+                                )}
+                                {sale.change_given != null && sale.change_given > 0 && (
+                                  <div className="bg-emerald-500/10 rounded-lg px-3 py-2 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
+                                    <p className="uppercase tracking-wider text-[10px] mb-0.5">Change Given</p>
+                                    <p className="font-bold">{formatPHP(sale.change_given)}</p>
+                                  </div>
+                                )}
+                                {sale.status === 'refunded' && sale.void_reason && (
+                                  <div className="bg-destructive/10 rounded-lg px-3 py-2 border border-destructive/30 text-destructive">
+                                    <p className="uppercase tracking-wider text-[10px] mb-0.5">Void Reason</p>
+                                    <p className="font-bold">{sale.void_reason}</p>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="border rounded-lg overflow-hidden bg-background/50">
@@ -477,6 +568,66 @@ export const SalesHistory: React.FC = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Void / Refund Dialog */}
+      <Dialog open={!!voidTarget} onOpenChange={(v) => { if (!v && !voiding) setVoidTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">Void Sale</DialogTitle>
+            <DialogDescription className="text-xs">
+              This will mark the sale as <strong>refunded</strong> and restore all ingredient stocks to branch inventory.
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {voidTarget && (
+            <div className="space-y-4 py-2">
+              <div className="bg-muted/40 border rounded-lg px-4 py-3 space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Invoice</span>
+                  <span className="font-mono font-bold">{voidTarget.id.slice(0, 12)}…</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total</span>
+                  <span className="font-bold text-destructive">{formatPHP(voidTarget.total_amount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Branch</span>
+                  <span className="font-bold">{voidTarget.branch_name}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  Void Reason <span className="text-destructive">*</span>
+                </Label>
+                <Textarea
+                  placeholder="e.g. Customer cancelled order, Wrong item charged…"
+                  value={voidReason}
+                  onChange={e => setVoidReason(e.target.value)}
+                  rows={3}
+                  className="resize-none text-sm"
+                  autoFocus
+                />
+                <p className="text-[10px] text-muted-foreground">Minimum 5 characters required.</p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setVoidTarget(null)} disabled={voiding}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleVoidSale}
+              disabled={voiding || voidReason.trim().length < 5}
+            >
+              {voiding ? 'Voiding…' : 'Confirm Void & Refund'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

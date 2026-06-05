@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { supabase } from './lib/supabase';
 import { Sidebar, MobileHeader, MobileBottomNav } from './components/Sidebar';
+import { OfflineBanner } from './components/OfflineBanner';
 import { Dashboard } from './components/Dashboard';
 import { POS } from './components/POS';
 import { Inventory } from './components/Inventory';
@@ -29,10 +30,10 @@ import { Alert, AlertDescription } from './components/ui/alert';
 
 const AppContent: React.FC = () => {
   const { user, profile, loading, refreshProfile, signOut } = useAuth();
-  
+
   // Navigation active state
   const [activeTab, setActiveTab] = useState('dashboard');
-  
+
   // Authentication states
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -41,7 +42,7 @@ const AppContent: React.FC = () => {
   const [authError, setAuthError] = useState('');
   const [authSuccess, setAuthSuccess] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
-  
+
   // Local list of branches for registration selection
   const [branches, setBranches] = useState<any[]>([]);
 
@@ -99,7 +100,7 @@ const AppContent: React.FC = () => {
       });
 
       if (error) throw error;
-      
+
       setAuthSuccess(
         'Sign up successful! Your account is created. Note: Go to settings to view how to elevate this account to Super Admin.'
       );
@@ -119,7 +120,7 @@ const AppContent: React.FC = () => {
         <div className="flex flex-col items-center space-y-4">
           <RefreshCw className="w-8 h-8 text-primary animate-spin" />
           <p className="text-muted-foreground text-xs tracking-widest font-semibold uppercase animate-pulse">
-            Connecting to SUPABASE...
+            Connecting to DATABASE...
           </p>
         </div>
       </div>
@@ -140,7 +141,7 @@ const AppContent: React.FC = () => {
               Multi-Branch Restaurant Inventory System
             </CardDescription>
           </CardHeader>
-          
+
           <CardContent>
             {authError && (
               <Alert variant="destructive" className="mb-4">
@@ -210,11 +211,11 @@ const AppContent: React.FC = () => {
                 className="w-full font-bold shadow-lg"
                 disabled={authLoading}
               >
-                {authLoading 
-                  ? 'Processing...' 
-                  : isSignUp 
-                  ? 'Register Account' 
-                  : 'Sign In to Dashboard'}
+                {authLoading
+                  ? 'Processing...'
+                  : isSignUp
+                    ? 'Register Account'
+                    : 'Sign In to Dashboard'}
               </Button>
             </form>
           </CardContent>
@@ -266,7 +267,7 @@ const AppContent: React.FC = () => {
             <div>
               <h2 className="text-xl font-bold tracking-wide">Account Suspended</h2>
               <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-                Your staff user credentials have been suspended by the system administrator. 
+                Your staff user credentials have been suspended by the system administrator.
                 You are currently blockaded from accessing dashboard registries.
               </p>
             </div>
@@ -319,6 +320,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen flex bg-background text-foreground selection:bg-primary/30">
+      <OfflineBanner />
       {/* Desktop Sidebar */}
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
 
