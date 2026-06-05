@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { supabase } from './lib/supabase';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, MobileHeader, MobileBottomNav } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { POS } from './components/POS';
 import { Inventory } from './components/Inventory';
@@ -18,6 +19,13 @@ import { UserManagement } from './components/UserManagement';
 import { Settings } from './components/Settings';
 import { SalesHistory } from './components/SalesHistory';
 import { Mail, Key, Store, RefreshCw, ShieldAlert } from 'lucide-react';
+import { Button } from './components/ui/button';
+import { Input } from './components/ui/input';
+import { Label } from './components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/card';
+import { Toaster } from './components/ui/toaster';
+import { Alert, AlertDescription } from './components/ui/alert';
 
 const AppContent: React.FC = () => {
   const { user, profile, loading, refreshProfile, signOut } = useAuth();
@@ -107,10 +115,10 @@ const AppContent: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center space-y-4">
-          <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" />
-          <p className="text-slate-400 text-xs tracking-widest font-semibold uppercase animate-pulse">
+          <RefreshCw className="w-8 h-8 text-primary animate-spin" />
+          <p className="text-muted-foreground text-xs tracking-widest font-semibold uppercase animate-pulse">
             Connecting to SUPABASE...
           </p>
         </div>
@@ -121,110 +129,109 @@ const AppContent: React.FC = () => {
   // Render Login / Signup if user is not authenticated
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="glass max-w-md w-full rounded-2xl overflow-hidden shadow-2xl p-8 space-y-6">
-          <div className="text-center">
-            <div className="w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center font-black text-white shadow-lg shadow-indigo-500/20 mx-auto text-xl mb-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md shadow-2xl glass-dark border-border/50">
+          <CardHeader className="text-center space-y-2">
+            <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center font-black text-primary-foreground shadow-lg mx-auto text-xl mb-2">
               R
             </div>
-            <h1 className="text-xl font-bold text-white tracking-wide">RESTOChain</h1>
-            <p className="text-xs text-slate-400 mt-1">Multi-Branch Restaurant Inventory System</p>
-          </div>
-
-          {authError && (
-            <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded text-center">
-              {authError}
-            </div>
-          )}
-          {authSuccess && (
-            <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded text-center">
-              {authSuccess}
-            </div>
-          )}
-
-          <form onSubmit={isSignUp ? handleSignUp : handleSignIn} className="space-y-4">
-            <div>
-              <label className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@restaurant.com"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <Key className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            {isSignUp && branches.length > 0 && (
-              <div>
-                <label className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                  Default Branch Assignment
-                </label>
-                <div className="relative">
-                  <Store className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                  <select
-                    value={signupBranchId}
-                    onChange={(e) => setSignupBranchId(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    {branches.map(b => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+            <CardTitle className="text-2xl font-bold tracking-wide">RESTOChain</CardTitle>
+            <CardDescription className="text-xs">
+              Multi-Branch Restaurant Inventory System
+            </CardDescription>
+          </CardHeader>
+          
+          <CardContent>
+            {authError && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertDescription>{authError}</AlertDescription>
+              </Alert>
+            )}
+            {authSuccess && (
+              <Alert className="mb-4 border-emerald-500/50 text-emerald-500">
+                <AlertDescription>{authSuccess}</AlertDescription>
+              </Alert>
             )}
 
-            <button
-              type="submit"
-              disabled={authLoading}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 rounded-lg text-xs font-bold shadow-lg shadow-indigo-600/15 transition-all disabled:opacity-50"
-            >
-              {authLoading 
-                ? 'Processing...' 
-                : isSignUp 
-                ? 'Register Account' 
-                : 'Sign In to Dashboard'}
-            </button>
-          </form>
+            <form onSubmit={isSignUp ? handleSignUp : handleSignIn} className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Email Address</Label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-muted-foreground absolute left-3 top-3" />
+                  <Input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@restaurant.com"
+                    className="pl-10"
+                  />
+                </div>
+              </div>
 
-          <div className="text-center pt-2">
-            <button
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Password</Label>
+                <div className="relative">
+                  <Key className="w-4 h-4 text-muted-foreground absolute left-3 top-3" />
+                  <Input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              {isSignUp && branches.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Default Branch Assignment</Label>
+                  <div className="relative">
+                    <Store className="w-4 h-4 text-muted-foreground absolute left-3 top-3 z-10" />
+                    <Select value={signupBranchId} onValueChange={setSignupBranchId}>
+                      <SelectTrigger className="pl-10">
+                        <SelectValue placeholder="Select a branch" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {branches.map(b => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full font-bold shadow-lg"
+                disabled={authLoading}
+              >
+                {authLoading 
+                  ? 'Processing...' 
+                  : isSignUp 
+                  ? 'Register Account' 
+                  : 'Sign In to Dashboard'}
+              </Button>
+            </form>
+          </CardContent>
+          <CardFooter className="justify-center">
+            <Button
+              variant="link"
               onClick={() => {
                 setIsSignUp(!isSignUp);
                 setAuthError('');
                 setAuthSuccess('');
               }}
-              className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition-all"
+              className="text-xs text-muted-foreground hover:text-primary transition-all"
             >
               {isSignUp ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
-            </button>
-          </div>
-        </div>
+            </Button>
+          </CardFooter>
+        </Card>
       </div>
     );
   }
@@ -232,18 +239,17 @@ const AppContent: React.FC = () => {
   // If logged in but trigger hasn't finished public.profiles creation yet
   if (!profile) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="glass max-w-md w-full rounded-2xl p-6 text-center space-y-4">
-          <p className="text-sm text-slate-300">
-            Provisioning profile record from database trigger...
-          </p>
-          <button
-            onClick={refreshProfile}
-            className="bg-indigo-600 text-xs font-bold text-white px-4 py-2 rounded-lg"
-          >
-            Refresh Profile
-          </button>
-        </div>
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md text-center">
+          <CardContent className="pt-6 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Provisioning profile record from database trigger...
+            </p>
+            <Button onClick={refreshProfile} className="w-full font-bold">
+              Refresh Profile
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -251,25 +257,24 @@ const AppContent: React.FC = () => {
   // Render blockade page if profile is suspended
   if (profile.status === 'suspended') {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="glass max-w-md w-full rounded-2xl p-8 text-center space-y-6 border border-rose-500/20 shadow-2xl shadow-rose-500/5">
-          <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center border border-rose-500/20 mx-auto text-rose-500">
-            <ShieldAlert className="w-8 h-8" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-white tracking-wide">Account Suspended</h2>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              Your staff user credentials have been suspended by the system administrator. 
-              You are currently blockaded from accessing dashboard registries.
-            </p>
-          </div>
-          <button
-            onClick={signOut}
-            className="w-full bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white py-2.5 rounded-lg text-xs font-bold transition-all"
-          >
-            Sign Out & Return
-          </button>
-        </div>
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md text-center border-destructive/50 shadow-2xl shadow-destructive/10">
+          <CardContent className="pt-8 space-y-6">
+            <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center border border-destructive/20 mx-auto text-destructive">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold tracking-wide">Account Suspended</h2>
+              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                Your staff user credentials have been suspended by the system administrator. 
+                You are currently blockaded from accessing dashboard registries.
+              </p>
+            </div>
+            <Button variant="outline" onClick={signOut} className="w-full font-bold">
+              Sign Out & Return
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -313,23 +318,35 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex bg-slate-950 text-slate-100">
-      {/* Sidebar Navigation */}
+    <div className="min-h-screen flex bg-background text-foreground selection:bg-primary/30">
+      {/* Desktop Sidebar */}
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-      
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col overflow-hidden relative">
-        {renderContent()}
-      </main>
+
+      {/* Mobile Top Header */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <MobileHeader activeTab={activeTab} setActiveTab={setActiveTab} />
+
+        {/* Main Content Area — pb-16 leaves room for mobile bottom nav */}
+        <main className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden pb-16 md:pb-0">
+          {renderContent()}
+        </main>
+      </div>
+
+      {/* Mobile Bottom Navigation */}
+      <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+
+      <Toaster />
     </div>
   );
 };
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

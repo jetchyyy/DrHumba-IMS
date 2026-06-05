@@ -1063,7 +1063,7 @@ BEGIN
       AND im.created_at BETWEEN p_start_date AND p_end_date;
 
     -- 4. Top Selling Products
-    SELECT COALESCE(json_agg(t), '[]'::jsonb)
+    SELECT COALESCE(jsonb_agg(t), '[]'::jsonb)
     INTO v_top_products
     FROM (
         SELECT mi.name, SUM(si.quantity)::INT AS quantity_sold, SUM(si.subtotal) AS revenue
@@ -1079,7 +1079,7 @@ BEGIN
     ) t;
 
     -- 5. Waste Summary by Category/Reason
-    SELECT COALESCE(json_agg(w), '[]'::jsonb)
+    SELECT COALESCE(jsonb_agg(w), '[]'::jsonb)
     INTO v_waste_summary
     FROM (
         SELECT sa.reason, SUM(ABS(sai.quantity_base_unit) * ii.cost_per_base_unit) AS cost, COUNT(DISTINCT sa.id)::INT AS events
@@ -1092,7 +1092,7 @@ BEGIN
         GROUP BY sa.reason
     ) w;
 
-    RETURN json_build_object(
+    RETURN jsonb_build_object(
         'branchId', p_branch_id,
         'revenue', v_revenue,
         'orders', v_orders,

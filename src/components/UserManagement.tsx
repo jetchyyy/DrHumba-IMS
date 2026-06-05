@@ -1,7 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Users, Plus, Key, Mail, RefreshCw, Edit, Trash2, ShieldOff, X, UserCheck } from 'lucide-react';
+import { Users, Plus, Key, Mail, RefreshCw, Edit, Trash2, ShieldOff, UserCheck } from 'lucide-react';
+import { Card, CardContent } from './ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Label } from './ui/label';
+import { Checkbox } from './ui/checkbox';
+import { Badge } from './ui/badge';
+import { useToast } from '../hooks/use-toast';
 
 interface ProfileRecord {
   id: string;
@@ -16,6 +26,7 @@ interface ProfileRecord {
 
 export const UserManagement: React.FC = () => {
   const { profile, branches } = useAuth();
+  const { toast } = useToast();
   
   const [staff, setStaff] = useState<ProfileRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,8 +50,6 @@ export const UserManagement: React.FC = () => {
   
   // Transaction processing states
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   const ROLE_DEFAULTS: Record<string, string[]> = {
     inventory_manager: ['inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'analytics'],
@@ -100,22 +109,19 @@ export const UserManagement: React.FC = () => {
 
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    setSuccess('');
 
     if (!email.trim() || !password.trim()) {
-      setError('Email and Password are required');
+      toast({ title: "Validation Error", description: "Email and Password are required", variant: "destructive" });
       return;
     }
 
     if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+      toast({ title: "Validation Error", description: "Password must be at least 6 characters", variant: "destructive" });
       return;
     }
 
     setSubmitting(true);
     try {
-      // Call public.fn_create_staff RPC
       const { error: rpcError } = await supabase.rpc('fn_create_staff', {
         p_email: email.trim(),
         p_password: password,
@@ -126,7 +132,7 @@ export const UserManagement: React.FC = () => {
 
       if (rpcError) throw rpcError;
 
-      setSuccess(`Staff account successfully created! Email: ${email}`);
+      toast({ title: "Success", description: `Staff account successfully created! Email: ${email}` });
       setEmail('');
       setPassword('');
       setAllowedTabs(ROLE_DEFAULTS['cashier']);
@@ -134,7 +140,7 @@ export const UserManagement: React.FC = () => {
       loadStaff();
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Failed to create staff member. Verify if email already exists.');
+      toast({ title: "Error", description: err.message || 'Failed to create staff member. Verify if email already exists.', variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -144,8 +150,6 @@ export const UserManagement: React.FC = () => {
     e.preventDefault();
     if (!editingStaff) return;
 
-    setError('');
-    setSuccess('');
     setSubmitting(true);
     try {
       const { error: rpcError } = await supabase.rpc('fn_edit_staff', {
@@ -157,13 +161,13 @@ export const UserManagement: React.FC = () => {
 
       if (rpcError) throw rpcError;
 
-      setSuccess(`Staff account metadata updated!`);
+      toast({ title: "Success", description: "Staff account metadata updated!" });
       setIsEditModalOpen(false);
       setEditingStaff(null);
       loadStaff();
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Failed to update staff configuration.');
+      toast({ title: "Error", description: err.message || 'Failed to update staff configuration.', variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -177,8 +181,6 @@ export const UserManagement: React.FC = () => {
       
     if (!window.confirm(confirmMessage)) return;
 
-    setError('');
-    setSuccess('');
     try {
       const { error: rpcError } = await supabase.rpc('fn_update_staff_status', {
         p_user_id: member.id,
@@ -187,11 +189,11 @@ export const UserManagement: React.FC = () => {
 
       if (rpcError) throw rpcError;
 
-      setSuccess(`Staff status updated to ${nextStatus}!`);
+      toast({ title: "Status Updated", description: `Staff status updated to ${nextStatus}!` });
       loadStaff();
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Failed to update staff status.');
+      toast({ title: "Error", description: err.message || 'Failed to update staff status.', variant: "destructive" });
     }
   };
 
@@ -199,8 +201,6 @@ export const UserManagement: React.FC = () => {
     const confirmMessage = `Are you absolutely sure you want to permanently delete the staff account for ${member.email}?\n\nThis will purge their login records and cannot be undone.`;
     if (!window.confirm(confirmMessage)) return;
 
-    setError('');
-    setSuccess('');
     try {
       const { error: rpcError } = await supabase.rpc('fn_delete_staff', {
         p_user_id: member.id
@@ -208,11 +208,11 @@ export const UserManagement: React.FC = () => {
 
       if (rpcError) throw rpcError;
 
-      setSuccess(`Staff account successfully deleted.`);
+      toast({ title: "Deleted", description: "Staff account successfully deleted." });
       loadStaff();
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Failed to delete staff account.');
+      toast({ title: "Error", description: err.message || 'Failed to delete staff account.', variant: "destructive" });
     }
   };
 
@@ -227,444 +227,317 @@ export const UserManagement: React.FC = () => {
   const isSuperAdmin = profile?.role_name === 'super_admin';
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto bg-slate-950">
+    <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight flex items-center space-x-2">
-            <Users className="w-6 h-6 text-indigo-500" />
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <Users className="w-8 h-8 text-primary" />
             <span>Staff Account Management</span>
           </h2>
-          <p className="text-sm text-slate-400">Manage user credentials, branch assignments, status locks, and system permission roles.</p>
+          <p className="text-muted-foreground mt-1">Manage user credentials, branch assignments, status locks, and system permission roles.</p>
         </div>
 
-        <div className="flex space-x-3">
-          {isSuperAdmin && (
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="inline-flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-semibold text-white transition-all shadow-md shadow-indigo-600/10"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Provision Staff Account</span>
-            </button>
-          )}
-          <button
-            onClick={loadStaff}
-            className="p-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all"
-          >
+        <div className="flex space-x-2">
+          <Button variant="outline" size="icon" onClick={loadStaff}>
             <RefreshCw className="w-4 h-4" />
-          </button>
+          </Button>
+          {isSuperAdmin && (
+            <Button onClick={() => setIsCreateModalOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Provision Staff Account
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Global Alerts */}
-      {error && (
-        <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded mb-6">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded mb-6">
-          {success}
-        </div>
-      )}
-
-      {/* Staff List Panel (Full Width) */}
-      {loading ? (
-        <div className="p-12 text-center text-slate-500">Loading staff records...</div>
-      ) : (
-        <div className="glass rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-900 border-b border-slate-800 text-slate-400 font-semibold">
-                  <th className="p-4 pl-6">Email Address</th>
-                  <th className="p-4">Assigned Role</th>
-                  <th className="p-4">Location context</th>
-                  <th className="p-4 text-center">Status</th>
-                  <th className="p-4">Created Date</th>
-                  {isSuperAdmin && <th className="p-4 text-right pr-6">Roster Actions</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/50">
-                {staff.map(member => {
+      {/* Staff List Panel */}
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-6">Email Address</TableHead>
+                <TableHead>Assigned Role</TableHead>
+                <TableHead>Location context</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead>Created Date</TableHead>
+                {isSuperAdmin && <TableHead className="text-right pr-6">Roster Actions</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={isSuperAdmin ? 6 : 5} className="h-24 text-center text-muted-foreground">
+                    Loading staff records...
+                  </TableCell>
+                </TableRow>
+              ) : staff.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={isSuperAdmin ? 6 : 5} className="h-24 text-center text-muted-foreground">
+                    No staff records found.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                staff.map(member => {
                   const isSelf = member.id === profile?.id;
                   return (
-                    <tr key={member.id} className="hover:bg-slate-900/10 text-slate-300">
-                      <td className="p-4 pl-6 font-semibold text-slate-100">{member.email}</td>
-                      <td className="p-4">
+                    <TableRow key={member.id}>
+                      <TableCell className="pl-6 font-semibold">{member.email}</TableCell>
+                      <TableCell>
                         <div className="flex flex-col space-y-1">
-                          <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold border w-fit ${
-                            member.role_name === 'super_admin'
-                              ? 'bg-red-500/10 border-red-500/20 text-red-400'
-                              : member.role_name === 'inventory_manager'
-                              ? 'bg-purple-500/10 border-purple-500/20 text-purple-400'
-                              : member.role_name === 'branch_manager'
-                              ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
-                              : member.role_name === 'auditor'
-                              ? 'bg-slate-800 border-slate-700 text-slate-400'
-                              : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                          <Badge variant="outline" className={`w-fit uppercase text-[9px] ${
+                            member.role_name === 'super_admin' ? 'border-red-500/50 text-red-500 bg-red-500/10' :
+                            member.role_name === 'inventory_manager' ? 'border-purple-500/50 text-purple-500 bg-purple-500/10' :
+                            member.role_name === 'branch_manager' ? 'border-blue-500/50 text-blue-500 bg-blue-500/10' :
+                            member.role_name === 'auditor' ? 'border-muted text-muted-foreground bg-muted/10' :
+                            'border-emerald-500/50 text-emerald-500 bg-emerald-500/10'
                           }`}>
                             {member.role_name.replace('_', ' ')}
-                          </span>
+                          </Badge>
                           {member.role_name === 'super_admin' ? (
-                            <span className="text-[9px] text-slate-500">All features allowed</span>
+                            <span className="text-[9px] text-muted-foreground">All features allowed</span>
                           ) : member.allowed_tabs ? (
-                            <span className="text-[9px] text-indigo-400 font-semibold" title={member.allowed_tabs.join(', ')}>
+                            <span className="text-[9px] text-primary font-semibold" title={member.allowed_tabs.join(', ')}>
                               Custom: {member.allowed_tabs.length} features
                             </span>
                           ) : (
-                            <span className="text-[9px] text-slate-500">Default permissions</span>
+                            <span className="text-[9px] text-muted-foreground">Default permissions</span>
                           )}
                         </div>
-                      </td>
-                      <td className="p-4 text-slate-400">
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
                         {member.branch_id ? member.branches?.name : 'Corporate (Global)'}
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold border ${
-                          member.status === 'suspended'
-                            ? 'bg-rose-500/10 border-rose-500/20 text-rose-500'
-                            : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                        }`}>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant={member.status === 'suspended' ? "destructive" : "default"} className="uppercase text-[9px]">
                           {member.status}
-                        </span>
-                      </td>
-                      <td className="p-4 text-slate-500">
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-xs">
                         {new Date(member.created_at).toLocaleDateString()}
-                      </td>
+                      </TableCell>
                       {isSuperAdmin && (
-                        <td className="p-4 text-right pr-6">
-                          <div className="flex items-center justify-end space-x-2">
-                            {/* Edit */}
-                            <button
-                              onClick={() => openEditModal(member)}
-                              className="p-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded text-indigo-400 hover:text-indigo-300 transition-all"
-                              title="Edit user role & allowed tabs"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Suspend */}
+                        <TableCell className="text-right pr-6">
+                          <div className="flex justify-end space-x-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10" onClick={() => openEditModal(member)} title="Edit user role & allowed tabs">
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            
                             {!isSelf && (
-                              <button
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={`h-8 w-8 ${member.status === 'suspended' ? 'text-emerald-500 hover:text-emerald-500 hover:bg-emerald-500/10' : 'text-amber-500 hover:text-amber-500 hover:bg-amber-500/10'}`}
                                 onClick={() => handleToggleSuspend(member)}
-                                className={`p-1.5 bg-slate-900 border rounded transition-all ${
-                                  member.status === 'suspended'
-                                    ? 'hover:bg-emerald-500/10 border-slate-800 text-emerald-400 hover:text-emerald-300'
-                                    : 'hover:bg-amber-500/10 border-slate-800 text-amber-500 hover:text-amber-400'
-                                }`}
-                                title={member.status === 'suspended' ? 'Restore access (Unsuspend)' : 'Suspend access'}
+                                title={member.status === 'suspended' ? 'Restore access' : 'Suspend access'}
                               >
-                                {member.status === 'suspended' ? (
-                                  <UserCheck className="w-3.5 h-3.5" />
-                                ) : (
-                                  <ShieldOff className="w-3.5 h-3.5" />
-                                )}
-                              </button>
+                                {member.status === 'suspended' ? <UserCheck className="h-4 w-4" /> : <ShieldOff className="h-4 w-4" />}
+                              </Button>
                             )}
 
-                            {/* Delete */}
                             {!isSelf && (
-                              <button
-                                onClick={() => handleDeleteStaff(member)}
-                                className="p-1.5 bg-slate-900 hover:bg-rose-500/10 border border-slate-800 hover:border-rose-500/20 rounded text-rose-400 hover:text-rose-300 transition-all"
-                                title="Permanently delete user"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDeleteStaff(member)} title="Permanently delete user">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
                             )}
                           </div>
-                        </td>
+                        </TableCell>
                       )}
-                    </tr>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* CREATE MODAL */}
+      <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              <Plus className="w-5 h-5 mr-2 text-primary" />
+              Provision Staff Account
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreateStaff} className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label>Email Address</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="staff@restaurant.com" className="pl-9" />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Initial Password</Label>
+              <div className="relative">
+                <Key className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="pl-9" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>System Role</Label>
+                <Select value={role} onValueChange={(v: any) => { setRole(v); setAllowedTabs(ROLE_DEFAULTS[v] || []); }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="inventory_manager">Inventory Manager</SelectItem>
+                    <SelectItem value="branch_manager">Branch Manager</SelectItem>
+                    <SelectItem value="cashier">Cashier</SelectItem>
+                    <SelectItem value="auditor">Auditor</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {['branch_manager', 'cashier'].includes(role) ? (
+                <div className="space-y-2">
+                  <Label>Assigned Branch Context *</Label>
+                  <Select value={branchId} onValueChange={setBranchId}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {branches.map(b => (
+                        <SelectItem key={b.id} value={b.id}>
+                          {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="space-y-2 opacity-50">
+                  <Label>Assigned Branch Context</Label>
+                  <div className="h-10 flex items-center px-3 border rounded-md bg-muted text-sm text-muted-foreground">
+                    Corporate (Global Scope)
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Allowed Features (Permissions Override)</Label>
+              <div className="grid grid-cols-2 gap-2 p-4 border rounded-md max-h-40 overflow-y-auto bg-muted/30">
+                {ALL_AVAILABLE_TABS.map((tab) => {
+                  const isChecked = allowedTabs.includes(tab.id);
+                  return (
+                    <div key={tab.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`tab-${tab.id}`}
+                        checked={isChecked}
+                        onCheckedChange={(checked) => {
+                          if (!checked) {
+                            setAllowedTabs(allowedTabs.filter(t => t !== tab.id));
+                          } else {
+                            setAllowedTabs([...allowedTabs, tab.id]);
+                          }
+                        }}
+                      />
+                      <Label htmlFor={`tab-${tab.id}`} className="text-xs font-normal cursor-pointer">
+                        {tab.name}
+                      </Label>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 1: PROVISION STAFF ACCOUNT */}
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-          <div className="glass max-w-lg w-full rounded-2xl border border-slate-800/90 overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/60">
-              <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center space-x-2">
-                <Plus className="w-4 h-4 text-indigo-500" />
-                <span>Provision Staff Account</span>
-              </h3>
-              <button
-                onClick={() => setIsCreateModalOpen(false)}
-                className="text-slate-400 hover:text-white transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              </div>
             </div>
 
-            {/* Modal Form Content */}
-            <form onSubmit={handleCreateStaff} className="p-6 space-y-4 overflow-y-auto flex-1">
-              <div>
-                <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="staff@restaurant.com"
-                    className="w-full bg-slate-900 border border-slate-800 rounded pl-10 pr-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="outline" onClick={() => setIsCreateModalOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? 'Provisioning...' : 'Provision Account'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* EDIT MODAL */}
+      <Dialog open={isEditModalOpen} onOpenChange={(open) => { if (!open) { setIsEditModalOpen(false); setEditingStaff(null); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              <Edit className="w-5 h-5 mr-2 text-primary" />
+              Edit Staff Config: {editingStaff?.email}
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditStaffSubmit} className="space-y-4 pt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>System Role</Label>
+                <Select value={editRole} onValueChange={(v: any) => { setEditRole(v); setEditAllowedTabs(ROLE_DEFAULTS[v] || []); }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="inventory_manager">Inventory Manager</SelectItem>
+                    <SelectItem value="branch_manager">Branch Manager</SelectItem>
+                    <SelectItem value="cashier">Cashier</SelectItem>
+                    <SelectItem value="auditor">Auditor</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
-              <div>
-                <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                  Initial Password
-                </label>
-                <div className="relative">
-                  <Key className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full bg-slate-900 border border-slate-800 rounded pl-10 pr-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                    System Role
-                  </label>
-                  <select
-                    value={role}
-                    onChange={(e: any) => {
-                      const selectedRole = e.target.value;
-                      setRole(selectedRole);
-                      setAllowedTabs(ROLE_DEFAULTS[selectedRole] || []);
-                    }}
-                    className="w-full bg-slate-900 border border-slate-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="inventory_manager">Inventory Manager (Corporate)</option>
-                    <option value="branch_manager">Branch Manager (Branch specific)</option>
-                    <option value="cashier">Cashier (Branch POS only)</option>
-                    <option value="auditor">Auditor (Corporate read-only)</option>
-                  </select>
-                </div>
-
-                {['branch_manager', 'cashier'].includes(role) ? (
-                  <div>
-                    <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                      Assigned Branch Context *
-                    </label>
-                    <select
-                      value={branchId}
-                      onChange={(e) => setBranchId(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                    >
+              {['branch_manager', 'cashier'].includes(editRole) ? (
+                <div className="space-y-2">
+                  <Label>Assigned Branch Context *</Label>
+                  <Select value={editBranchId} onValueChange={setEditBranchId}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
                       {branches.map(b => (
-                        <option key={b.id} value={b.id}>
+                        <SelectItem key={b.id} value={b.id}>
                           {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
-                        </option>
+                        </SelectItem>
                       ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="opacity-40">
-                    <label className="text-xs text-slate-500 font-semibold uppercase tracking-wider block mb-1">
-                      Assigned Branch Context
-                    </label>
-                    <div className="w-full bg-slate-900/60 border border-slate-850 rounded px-3 py-2 text-xs text-slate-500 select-none">
-                      Corporate (Global Scope)
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-2">
-                  Allowed Features (Permissions Override)
-                </label>
-                <div className="grid grid-cols-2 gap-2 bg-slate-900/60 p-3 rounded border border-slate-800/80 max-h-40 overflow-y-auto">
-                  {ALL_AVAILABLE_TABS.map((tab) => {
-                    const isChecked = allowedTabs.includes(tab.id);
-                    return (
-                      <label key={tab.id} className="flex items-center space-x-2 text-xs text-slate-300 hover:text-white cursor-pointer select-none py-0.5">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {
-                            if (isChecked) {
-                              setAllowedTabs(allowedTabs.filter(t => t !== tab.id));
-                            } else {
-                              setAllowedTabs([...allowedTabs, tab.id]);
-                            }
-                          }}
-                          className="rounded border-slate-850 bg-slate-950 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-950 w-3.5 h-3.5 cursor-pointer"
-                        />
-                        <span>{tab.name}</span>
-                      </label>
-                    );
-                  })}
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
-
-              {/* Modal Actions */}
-              <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateModalOpen(false)}
-                  className="px-4 py-2 bg-slate-900 border border-slate-800 text-slate-300 hover:text-white rounded text-xs font-semibold hover:bg-slate-800 transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold shadow transition-all disabled:opacity-50"
-                >
-                  {submitting ? 'Provisioning...' : 'Provision Account'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: EDIT STAFF CONFIGURATION */}
-      {isEditModalOpen && editingStaff && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-          <div className="glass max-w-lg w-full rounded-2xl border border-slate-800/90 overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/60">
-              <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center space-x-2">
-                <Edit className="w-4 h-4 text-indigo-500" />
-                <span>Edit Staff Config: {editingStaff.email}</span>
-              </h3>
-              <button
-                onClick={() => {
-                  setIsEditModalOpen(false);
-                  setEditingStaff(null);
-                }}
-                className="text-slate-400 hover:text-white transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              ) : (
+                <div className="space-y-2 opacity-50">
+                  <Label>Assigned Branch Context</Label>
+                  <div className="h-10 flex items-center px-3 border rounded-md bg-muted text-sm text-muted-foreground">
+                    Corporate (Global Scope)
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Modal Form Content */}
-            <form onSubmit={handleEditStaffSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                    System Role
-                  </label>
-                  <select
-                    value={editRole}
-                    onChange={(e: any) => {
-                      const selectedRole = e.target.value;
-                      setEditRole(selectedRole);
-                      setEditAllowedTabs(ROLE_DEFAULTS[selectedRole] || []);
-                    }}
-                    className="w-full bg-slate-900 border border-slate-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="inventory_manager">Inventory Manager (Corporate)</option>
-                    <option value="branch_manager">Branch Manager (Branch specific)</option>
-                    <option value="cashier">Cashier (Branch POS only)</option>
-                    <option value="auditor">Auditor (Corporate read-only)</option>
-                  </select>
-                </div>
-
-                {['branch_manager', 'cashier'].includes(editRole) ? (
-                  <div>
-                    <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                      Assigned Branch Context *
-                    </label>
-                    <select
-                      value={editBranchId}
-                      onChange={(e) => setEditBranchId(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                    >
-                      {branches.map(b => (
-                        <option key={b.id} value={b.id}>
-                          {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="opacity-40">
-                    <label className="text-xs text-slate-500 font-semibold uppercase tracking-wider block mb-1">
-                      Assigned Branch Context
-                    </label>
-                    <div className="w-full bg-slate-900/60 border border-slate-850 rounded px-3 py-2 text-xs text-slate-500 select-none">
-                      Corporate (Global Scope)
+            <div className="space-y-2">
+              <Label>Allowed Features (Permissions Override)</Label>
+              <div className="grid grid-cols-2 gap-2 p-4 border rounded-md max-h-40 overflow-y-auto bg-muted/30">
+                {ALL_AVAILABLE_TABS.map((tab) => {
+                  const isChecked = editAllowedTabs.includes(tab.id);
+                  return (
+                    <div key={tab.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`edit-tab-${tab.id}`}
+                        checked={isChecked}
+                        onCheckedChange={(checked) => {
+                          if (!checked) {
+                            setEditAllowedTabs(editAllowedTabs.filter(t => t !== tab.id));
+                          } else {
+                            setEditAllowedTabs([...editAllowedTabs, tab.id]);
+                          }
+                        }}
+                      />
+                      <Label htmlFor={`edit-tab-${tab.id}`} className="text-xs font-normal cursor-pointer">
+                        {tab.name}
+                      </Label>
                     </div>
-                  </div>
-                )}
+                  );
+                })}
               </div>
+            </div>
 
-              <div>
-                <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-2">
-                  Allowed Features (Permissions Override)
-                </label>
-                <div className="grid grid-cols-2 gap-2 bg-slate-900/60 p-3 rounded border border-slate-800/80 max-h-40 overflow-y-auto">
-                  {ALL_AVAILABLE_TABS.map((tab) => {
-                    const isChecked = editAllowedTabs.includes(tab.id);
-                    return (
-                      <label key={tab.id} className="flex items-center space-x-2 text-xs text-slate-300 hover:text-white cursor-pointer select-none py-0.5">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {
-                            if (isChecked) {
-                              setEditAllowedTabs(editAllowedTabs.filter(t => t !== tab.id));
-                            } else {
-                              setEditAllowedTabs([...editAllowedTabs, tab.id]);
-                            }
-                          }}
-                          className="rounded border-slate-850 bg-slate-950 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-950 w-3.5 h-3.5 cursor-pointer"
-                        />
-                        <span>{tab.name}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Modal Actions */}
-              <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsEditModalOpen(false);
-                    setEditingStaff(null);
-                  }}
-                  className="px-4 py-2 bg-slate-900 border border-slate-800 text-slate-300 hover:text-white rounded text-xs font-semibold hover:bg-slate-800 transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold shadow transition-all disabled:opacity-50"
-                >
-                  {submitting ? 'Saving Changes...' : 'Save Configuration'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="outline" onClick={() => { setIsEditModalOpen(false); setEditingStaff(null); }}>Cancel</Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? 'Saving Changes...' : 'Save Configuration'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

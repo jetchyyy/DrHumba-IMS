@@ -15,6 +15,10 @@ import {
   Cell
 } from 'recharts';
 import { BarChart3, TrendingUp, RefreshCw, Clock } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Input } from './ui/input';
+import { Button } from './ui/button';
 
 interface BranchAnalyticsData {
   branchId: string;
@@ -51,11 +55,14 @@ export const Analytics: React.FC = () => {
     try {
       const { data, error } = await supabase.rpc('get_branch_analytics', {
         p_branch_id: activeBranchId,
-        p_start_date: new Date(startDate).toISOString(),
-        p_end_date: new Date(endDate + 'T23:59:59').toISOString()
+        p_start_date: `${startDate}T00:00:00+00:00`,
+        p_end_date: `${endDate}T23:59:59+00:00`
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('RPC error details:', error);
+        throw error;
+      }
       setAnalyticsData(data);
     } catch (err) {
       console.error('Error fetching branch analytics:', err);
@@ -65,7 +72,6 @@ export const Analytics: React.FC = () => {
     }
   };
 
-  // Set default branch context
   useEffect(() => {
     if (selectedBranch) {
       setActiveBranchId(selectedBranch.id);
@@ -74,7 +80,6 @@ export const Analytics: React.FC = () => {
     }
   }, [selectedBranch, branches]);
 
-  // Reload when date range or branch changes
   useEffect(() => {
     if (activeBranchId) {
       loadAnalytics();
@@ -83,9 +88,9 @@ export const Analytics: React.FC = () => {
 
   if (loading && !refreshing) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8 bg-slate-950">
-        <div className="text-slate-400 flex items-center space-x-2 animate-pulse">
-          <Clock className="w-5 h-5 animate-spin text-indigo-500" />
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="text-muted-foreground flex items-center space-x-2 animate-pulse">
+          <Clock className="w-5 h-5 animate-spin text-primary" />
           <span>Loading restaurant analytics...</span>
         </div>
       </div>
@@ -96,7 +101,6 @@ export const Analytics: React.FC = () => {
     return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(val);
   };
 
-  // COLORS for charts
   const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
   const wasteChartData = analyticsData?.wasteSummary.map(w => ({
@@ -111,178 +115,193 @@ export const Analytics: React.FC = () => {
   })) || [];
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto bg-slate-950">
+    <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight flex items-center space-x-2">
-            <BarChart3 className="w-6 h-6 text-indigo-500" />
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <BarChart3 className="w-8 h-8 text-primary" />
             <span>Branch Performance Analytics</span>
           </h2>
-          <p className="text-sm text-slate-400">Track and compare sales, food cost ratios, and wastage across branches.</p>
+          <p className="text-muted-foreground mt-1">Track and compare sales, food cost ratios, and wastage across branches.</p>
         </div>
 
         {/* Date Filter & Selector */}
         <div className="flex flex-wrap items-center gap-3">
-          <div>
-            <select
-              value={activeBranchId}
-              onChange={(e) => {
-                setActiveBranchId(e.target.value);
-              }}
-              className="bg-slate-900 border border-slate-800 text-xs text-white rounded px-2.5 py-1.5 focus:outline-none"
-            >
+          <Select value={activeBranchId} onValueChange={setActiveBranchId}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Select Branch" />
+            </SelectTrigger>
+            <SelectContent>
               {branches.map(b => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
+                <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
               ))}
-            </select>
-          </div>
-          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 p-1 rounded-lg">
-            <input
+            </SelectContent>
+          </Select>
+          
+          <div className="flex items-center space-x-2 bg-muted/50 border rounded-md p-1 h-9">
+            <Input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="bg-transparent text-xs text-white border-0 focus:ring-0 p-1"
+              className="h-7 text-xs border-0 bg-transparent shadow-none"
             />
-            <span className="text-slate-600 text-xs">to</span>
-            <input
+            <span className="text-muted-foreground text-xs">to</span>
+            <Input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="bg-transparent text-xs text-white border-0 focus:ring-0 p-1"
+              className="h-7 text-xs border-0 bg-transparent shadow-none"
             />
           </div>
-          <button
+          <Button
+            variant="outline"
+            size="icon"
             onClick={loadAnalytics}
             disabled={refreshing}
-            className="p-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Metrics Row */}
       {analyticsData && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
-          <div className="glass p-5 rounded-xl border-slate-800">
-            <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block">Total Sales</span>
-            <span className="text-xl font-bold text-white block mt-1">{formatCurrency(analyticsData.revenue)}</span>
-            <span className="text-[10px] text-slate-400 block mt-1">{analyticsData.orders} orders processed</span>
-          </div>
+          <Card className="glass-dark border-border/50">
+            <CardContent className="p-5">
+              <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Total Sales</span>
+              <span className="text-2xl font-bold block mt-1">{formatCurrency(analyticsData.revenue)}</span>
+              <span className="text-[10px] text-muted-foreground block mt-1">{analyticsData.orders} orders processed</span>
+            </CardContent>
+          </Card>
           
-          <div className="glass p-5 rounded-xl border-slate-800">
-            <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block">Food Cost (COGS)</span>
-            <span className="text-xl font-bold text-indigo-400 block mt-1">{formatCurrency(analyticsData.foodCost)}</span>
-            <span className="text-[10px] text-slate-400 block mt-1">
-              {analyticsData.revenue > 0 
-                ? `${((analyticsData.foodCost / analyticsData.revenue) * 100).toFixed(1)}% of revenue`
-                : '0% food ratio'}
-            </span>
-          </div>
-
-          <div className="glass p-5 rounded-xl border-slate-800">
-            <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block">Waste & Spoilage</span>
-            <span className="text-xl font-bold text-amber-500 block mt-1">{formatCurrency(analyticsData.wasteCost)}</span>
-            <span className="text-[10px] text-slate-400 block mt-1">From damages & spoilage logs</span>
-          </div>
-
-          <div className="glass p-5 rounded-xl border-slate-800">
-            <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block">Profit Estimate</span>
-            <span className="text-xl font-bold text-emerald-400 block mt-1">{formatCurrency(analyticsData.profitEstimate)}</span>
-            <span className="text-[10px] text-slate-400 block mt-1">Est. Revenue - COGS - Wastage</span>
-          </div>
-
-          <div className="glass p-5 rounded-xl border-slate-800 flex items-center justify-between">
-            <div>
-              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block">Food Cost Ratio</span>
-              <span className="text-2xl font-black text-indigo-500 block mt-1">
+          <Card className="glass-dark border-border/50">
+            <CardContent className="p-5">
+              <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Food Cost (COGS)</span>
+              <span className="text-2xl font-bold text-primary block mt-1">{formatCurrency(analyticsData.foodCost)}</span>
+              <span className="text-[10px] text-muted-foreground block mt-1">
                 {analyticsData.revenue > 0 
-                  ? `${((analyticsData.foodCost / analyticsData.revenue) * 100).toFixed(0)}%`
-                  : '0%'}
+                  ? `${((analyticsData.foodCost / analyticsData.revenue) * 100).toFixed(1)}% of revenue`
+                  : '0% food ratio'}
               </span>
-            </div>
-            <TrendingUp className="w-8 h-8 text-indigo-500/20" />
-          </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-dark border-border/50">
+            <CardContent className="p-5">
+              <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Waste & Spoilage</span>
+              <span className="text-2xl font-bold text-amber-500 block mt-1">{formatCurrency(analyticsData.wasteCost)}</span>
+              <span className="text-[10px] text-muted-foreground block mt-1">From damages & spoilage logs</span>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-dark border-border/50">
+            <CardContent className="p-5">
+              <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Profit Estimate</span>
+              <span className="text-2xl font-bold text-emerald-500 block mt-1">{formatCurrency(analyticsData.profitEstimate)}</span>
+              <span className="text-[10px] text-muted-foreground block mt-1">Est. Revenue - COGS - Wastage</span>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-dark border-border/50">
+            <CardContent className="p-5 flex items-center justify-between h-full">
+              <div>
+                <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Food Cost Ratio</span>
+                <span className="text-3xl font-black text-primary block mt-1">
+                  {analyticsData.revenue > 0 
+                    ? `${((analyticsData.foodCost / analyticsData.revenue) * 100).toFixed(0)}%`
+                    : '0%'}
+                </span>
+              </div>
+              <TrendingUp className="w-10 h-10 text-primary/20" />
+            </CardContent>
+          </Card>
         </div>
       )}
 
       {/* Visual Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Top Selling Products */}
-        <div className="lg:col-span-2 glass p-6 rounded-xl">
-          <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-6">Top Selling Dishes</h4>
-          <div className="h-80">
-            {topProductsChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={topProductsChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis dataKey="name" stroke="#64748b" fontSize={10} tickLine={false} />
-                  <YAxis stroke="#64748b" fontSize={10} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                    labelStyle={{ color: '#fff', fontWeight: 'bold' }}
-                  />
-                  <Legend verticalAlign="top" height={36} iconType="circle" />
-                  <Bar dataKey="Sales" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Revenue" fill="#10b981" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-500 text-xs">
-                No product sales logged in this date range.
-              </div>
-            )}
-          </div>
-        </div>
+        <Card className="lg:col-span-2 glass-dark border-border/50">
+          <CardHeader>
+            <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Top Selling Dishes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-80">
+              {topProductsChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={topProductsChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
+                      labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
+                    />
+                    <Legend verticalAlign="top" height={36} iconType="circle" />
+                    <Bar dataKey="Sales" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Revenue" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
+                  No product sales logged in this date range.
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Wastage breakdown */}
-        <div className="glass p-6 rounded-xl">
-          <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-6">Wastage Breakdown (₱)</h4>
-          <div className="h-80 flex flex-col justify-between">
-            {wasteChartData.length > 0 ? (
-              <>
-                <div className="h-60">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={wasteChartData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={50}
-                        outerRadius={80}
-                        paddingAngle={3}
-                        dataKey="value"
-                      >
-                        {wasteChartData.map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+        <Card className="glass-dark border-border/50">
+          <CardHeader>
+            <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Wastage Breakdown (₱)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-80 flex flex-col justify-between">
+              {wasteChartData.length > 0 ? (
+                <>
+                  <div className="h-60">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={wasteChartData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={50}
+                          outerRadius={80}
+                          paddingAngle={3}
+                          dataKey="value"
+                        >
+                          {wasteChartData.map((_, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {wasteChartData.map((entry, index) => (
+                      <div key={index} className="flex items-center space-x-1.5">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                        <span className="text-muted-foreground font-semibold truncate" title={entry.name}>{entry.name}</span>
+                        <span className="font-bold">₱{entry.value.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
+                  No spoilage/damage adjustments recorded.
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-[10px]">
-                  {wasteChartData.map((entry, index) => (
-                    <div key={index} className="flex items-center space-x-1.5">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
-                      <span className="text-slate-400 font-semibold truncate">{entry.name}</span>
-                      <span className="text-slate-200 font-bold">₱{entry.value.toFixed(2)}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-500 text-xs">
-                No spoilage/damage adjustments recorded.
-              </div>
-            )}
-          </div>
-        </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

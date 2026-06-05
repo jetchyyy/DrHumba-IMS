@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import {
   LayoutDashboard,
   Store,
@@ -16,145 +17,267 @@ import {
   Users,
   Settings as SettingsIcon,
   LogOut,
-  History
+  History,
+  Sun,
+  Moon,
+  Menu
 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Button } from './ui/button';
+import { Separator } from './ui/separator';
+import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from './ui/sheet';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
-  const { profile, selectedBranch, setSelectedBranch, branches, signOut } = useAuth();
-
-  if (!profile) return null;
-
+// The shared nav items list — used by both desktop sidebar & mobile components
+export const useNavItems = () => {
+  const { profile } = useAuth();
+  if (!profile) return [];
   const role = profile.role_name;
 
-  // Filter tabs by role permissions
   const tabs = [
-    { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, show: true },
-    { id: 'pos', name: 'POS (Sales)', icon: ShoppingBag, show: ['super_admin', 'branch_manager', 'cashier'].includes(role) },
-    { id: 'sales-history', name: 'Sales History', icon: History, show: true },
-    { id: 'inventory', name: 'Inventory Items', icon: Package, show: true },
-    { id: 'global-inventory', name: 'Overall Stock', icon: Boxes, show: true },
-    { id: 'receiving', name: 'Stock Receiving', icon: FilePlus, show: ['super_admin', 'inventory_manager'].includes(role) },
-    { id: 'transfers', name: 'Transfers', icon: ArrowLeftRight, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'adjustments', name: 'Adjustments', icon: ClipboardList, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'recipes', name: 'Recipes', icon: ChefHat, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'branches', name: 'Branches', icon: Store, show: ['super_admin', 'auditor'].includes(role) },
-    { id: 'analytics', name: 'Analytics', icon: BarChart3, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'notifications', name: 'Notifications', icon: Bell, show: true },
-    { id: 'audit-logs', name: 'Audit Logs', icon: FileText, show: ['super_admin', 'auditor'].includes(role) },
-    { id: 'users', name: 'Staff Management', icon: Users, show: ['super_admin'].includes(role) },
-    { id: 'settings', name: 'Settings', icon: SettingsIcon, show: true },
+    { id: 'dashboard',       name: 'Dashboard',       icon: LayoutDashboard, show: true },
+    { id: 'pos',             name: 'POS (Sales)',      icon: ShoppingBag,     show: ['super_admin', 'branch_manager', 'cashier'].includes(role) },
+    { id: 'sales-history',   name: 'Sales History',    icon: History,         show: true },
+    { id: 'inventory',       name: 'Inventory Items',  icon: Package,         show: true },
+    { id: 'global-inventory',name: 'Overall Stock',    icon: Boxes,           show: true },
+    { id: 'receiving',       name: 'Stock Receiving',  icon: FilePlus,        show: ['super_admin', 'inventory_manager'].includes(role) },
+    { id: 'transfers',       name: 'Transfers',        icon: ArrowLeftRight,  show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
+    { id: 'adjustments',     name: 'Adjustments',      icon: ClipboardList,   show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
+    { id: 'recipes',         name: 'Recipes',          icon: ChefHat,         show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
+    { id: 'branches',        name: 'Branches',         icon: Store,           show: ['super_admin', 'auditor'].includes(role) },
+    { id: 'analytics',       name: 'Analytics',        icon: BarChart3,       show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
+    { id: 'notifications',   name: 'Notifications',    icon: Bell,            show: true },
+    { id: 'audit-logs',      name: 'Audit Logs',       icon: FileText,        show: ['super_admin', 'auditor'].includes(role) },
+    { id: 'users',           name: 'Staff Management', icon: Users,           show: ['super_admin'].includes(role) },
+    { id: 'settings',        name: 'Settings',         icon: SettingsIcon,    show: true },
   ];
 
-  // Filter tabs by role permissions and custom allowed_tabs override
-  const filteredTabs = tabs.filter(tab => {
-    // Core utility tabs are always visible
-    if (['dashboard', 'notifications', 'settings'].includes(tab.id)) {
-      return true;
-    }
-    
-    // Super admins always have full access
-    if (role === 'super_admin') {
-      return true;
-    }
-
-    // If a custom allowed_tabs override list exists on the user profile
+  return tabs.filter(tab => {
+    if (['dashboard', 'notifications', 'settings'].includes(tab.id)) return true;
+    if (role === 'super_admin') return true;
     if (profile.allowed_tabs && Array.isArray(profile.allowed_tabs)) {
       return profile.allowed_tabs.includes(tab.id);
     }
-
-    // Fall back to role-based defaults
     return tab.show;
   });
+};
 
-  // Check if current role can switch branches
-  const canSwitchBranch = ['super_admin', 'inventory_manager', 'auditor'].includes(role);
+// ── Inner nav content (shared between desktop sidebar & mobile sheet) ─────────
+const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => void; onNavigate?: () => void }> = ({
+  activeTab, setActiveTab, onNavigate
+}) => {
+  const { profile, selectedBranch, setSelectedBranch, branches, signOut } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const navItems = useNavItems();
+  const canSwitchBranch = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name);
+
+  if (!profile) return null;
 
   return (
-    <aside className="w-64 border-r border-slate-800 bg-slate-900 flex flex-col h-screen sticky top-0">
-      {/* Title / Logo */}
-      <div className="p-6 border-b border-slate-800 flex items-center space-x-3">
-        <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/20">
+    <div className="flex flex-col h-full">
+      {/* Logo */}
+      <div className="p-6 border-b flex items-center space-x-3">
+        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center font-bold text-primary-foreground shadow-lg">
           R
         </div>
         <div>
-          <h1 className="text-lg font-bold text-white tracking-wide">RestoChain</h1>
-          <p className="text-[10px] text-indigo-400 font-semibold uppercase tracking-wider">Inventory System</p>
+          <h1 className="text-lg font-bold tracking-wide">RestoChain</h1>
+          <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Inventory System</p>
         </div>
       </div>
 
-      {/* Active Branch Selector / Display */}
-      <div className="p-4 border-b border-slate-800 bg-slate-950/40">
-        <label className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block mb-1">
+      {/* Branch selector */}
+      <div className="p-4 border-b bg-muted/20">
+        <label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block mb-2">
           Active Branch Context
         </label>
         {canSwitchBranch ? (
-          <select
+          <Select
             value={selectedBranch?.id || ''}
-            onChange={(e) => {
-              const b = branches.find(branch => branch.id === e.target.value);
+            onValueChange={(val) => {
+              const b = branches.find(branch => branch.id === val);
               setSelectedBranch(b || null);
             }}
-            className="w-full bg-slate-800 text-xs border border-slate-700 text-white rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           >
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full text-xs h-8">
+              <SelectValue placeholder="Select Branch" />
+            </SelectTrigger>
+            <SelectContent>
+              {branches.map((b) => (
+                <SelectItem key={b.id} value={b.id} className="text-xs">
+                  {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         ) : (
-          <div className="text-sm font-medium text-slate-200 bg-slate-800/50 rounded px-2.5 py-1.5 border border-slate-800/80">
+          <div className="text-sm font-medium bg-muted/50 rounded px-3 py-2 border">
             {selectedBranch?.name || 'No Branch Assigned'}
           </div>
         )}
       </div>
 
-      {/* Navigation List */}
+      {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-        {filteredTabs.map((tab) => {
+        {navItems.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <Button
+              key={tab.id}
+              variant={isActive ? 'default' : 'ghost'}
+              className={`w-full justify-start h-10 px-3 transition-all ${
+                isActive ? 'shadow-md' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+              }`}
+              onClick={() => { setActiveTab(tab.id); onNavigate?.(); }}
+            >
+              <Icon className={`mr-3 h-4 w-4 ${isActive ? 'text-primary-foreground' : 'text-muted-foreground'}`} />
+              {tab.name}
+            </Button>
+          );
+        })}
+      </nav>
+
+      <Separator />
+
+      {/* Footer */}
+      <div className="p-4 bg-muted/10 flex flex-col space-y-3">
+        <div className="flex items-center space-x-3">
+          <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center font-bold text-secondary-foreground border">
+            {profile.email.slice(0, 2).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold truncate">{profile.email}</p>
+            <p className="text-[10px] text-muted-foreground capitalize font-medium">{profile.role_name.replace('_', ' ')}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            className="h-8 w-8 text-muted-foreground hover:text-foreground flex-shrink-0"
+            title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={signOut}
+          className="w-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30"
+        >
+          <LogOut className="mr-2 h-4 w-4" />
+          Sign Out
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+// ── Desktop Sidebar ───────────────────────────────────────────────────────────
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
+  const { profile } = useAuth();
+  if (!profile) return null;
+
+  return (
+    <aside className="w-64 border-r bg-background flex-col h-screen sticky top-0 hidden md:flex">
+      <NavContent activeTab={activeTab} setActiveTab={setActiveTab} />
+    </aside>
+  );
+};
+
+// ── Mobile Top Header + Sheet Drawer ─────────────────────────────────────────
+export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
+  const [open, setOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
+
+  const navItems = useNavItems();
+  const currentTab = navItems.find(t => t.id === activeTab);
+  const CurrentIcon = currentTab?.icon || LayoutDashboard;
+
+  return (
+    <header className="md:hidden sticky top-0 z-40 flex items-center justify-between px-4 py-3 border-b bg-background/95 backdrop-blur-sm">
+      {/* Left: hamburger + current page */}
+      <div className="flex items-center space-x-3">
+        <Sheet open={open} onOpenChange={setOpen}>
+          <SheetTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-9 w-9">
+              <Menu className="h-5 w-5" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="p-0 w-72 bg-background">
+            <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
+            <SheetDescription className="sr-only">Main application navigation and branch selector</SheetDescription>
+            <NavContent
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              onNavigate={() => setOpen(false)}
+            />
+          </SheetContent>
+        </Sheet>
+
+        <div className="flex items-center space-x-2">
+          <CurrentIcon className="h-4 w-4 text-primary" />
+          <span className="font-semibold text-sm">{currentTab?.name || 'Dashboard'}</span>
+        </div>
+      </div>
+
+      {/* Right: logo + theme toggle */}
+      <div className="flex items-center space-x-2">
+        <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" onClick={toggleTheme}>
+          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </Button>
+        <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center font-bold text-primary-foreground text-xs">
+          R
+        </div>
+      </div>
+    </header>
+  );
+};
+
+// ── Mobile Bottom Tab Bar ─────────────────────────────────────────────────────
+const BOTTOM_TABS = [
+  { id: 'dashboard',   icon: LayoutDashboard, label: 'Home' },
+  { id: 'pos',         icon: ShoppingBag,     label: 'POS' },
+  { id: 'inventory',   icon: Package,         label: 'Items' },
+  { id: 'analytics',   icon: BarChart3,       label: 'Analytics' },
+  { id: 'settings',    icon: SettingsIcon,    label: 'Settings' },
+];
+
+export const MobileBottomNav: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
+  const navItems = useNavItems();
+  // Only show bottom tabs the user has access to
+  const visibleBottomTabs = BOTTOM_TABS.filter(bt => navItems.some(n => n.id === bt.id));
+
+  return (
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t bg-background/95 backdrop-blur-sm">
+      <div className="flex items-stretch h-16">
+        {visibleBottomTabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              className={`flex-1 flex flex-col items-center justify-center gap-1 transition-colors ${
                 isActive
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/10'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  ? 'text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
-              <span>{tab.name}</span>
+              <Icon className={`h-5 w-5 transition-transform ${isActive ? 'scale-110' : ''}`} />
+              <span className="text-[10px] font-medium">{tab.label}</span>
+              {isActive && (
+                <span className="absolute top-0 w-8 h-0.5 bg-primary rounded-b-full" />
+              )}
             </button>
           );
         })}
-      </nav>
-
-      {/* User Session Footer */}
-      <div className="p-4 border-t border-slate-800 bg-slate-950/20 flex flex-col space-y-3">
-        <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center font-bold text-indigo-400 border border-slate-700">
-            {profile.email.slice(0, 2).toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-slate-200 truncate">{profile.email}</p>
-            <p className="text-[10px] text-slate-400 capitalize font-medium">{profile.role_name.replace('_', ' ')}</p>
-          </div>
-        </div>
-        <button
-          onClick={signOut}
-          className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg text-xs font-medium border border-slate-800 text-slate-400 hover:bg-slate-800/80 hover:text-red-400 hover:border-red-500/20 transition-all"
-        >
-          <LogOut className="w-3.5 h-3.5" />
-          <span>Sign Out</span>
-        </button>
       </div>
-    </aside>
+    </nav>
   );
 };

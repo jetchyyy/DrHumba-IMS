@@ -2,6 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Search, RefreshCw, AlertTriangle, Layers, Eye, ChevronDown, ChevronUp, BarChart3, ShieldAlert } from 'lucide-react';
+import { Card, CardContent } from './ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Badge } from './ui/badge';
 
 interface BranchBalance {
   branch_id: string;
@@ -36,7 +42,6 @@ export const GlobalInventory: React.FC = () => {
   const loadGlobalStockData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch all active catalog items
       const { data: items, error: itemsError } = await supabase
         .from('inventory_items')
         .select('*')
@@ -45,24 +50,18 @@ export const GlobalInventory: React.FC = () => {
       
       if (itemsError) throw itemsError;
 
-      // 2. Fetch all branch balances
       const { data: balances, error: balancesError } = await supabase
         .from('inventory_balances')
         .select('branch_id, item_id, quantity');
       
       if (balancesError) throw balancesError;
 
-      // 3. Map balances and build aggregated data
       const mappedItems: GlobalStockItem[] = (items || []).map(item => {
         const itemBalances = (balances || []).filter(b => b.item_id === item.id);
         
-        // Sum up total quantity
         const totalQty = itemBalances.reduce((sum, b) => sum + Number(b.quantity), 0);
-        
-        // Calculate valuation
         const valuation = totalQty * Number(item.cost_per_base_unit);
 
-        // Build breakdown for ALL branches (including those with 0 stock)
         const breakdown: BranchBalance[] = branches.map(br => {
           const bal = itemBalances.find(b => b.branch_id === br.id);
           return {
@@ -101,10 +100,8 @@ export const GlobalInventory: React.FC = () => {
     }
   }, [branches]);
 
-  // Extract unique categories for dropdown filter
   const categories = ['All', ...new Set(stockItems.map(item => item.category))];
 
-  // Map items to branch display values if a specific branch is selected
   const itemsWithDisplayValues = stockItems.map(item => {
     if (selectedBranchId === 'All') {
       return {
@@ -123,7 +120,6 @@ export const GlobalInventory: React.FC = () => {
     }
   });
 
-  // Filter items based on search and category selections
   const filteredItems = itemsWithDisplayValues.filter(item => {
     const matchesSearch = 
       item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -132,13 +128,11 @@ export const GlobalInventory: React.FC = () => {
     return matchesSearch && matchesCategory;
   });
 
-  // Calculate metrics dynamically based on branch selection
   const displayTotalItems = itemsWithDisplayValues.length;
   const displayTotalValuation = itemsWithDisplayValues.reduce((sum, item) => sum + item.display_valuation, 0);
 
   const displayLowStockCount = itemsWithDisplayValues.reduce((sum, item) => {
     if (selectedBranchId === 'All') {
-      // count of all branch-level alerts
       const branchAlerts = item.breakdown.filter(b => b.quantity < item.reorder_level).length;
       return sum + branchAlerts;
     } else {
@@ -160,247 +154,249 @@ export const GlobalInventory: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto bg-slate-950">
+    <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight">Overall Inventory Stock</h2>
-          <p className="text-sm text-slate-400">Aggregated stock balances and valuation across all branches and warehouses.</p>
+          <h2 className="text-3xl font-bold tracking-tight">Overall Inventory Stock</h2>
+          <p className="text-muted-foreground">Aggregated stock balances and valuation across all branches and warehouses.</p>
         </div>
 
-        <button
-          onClick={loadGlobalStockData}
-          disabled={loading}
-          className="p-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <Button onClick={loadGlobalStockData} disabled={loading} variant="outline" size="icon">
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+        </Button>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="glass p-5 rounded-xl border border-slate-800/80 bg-slate-900/30 flex items-center space-x-4">
-          <div className="p-3 bg-indigo-500/10 rounded-lg text-indigo-400 border border-indigo-500/20">
-            <Layers className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Total Catalog Items</span>
-            <span className="text-2xl font-bold text-white">{displayTotalItems}</span>
-          </div>
-        </div>
+        <Card className="glass-dark border-border/50">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-primary/10 rounded-lg text-primary border border-primary/20">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider block">Total Catalog Items</span>
+              <span className="text-2xl font-bold">{displayTotalItems}</span>
+            </div>
+          </CardContent>
+        </Card>
 
-        <div className="glass p-5 rounded-xl border border-slate-800/80 bg-slate-900/30 flex items-center space-x-4">
-          <div className="p-3 bg-emerald-500/10 rounded-lg text-emerald-400 border border-emerald-500/20">
-            <BarChart3 className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">
-              {selectedBranchId === 'All' ? 'Total Global Stock Valuation' : 'Branch Stock Valuation'}
-            </span>
-            <span className="text-2xl font-bold text-emerald-400">{formatPHP(displayTotalValuation)}</span>
-          </div>
-        </div>
+        <Card className="glass-dark border-border/50">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-emerald-500/10 rounded-lg text-emerald-500 border border-emerald-500/20">
+              <BarChart3 className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider block">
+                {selectedBranchId === 'All' ? 'Total Global Stock Valuation' : 'Branch Stock Valuation'}
+              </span>
+              <span className="text-2xl font-bold">{formatPHP(displayTotalValuation)}</span>
+            </div>
+          </CardContent>
+        </Card>
 
-        <div className="glass p-5 rounded-xl border border-slate-800/80 bg-slate-900/30 flex items-center space-x-4">
-          <div className="p-3 bg-amber-500/10 rounded-lg text-amber-400 border border-amber-500/20">
-            <ShieldAlert className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">
-              {selectedBranchId === 'All' ? 'Low Stock Branch Alerts' : 'Branch Low Stock Alerts'}
-            </span>
-            <span className="text-2xl font-bold text-amber-500">{displayLowStockCount}</span>
-          </div>
-        </div>
+        <Card className="glass-dark border-border/50">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-amber-500/10 rounded-lg text-amber-500 border border-amber-500/20">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider block">
+                {selectedBranchId === 'All' ? 'Low Stock Branch Alerts' : 'Branch Low Stock Alerts'}
+              </span>
+              <span className="text-2xl font-bold">{displayLowStockCount}</span>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Filters Bar */}
       <div className="flex flex-col sm:flex-row gap-4 justify-between items-center mb-6">
         <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-          <input
+          <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-3" />
+          <Input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search items by name or SKU..."
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 transition-all placeholder-slate-500"
+            className="pl-9"
           />
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
           <div className="flex items-center space-x-2 w-full sm:w-auto justify-between sm:justify-start">
-            <span className="text-xs text-slate-400 whitespace-nowrap font-medium">Branch:</span>
-            <select
-              value={selectedBranchId}
-              onChange={(e) => setSelectedBranchId(e.target.value)}
-              className="bg-slate-900 border border-slate-800 rounded-lg text-xs text-white px-3 py-2 focus:outline-none focus:border-indigo-500 min-w-[140px] w-full sm:w-auto cursor-pointer"
-            >
-              <option value="All">All Branches</option>
-              {branches.map(br => (
-                <option key={br.id} value={br.id}>{br.name}</option>
-              ))}
-            </select>
+            <span className="text-xs text-muted-foreground whitespace-nowrap font-medium">Branch:</span>
+            <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectValue placeholder="All Branches" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Branches</SelectItem>
+                {branches.map(br => (
+                  <SelectItem key={br.id} value={br.id}>{br.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center space-x-2 w-full sm:w-auto justify-between sm:justify-start">
-            <span className="text-xs text-slate-400 whitespace-nowrap font-medium">Category:</span>
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="bg-slate-900 border border-slate-800 rounded-lg text-xs text-white px-3 py-2 focus:outline-none focus:border-indigo-500 min-w-[120px] w-full sm:w-auto cursor-pointer"
-            >
-              {categories.map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            <span className="text-xs text-muted-foreground whitespace-nowrap font-medium">Category:</span>
+            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map(c => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>
 
       {/* Main Aggregated Table */}
-      <div className="glass rounded-xl overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center text-slate-400 space-y-3">
-            <RefreshCw className="w-6 h-6 animate-spin mx-auto text-indigo-500" />
-            <p className="text-xs">Fetching global inventory balances...</p>
-          </div>
-        ) : (
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="bg-slate-900 border-b border-slate-800 text-slate-400 font-semibold">
-                <th className="p-4 pl-6 w-10"></th>
-                <th className="p-4">SKU</th>
-                <th className="p-4">Item Name</th>
-                <th className="p-4">Category</th>
-                <th className="p-4 text-right">
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-10 pl-6"></TableHead>
+                <TableHead>SKU</TableHead>
+                <TableHead>Item Name</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead className="text-right">
                   {selectedBranchId === 'All' ? 'Total Quantity' : 'Branch Quantity'}
-                </th>
-                <th className="p-4 text-right">
+                </TableHead>
+                <TableHead className="text-right">
                   {selectedBranchId === 'All' ? 'Est. Valuation' : 'Branch Valuation'}
-                </th>
-                <th className="p-4 text-right pr-6">Breakdown</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/40">
-              {filteredItems.map(item => {
-                const isExpanded = expandedItemId === item.id;
-                return (
-                  <React.Fragment key={item.id}>
-                    <tr 
-                      onClick={() => toggleExpand(item.id)}
-                      className="hover:bg-slate-900/10 text-slate-300 cursor-pointer transition-all"
-                    >
-                      <td className="p-4 pl-6 text-center text-slate-500">
-                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                      </td>
-                      <td className="p-4 font-mono text-slate-400 font-semibold">{item.sku}</td>
-                      <td className="p-4 font-bold text-slate-100">{item.item_name}</td>
-                      <td className="p-4">
-                        <span className="bg-slate-800/80 px-2 py-0.5 rounded text-[10px] text-slate-300 border border-slate-700/30">
-                          {item.category}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right font-bold text-slate-200">
-                        {item.display_quantity.toLocaleString()} {item.base_unit}
-                      </td>
-                      <td className="p-4 text-right font-bold text-emerald-400">
-                        {formatPHP(item.display_valuation)}
-                      </td>
-                      <td className="p-4 text-right pr-6">
-                        <button
-                          type="button"
-                          className="inline-flex items-center space-x-1 text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold py-1 px-2.5 bg-slate-900 border border-slate-800/80 rounded hover:bg-slate-800 transition-all"
-                        >
-                          <Eye className="w-3 h-3" />
-                          <span>Show Branch Split</span>
-                        </button>
-                      </td>
-                    </tr>
-
-                    {/* Expanded Branch Breakdown Detail */}
-                    {isExpanded && (
-                      <tr className="bg-slate-950/45">
-                        <td colSpan={7} className="p-6 pl-12 pr-6 border-l-2 border-indigo-500">
-                          <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                              <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider">
-                                Branch Stock Breakdown: {item.item_name}
-                              </h4>
-                              <span className="text-[10px] text-slate-500 font-medium">
-                                Base Reorder Trigger: <span className="text-slate-300 font-bold">{item.reorder_level} {item.base_unit}</span>
-                              </span>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                              {item.breakdown.map(br => {
-                                const isLow = br.quantity < item.reorder_level;
-                                const isSelectedBranch = br.branch_id === selectedBranchId;
-                                return (
-                                  <div 
-                                    key={br.branch_id} 
-                                    className={`p-4 rounded-lg border bg-slate-900/50 flex flex-col justify-between space-y-2 transition-all ${
-                                      isSelectedBranch
-                                        ? 'border-indigo-500 bg-indigo-500/[0.03] ring-1 ring-indigo-500/30'
-                                        : isLow 
-                                          ? 'border-amber-500/25 bg-amber-500/[0.02]' 
-                                          : 'border-slate-800/80'
-                                    }`}
-                                  >
-                                    <div className="flex items-start justify-between">
-                                      <div>
-                                        <span className="text-xs font-bold text-slate-200 block truncate max-w-[150px]">
-                                          {br.branch_name}
-                                        </span>
-                                        <span className="text-[9px] text-slate-500 uppercase font-medium">
-                                          {br.is_warehouse ? 'Warehouse / Main' : 'Sales Branch'}
-                                        </span>
-                                      </div>
-                                      
-                                      {isLow && (
-                                        <span className="flex items-center space-x-1 text-[9px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 uppercase">
-                                          <AlertTriangle className="w-2.5 h-2.5" />
-                                          <span>Low Stock</span>
-                                        </span>
-                                      )}
-                                    </div>
-
-                                    <div className="flex items-end justify-between pt-1 border-t border-slate-800/40">
-                                      <div>
-                                        <span className="text-[10px] text-slate-400 block">Quantity</span>
-                                        <span className="text-sm font-black text-slate-200">
-                                          {br.quantity.toLocaleString()} <span className="text-xs font-normal text-slate-400">{item.base_unit}</span>
-                                        </span>
-                                      </div>
-                                      <div className="text-right">
-                                        <span className="text-[10px] text-slate-400 block">Valuation</span>
-                                        <span className="text-xs font-bold text-slate-300">
-                                          {formatPHP(br.quantity * item.cost_per_base_unit)}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-
-              {filteredItems.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="text-center p-8 text-slate-500">
+                </TableHead>
+                <TableHead className="text-right pr-6">Breakdown</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center">
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto text-primary mb-2" />
+                    Fetching global inventory balances...
+                  </TableCell>
+                </TableRow>
+              ) : filteredItems.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                     No items found matching your search.
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredItems.map(item => {
+                  const isExpanded = expandedItemId === item.id;
+                  return (
+                    <React.Fragment key={item.id}>
+                      <TableRow 
+                        onClick={() => toggleExpand(item.id)}
+                        className="cursor-pointer"
+                      >
+                        <TableCell className="pl-6 text-muted-foreground">
+                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </TableCell>
+                        <TableCell className="font-mono text-muted-foreground font-semibold">{item.sku}</TableCell>
+                        <TableCell className="font-bold">{item.item_name}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="text-[10px] uppercase">
+                            {item.category}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-bold">
+                          {item.display_quantity.toLocaleString()} <span className="text-[10px] font-normal text-muted-foreground">{item.base_unit}</span>
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-emerald-500">
+                          {formatPHP(item.display_valuation)}
+                        </TableCell>
+                        <TableCell className="text-right pr-6">
+                          <Button variant="ghost" size="sm" className="h-8">
+                            <Eye className="w-4 h-4 mr-2" />
+                            Show Split
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+
+                      {isExpanded && (
+                        <TableRow className="bg-muted/20 hover:bg-muted/20">
+                          <TableCell colSpan={7} className="p-0 border-l-2 border-primary">
+                            <div className="p-6">
+                              <div className="flex items-center justify-between mb-4">
+                                <h4 className="text-sm font-bold text-primary uppercase tracking-wider">
+                                  Branch Stock Breakdown: {item.item_name}
+                                </h4>
+                                <span className="text-[10px] text-muted-foreground font-medium">
+                                  Base Reorder Trigger: <span className="text-foreground font-bold">{item.reorder_level} {item.base_unit}</span>
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                {item.breakdown.map(br => {
+                                  const isLow = br.quantity < item.reorder_level;
+                                  const isSelectedBranch = br.branch_id === selectedBranchId;
+                                  return (
+                                    <div 
+                                      key={br.branch_id} 
+                                      className={`p-4 rounded-lg border flex flex-col justify-between space-y-2 transition-all ${
+                                        isSelectedBranch
+                                          ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                                          : isLow 
+                                            ? 'border-destructive/50 bg-destructive/5' 
+                                            : 'bg-background/50'
+                                      }`}
+                                    >
+                                      <div className="flex items-start justify-between">
+                                        <div>
+                                          <span className="text-sm font-bold truncate block max-w-[150px]">
+                                            {br.branch_name}
+                                          </span>
+                                          <span className="text-[10px] text-muted-foreground uppercase font-medium">
+                                            {br.is_warehouse ? 'Warehouse / Main' : 'Sales Branch'}
+                                          </span>
+                                        </div>
+                                        
+                                        {isLow && (
+                                          <Badge variant="destructive" className="h-5 px-1.5 text-[9px] uppercase">
+                                            <AlertTriangle className="w-3 h-3 mr-1" />
+                                            Low Stock
+                                          </Badge>
+                                        )}
+                                      </div>
+
+                                      <div className="flex items-end justify-between pt-2 border-t">
+                                        <div>
+                                          <span className="text-[10px] text-muted-foreground block">Quantity</span>
+                                          <span className="text-base font-black">
+                                            {br.quantity.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">{item.base_unit}</span>
+                                          </span>
+                                        </div>
+                                        <div className="text-right">
+                                          <span className="text-[10px] text-muted-foreground block">Valuation</span>
+                                          <span className="text-sm font-bold text-emerald-500">
+                                            {formatPHP(br.quantity * item.cost_per_base_unit)}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
+                  );
+                })
               )}
-            </tbody>
-          </table>
-        )}
-      </div>
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 };

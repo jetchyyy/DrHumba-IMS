@@ -1,7 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Plus, Eye, X, RefreshCw, Trash2 } from 'lucide-react';
+import { Plus, Eye, RefreshCw, Trash2 } from 'lucide-react';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
+import { Badge } from './ui/badge';
+import { useToast } from '../hooks/use-toast';
 
 interface Adjustment {
   id: string;
@@ -32,6 +41,7 @@ interface CatalogItem {
 
 export const Adjustments: React.FC = () => {
   const { profile, selectedBranch } = useAuth();
+  const { toast } = useToast();
   
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
@@ -50,13 +60,10 @@ export const Adjustments: React.FC = () => {
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState(-10); // Default to negative deduction
   
-  const [formError, setFormError] = useState('');
-  const [formSuccess, setFormSuccess] = useState('');
   const [processing, setProcessing] = useState(false);
 
   const loadData = async () => {
     try {
-      // 1. Fetch adjustments
       const { data: adjData, error: adjError } = await supabase
         .from('stock_adjustments')
         .select(`
@@ -73,7 +80,6 @@ export const Adjustments: React.FC = () => {
       if (adjError) throw adjError;
       setAdjustments((adjData as any[]) || []);
 
-      // 2. Fetch inventory items
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
         .select('id, item_name, base_unit')
@@ -94,8 +100,6 @@ export const Adjustments: React.FC = () => {
     setRemarks('');
     setPhotoUrl('');
     setAddedItems([]);
-    setFormError('');
-    setFormSuccess('');
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
       setCurrentQty(-10);
@@ -106,10 +110,9 @@ export const Adjustments: React.FC = () => {
   const handleAddItem = () => {
     if (!currentSelectedItemId) return;
     
-    // Check if already added
     const exists = addedItems.find(i => i.item_id === currentSelectedItemId);
     if (exists) {
-      setFormError('Item already added. Please modify it or delete first.');
+      toast({ title: "Item already added", description: "Please modify it or delete first.", variant: "destructive" });
       return;
     }
 
@@ -120,7 +123,6 @@ export const Adjustments: React.FC = () => {
         qty: Number(currentQty)
       }
     ]);
-    setFormError('');
   };
 
   const handleRemoveItem = (index: number) => {
@@ -129,21 +131,18 @@ export const Adjustments: React.FC = () => {
 
   const handleSaveAdjustment = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFormError('');
-    setFormSuccess('');
 
     if (addedItems.length === 0) {
-      setFormError('Add at least one item to adjust');
+      toast({ title: "Validation Error", description: "Add at least one item to adjust", variant: "destructive" });
       return;
     }
 
     if (!selectedBranch) {
-      setFormError('No branch context selected');
+      toast({ title: "Validation Error", description: "No branch context selected", variant: "destructive" });
       return;
     }
 
     try {
-      // 1. Insert stock_adjustments row
       const { data: adjData, error: adjError } = await supabase
         .from('stock_adjustments')
         .insert({
@@ -158,7 +157,6 @@ export const Adjustments: React.FC = () => {
 
       if (adjError) throw adjError;
 
-      // 2. Insert stock_adjustment_items rows
       const itemsPayload = addedItems.map(item => ({
         adjustment_id: adjData.id,
         item_id: item.item_id,
@@ -171,7 +169,6 @@ export const Adjustments: React.FC = () => {
 
       if (itemsError) throw itemsError;
 
-      // Create system notification for admins
       await supabase
         .from('notifications')
         .insert({
@@ -180,14 +177,14 @@ export const Adjustments: React.FC = () => {
           message: `New adjustment (${reason}) pending approval at ${selectedBranch.name}`
         });
 
-      setFormSuccess('Adjustment logged and pending approval!');
+      toast({ title: "Success", description: "Adjustment logged and pending approval!" });
       setTimeout(() => {
         setShowCreateModal(false);
         loadData();
       }, 800);
     } catch (err: any) {
       console.error(err);
-      setFormError(err.message || 'Error logging adjustment');
+      toast({ title: "Error", description: err.message || 'Error logging adjustment', variant: "destructive" });
     }
   };
 
@@ -212,7 +209,7 @@ export const Adjustments: React.FC = () => {
       setShowViewModal(true);
     } catch (err) {
       console.error(err);
-      alert('Error fetching adjustment items');
+      toast({ title: "Error", description: "Error fetching adjustment items", variant: "destructive" });
     }
   };
 
@@ -223,19 +220,18 @@ export const Adjustments: React.FC = () => {
 
     setProcessing(true);
     try {
-      // Call public.fn_process_adjustment RPC
       const { error } = await supabase.rpc('fn_process_adjustment', {
         p_adjustment_id: adjustmentId
       });
 
       if (error) throw error;
 
-      alert('Adjustment approved and inventory records updated!');
+      toast({ title: "Success", description: "Adjustment approved and inventory records updated!" });
       setShowViewModal(false);
       loadData();
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Failed to approve adjustment. Ensure branch has sufficient quantity for stock deductions!');
+      toast({ title: "Error", description: err.message || 'Failed to approve adjustment.', variant: "destructive" });
     } finally {
       setProcessing(false);
     }
@@ -254,390 +250,325 @@ export const Adjustments: React.FC = () => {
 
       if (error) throw error;
 
-      alert('Adjustment request rejected.');
+      toast({ title: "Success", description: "Adjustment request rejected." });
       setShowViewModal(false);
       loadData();
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Failed to reject adjustment.');
+      toast({ title: "Error", description: err.message || 'Failed to reject adjustment.', variant: "destructive" });
     }
   };
 
   const canApprove = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto bg-slate-950">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+    <div className="flex-1 p-4 md:p-8 overflow-y-auto">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight">Stock Adjustments</h2>
-          <p className="text-sm text-slate-400">Log damages, spoilage, or manual inventory count corrections.</p>
+          <h2 className="text-3xl font-bold tracking-tight">Stock Adjustments</h2>
+          <p className="text-muted-foreground">Log damages, spoilage, or manual inventory count corrections.</p>
         </div>
 
         <div className="flex items-center space-x-3">
-          <button
-            onClick={loadData}
-            className="p-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
+          <Button variant="outline" size="icon" onClick={loadData}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
           
-          <button
-            onClick={handleOpenCreateModal}
-            className="flex items-center space-x-2 bg-indigo-600 text-white px-3.5 py-2 rounded-lg text-xs font-bold shadow hover:bg-indigo-500 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create Adjustment Log</span>
-          </button>
+          <Button onClick={handleOpenCreateModal}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create Adjustment Log
+          </Button>
         </div>
       </div>
 
-      {/* Adjustments Table */}
-      <div className="glass rounded-xl overflow-hidden">
-        <table className="w-full text-left text-xs">
-          <thead>
-            <tr className="bg-slate-900 border-b border-slate-800 text-slate-400 font-semibold">
-              <th className="p-4 pl-6">Date Logged</th>
-              <th className="p-4">Branch</th>
-              <th className="p-4">Reason</th>
-              <th className="p-4">Remarks</th>
-              <th className="p-4">Status</th>
-              <th className="p-4 text-right pr-6">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800/60">
-            {adjustments.map(adj => (
-              <tr key={adj.id} className="hover:bg-slate-900/10 text-slate-300">
-                <td className="p-4 pl-6 font-semibold text-slate-200">
-                  {new Date(adj.created_at).toLocaleDateString()}
-                </td>
-                <td className="p-4 font-medium text-slate-300">{adj.branches?.name || 'Unknown'}</td>
-                <td className="p-4">
-                  <span className="capitalize px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 border border-slate-700/50">
+      <Card>
+        <CardHeader className="px-6 py-4">
+          <CardTitle>Adjustment Logs</CardTitle>
+          <CardDescription>View all pending and processed inventory corrections.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-6">Date Logged</TableHead>
+                <TableHead>Branch</TableHead>
+                <TableHead>Reason</TableHead>
+                <TableHead>Remarks</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right pr-6">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {adjustments.map(adj => (
+                <TableRow key={adj.id}>
+                  <TableCell className="pl-6 font-medium">
+                    {new Date(adj.created_at).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell>{adj.branches?.name || 'Unknown'}</TableCell>
+                  <TableCell className="capitalize">
                     {adj.reason.replace('_', ' ')}
-                  </span>
-                </td>
-                <td className="p-4 text-slate-500 max-w-xs truncate">{adj.remarks || 'No remarks'}</td>
-                <td className="p-4">
-                  <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold border ${
-                    adj.status === 'approved'
-                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                      : adj.status === 'rejected'
-                      ? 'bg-red-500/10 border-red-500/20 text-red-400'
-                      : 'bg-amber-500/10 border-amber-500/20 text-amber-500'
-                  }`}>
-                    {adj.status}
-                  </span>
-                </td>
-                <td className="p-4 text-right pr-6">
-                  <button
-                    onClick={() => handleViewAdjustment(adj)}
-                    className="flex items-center space-x-1.5 ml-auto bg-slate-900 border border-slate-800 px-2.5 py-1 rounded text-[10px] font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition-all"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>View Details</span>
-                  </button>
-                </td>
-              </tr>
-            ))}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground max-w-xs truncate">{adj.remarks || 'No remarks'}</TableCell>
+                  <TableCell>
+                    <Badge variant={
+                      adj.status === 'approved' ? 'default' :
+                      adj.status === 'rejected' ? 'destructive' : 'secondary'
+                    } className="uppercase text-[10px]">
+                      {adj.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right pr-6">
+                    <Button variant="ghost" size="sm" onClick={() => handleViewAdjustment(adj)}>
+                      <Eye className="mr-2 h-4 w-4" />
+                      View
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
 
-            {adjustments.length === 0 && (
-              <tr>
-                <td colSpan={6} className="text-center p-8 text-slate-500">
-                  No adjustments logged yet. Click 'Create Adjustment Log' to begin.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+              {adjustments.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center">
+                    No adjustments logged yet. Click 'Create Adjustment Log' to begin.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       {/* CREATE MODAL */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="glass max-w-2xl w-full rounded-xl overflow-hidden shadow-2xl">
-            <div className="px-6 py-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Log Stock Adjustment</h3>
-              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-white transition-all">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Log Stock Adjustment</DialogTitle>
+            <DialogDescription>
+              Submit an inventory count correction. Requires manager approval.
+            </DialogDescription>
+          </DialogHeader>
 
-            <form onSubmit={handleSaveAdjustment} className="p-6 space-y-4">
-              {formError && (
-                <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded">
-                  {formError}
-                </div>
-              )}
-              {formSuccess && (
-                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded">
-                  {formSuccess}
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                    Adjustment Reason *
-                  </label>
-                  <select
-                    value={reason}
-                    onChange={(e: any) => setReason(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="spoilage">Spoilage</option>
-                    <option value="damage">Damage / Spill</option>
-                    <option value="expired">Expired Goods</option>
-                    <option value="lost">Lost / Theft</option>
-                    <option value="manual_correction">Manual Count Correction</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                    Photo Attachment URL (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={photoUrl}
-                    onChange={(e) => setPhotoUrl(e.target.value)}
-                    placeholder="https://example.com/spoilage.jpg"
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-                  />
-                </div>
+          <form onSubmit={handleSaveAdjustment} className="space-y-6 pt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Adjustment Reason *</Label>
+                <Select value={reason} onValueChange={(v: any) => setReason(v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select reason" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="spoilage">Spoilage</SelectItem>
+                    <SelectItem value="damage">Damage / Spill</SelectItem>
+                    <SelectItem value="expired">Expired Goods</SelectItem>
+                    <SelectItem value="lost">Lost / Theft</SelectItem>
+                    <SelectItem value="manual_correction">Manual Count Correction</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-
-              <div>
-                <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                  Remarks / Explanation *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="e.g. Freezers went down overnight, spoiling these ingredients"
-                  className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+              <div className="space-y-2">
+                <Label>Photo Attachment URL (Optional)</Label>
+                <Input
+                  value={photoUrl}
+                  onChange={(e) => setPhotoUrl(e.target.value)}
+                  placeholder="https://example.com/spoilage.jpg"
                 />
               </div>
+            </div>
 
-              {/* Add Item Sub-Form */}
-              <div className="bg-slate-900/60 p-4 rounded-lg border border-slate-800">
-                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Add Item to Adjust</h4>
-                <div className="grid grid-cols-3 gap-3 items-end">
-                  <div className="col-span-2">
-                    <label className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                      Select Item
-                    </label>
-                    <select
-                      value={currentSelectedItemId}
-                      onChange={(e) => setCurrentSelectedItemId(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-white focus:outline-none"
-                    >
-                      {catalog.map(item => (
-                        <option key={item.id} value={item.id}>
-                          {item.item_name} (Base unit: {item.base_unit})
-                        </option>
-                      ))}
-                    </select>
+            <div className="space-y-2">
+              <Label>Remarks / Explanation *</Label>
+              <Input
+                required
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                placeholder="e.g. Freezers went down overnight"
+              />
+            </div>
+
+            {/* Add Item Sub-Form */}
+            <Card className="bg-muted/50">
+              <CardContent className="p-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                  <div className="md:col-span-2 space-y-2">
+                    <Label>Select Item</Label>
+                    <Select value={currentSelectedItemId} onValueChange={setCurrentSelectedItemId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select an item" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {catalog.map(item => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.item_name} ({item.base_unit})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                      Quantity (Negative to subtract)
-                    </label>
-                    <input
+                  <div className="space-y-2">
+                    <Label>Qty (Negative to deduct)</Label>
+                    <Input
                       type="number"
                       value={currentQty}
                       onChange={(e) => setCurrentQty(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-white focus:outline-none"
                     />
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleAddItem}
-                  className="mt-3 bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-indigo-400 px-3 py-1.5 rounded border border-slate-700/50"
-                >
-                  + Add Item
-                </button>
-              </div>
-
-              {/* Added Items List */}
-              <div>
-                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">Adjustments List ({addedItems.length})</h4>
-                <div className="bg-slate-950 rounded border border-slate-800 max-h-40 overflow-y-auto">
-                  <table className="w-full text-left text-[11px]">
-                    <thead>
-                      <tr className="bg-slate-900 text-slate-500 border-b border-slate-800">
-                        <th className="p-2 pl-3">Item Name</th>
-                        <th className="p-2 text-right">Adjustment Amount</th>
-                        <th className="p-2 text-center pr-3">Remove</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/40">
-                      {addedItems.map((item, idx) => {
-                        const info = catalog.find(c => c.id === item.item_id);
-                        return (
-                          <tr key={idx} className="text-slate-300">
-                            <td className="p-2 pl-3 font-semibold text-slate-200">{info?.item_name}</td>
-                            <td className={`p-2 text-right font-bold ${item.qty < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                              {item.qty > 0 ? `+${item.qty}` : item.qty} {info?.base_unit}
-                            </td>
-                            <td className="p-2 text-center pr-3">
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveItem(idx)}
-                                className="text-slate-500 hover:text-red-400"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 mx-auto" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className="mt-4 flex justify-end">
+                  <Button type="button" variant="secondary" onClick={handleAddItem}>
+                    Add Item
+                  </Button>
                 </div>
-              </div>
+              </CardContent>
+            </Card>
 
-              <div className="flex space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="flex-1 bg-slate-900 border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold py-2 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold py-2 rounded shadow"
-                >
-                  Submit for Approval
-                </button>
+            {/* Added Items List */}
+            <div>
+              <h4 className="text-sm font-semibold mb-3">Adjustments List ({addedItems.length})</h4>
+              <div className="border rounded-md max-h-40 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item Name</TableHead>
+                      <TableHead className="text-right">Adjustment Amount</TableHead>
+                      <TableHead className="w-[80px]"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {addedItems.map((item, idx) => {
+                      const info = catalog.find(c => c.id === item.item_id);
+                      return (
+                        <TableRow key={idx}>
+                          <TableCell className="font-medium">{info?.item_name}</TableCell>
+                          <TableCell className={`text-right font-bold ${item.qty < 0 ? 'text-destructive' : 'text-primary'}`}>
+                            {item.qty > 0 ? `+${item.qty}` : item.qty} {info?.base_unit}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive"
+                              onClick={() => handleRemoveItem(idx)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* VIEW MODAL */}
-      {showViewModal && selectedAdjustment && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="glass max-w-xl w-full rounded-xl overflow-hidden shadow-2xl">
-            <div className="px-6 py-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-                  Adjustment #{selectedAdjustment.id.slice(0, 8)}
-                </h3>
-                <span className="text-[10px] text-slate-500 mt-0.5 block">{selectedAdjustment.id}</span>
-              </div>
-              <button onClick={() => setShowViewModal(false)} className="text-slate-400 hover:text-white transition-all">
-                <X className="w-4 h-4" />
-              </button>
             </div>
 
-            <div className="p-6 space-y-5">
-              <div className="grid grid-cols-2 gap-4 text-xs">
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">
+                Submit for Approval
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* VIEW MODAL */}
+      <Dialog open={showViewModal} onOpenChange={setShowViewModal}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Adjustment #{selectedAdjustment?.id.slice(0, 8)}</DialogTitle>
+            <DialogDescription className="font-mono text-xs">
+              ID: {selectedAdjustment?.id}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedAdjustment && (
+            <div className="space-y-6 pt-4">
+              <div className="grid grid-cols-2 gap-4 text-sm bg-muted/30 p-4 rounded-lg">
                 <div>
-                  <span className="text-slate-500 block">Branch Location</span>
-                  <span className="font-bold text-slate-200">{selectedAdjustment.branches?.name}</span>
+                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Branch Location</span>
+                  <span className="font-medium">{selectedAdjustment.branches?.name}</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block">Reason</span>
-                  <span className="capitalize font-bold text-indigo-400">{selectedAdjustment.reason.replace('_', ' ')}</span>
+                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Reason</span>
+                  <span className="font-medium capitalize">{selectedAdjustment.reason.replace('_', ' ')}</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block">Created Date</span>
-                  <span className="font-bold text-slate-200">{new Date(selectedAdjustment.created_at).toLocaleString()}</span>
+                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Created Date</span>
+                  <span className="font-medium">{new Date(selectedAdjustment.created_at).toLocaleString()}</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block">Approval Status</span>
-                  <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold border inline-block mt-0.5 ${
-                    selectedAdjustment.status === 'approved'
-                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                      : selectedAdjustment.status === 'rejected'
-                      ? 'bg-red-500/10 border-red-500/20 text-red-400'
-                      : 'bg-amber-500/10 border-amber-500/20 text-amber-500'
-                  }`}>
+                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Status</span>
+                  <Badge variant={
+                    selectedAdjustment.status === 'approved' ? 'default' :
+                    selectedAdjustment.status === 'rejected' ? 'destructive' : 'secondary'
+                  } className="uppercase mt-1 text-[10px]">
                     {selectedAdjustment.status}
-                  </span>
+                  </Badge>
                 </div>
                 {selectedAdjustment.photo_url && (
                   <div className="col-span-2">
-                    <span className="text-slate-500 block mb-1">Attachment Photo</span>
-                    <a 
-                      href={selectedAdjustment.photo_url} 
-                      target="_blank" 
-                      rel="noreferrer" 
-                      className="text-xs text-indigo-400 underline break-all hover:text-indigo-300"
-                    >
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold mb-1">Attachment Photo</span>
+                    <a href={selectedAdjustment.photo_url} target="_blank" rel="noreferrer" className="text-primary hover:underline break-all">
                       {selectedAdjustment.photo_url}
                     </a>
                   </div>
                 )}
                 <div className="col-span-2">
-                  <span className="text-slate-500 block">Remarks</span>
-                  <span className="font-medium text-slate-300">{selectedAdjustment.remarks || 'No remarks'}</span>
+                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Remarks</span>
+                  <span className="font-medium">{selectedAdjustment.remarks || 'No remarks'}</span>
                 </div>
               </div>
 
               <div>
-                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">Adjusted Items</h4>
-                <div className="bg-slate-950 rounded border border-slate-800">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="bg-slate-900 text-slate-500 border-b border-slate-800">
-                        <th className="p-2.5 pl-3">Item Name</th>
-                        <th className="p-2.5 text-right pr-3">Adjustment Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/40">
+                <h4 className="text-sm font-semibold mb-3">Adjusted Items</h4>
+                <div className="border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item Name</TableHead>
+                        <TableHead className="text-right pr-4">Adjustment Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {adjustmentItems.map((item, idx) => {
                         const name = item.inventory_items?.item_name || 'Deleted Item';
                         const unit = item.inventory_items?.base_unit || 'unit';
                         return (
-                          <tr key={idx} className="text-slate-300">
-                            <td className="p-2.5 pl-3 font-semibold text-slate-200">{name}</td>
-                            <td className={`p-2.5 text-right font-bold pr-3 ${item.quantity_base_unit < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium">{name}</TableCell>
+                            <TableCell className={`text-right font-bold pr-4 ${item.quantity_base_unit < 0 ? 'text-destructive' : 'text-primary'}`}>
                               {item.quantity_base_unit > 0 ? `+${item.quantity_base_unit}` : item.quantity_base_unit} {unit}
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         );
                       })}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
 
-              <div className="flex space-x-2 pt-2">
+              <DialogFooter className="flex space-x-2 sm:space-x-0">
                 {selectedAdjustment.status === 'pending' && canApprove ? (
                   <>
-                    <button
-                      onClick={() => handleRejectAdjustment(selectedAdjustment.id)}
-                      className="flex-1 bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/20 text-xs font-semibold py-2 rounded"
-                    >
+                    <Button variant="destructive" onClick={() => handleRejectAdjustment(selectedAdjustment.id)}>
                       Reject Adjustment
-                    </button>
-                    <button
-                      onClick={() => handleApproveAdjustment(selectedAdjustment.id)}
-                      disabled={processing}
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold py-2 rounded shadow disabled:opacity-50"
-                    >
+                    </Button>
+                    <Button disabled={processing} onClick={() => handleApproveAdjustment(selectedAdjustment.id)}>
                       {processing ? 'Processing...' : 'Approve & Apply'}
-                    </button>
+                    </Button>
                   </>
                 ) : (
-                  <button
-                    onClick={() => setShowViewModal(false)}
-                    className="flex-1 bg-slate-900 border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold py-2 rounded text-center"
-                  >
-                    Close Window
-                  </button>
+                  <Button variant="outline" onClick={() => setShowViewModal(false)}>
+                    Close
+                  </Button>
                 )}
-              </div>
+              </DialogFooter>
             </div>
-          </div>
-        </div>
-      )}
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

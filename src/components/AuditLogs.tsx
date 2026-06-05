@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { FileText, Search, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Card, CardContent } from './ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Badge } from './ui/badge';
 
 interface AuditLog {
   id: string;
@@ -49,10 +55,8 @@ export const AuditLogs: React.FC = () => {
     }
   };
 
-  // Modules list for filtering
   const modules = ['All', ...Array.from(new Set(logs.map(log => log.module)))];
 
-  // Filters
   const filteredLogs = logs.filter(log => {
     const matchesSearch = log.action.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           (log.user_id && log.user_id.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -62,136 +66,130 @@ export const AuditLogs: React.FC = () => {
   });
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto bg-slate-950">
+    <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight flex items-center space-x-2">
-            <FileText className="w-6 h-6 text-indigo-500" />
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <FileText className="w-8 h-8 text-primary" />
             <span>Immutable Audit Logs</span>
           </h2>
-          <p className="text-sm text-slate-400">Read-only ledger tracking all user logins, inventory updates, and role alterations.</p>
+          <p className="text-muted-foreground mt-1">Read-only ledger tracking all user logins, inventory updates, and role alterations.</p>
         </div>
 
-        <button
-          onClick={loadLogs}
-          className="p-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <Button variant="outline" size="icon" onClick={loadLogs}>
+          <RefreshCw className="h-4 w-4" />
+        </Button>
       </div>
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4 mb-6">
-        <div className="flex items-center space-x-3 bg-slate-900 border border-slate-800 px-3.5 py-1.5 rounded-lg flex-1">
-          <Search className="w-4 h-4 text-slate-500" />
-          <input
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search action or User UUID..."
-            className="bg-transparent text-sm text-white focus:outline-none w-full"
+            className="pl-9"
           />
         </div>
-        <div>
-          <select
-            value={selectedModule}
-            onChange={(e) => setSelectedModule(e.target.value)}
-            className="bg-slate-900 border border-slate-800 text-xs text-white rounded px-2.5 py-1.5 focus:outline-none"
-          >
+        <Select value={selectedModule} onValueChange={setSelectedModule}>
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue placeholder="All Modules" />
+          </SelectTrigger>
+          <SelectContent>
             {modules.map(mod => (
-              <option key={mod} value={mod}>
-                {mod}
-              </option>
+              <SelectItem key={mod} value={mod}>{mod}</SelectItem>
             ))}
-          </select>
-        </div>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Logs Grid */}
-      {loading ? (
-        <div className="flex items-center justify-center p-8">
-          <span className="text-xs text-slate-500 animate-pulse">Loading audit trail...</span>
-        </div>
-      ) : (
-        <div className="glass rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-900 border-b border-slate-800 text-slate-400 font-semibold">
-                  <th className="p-4 pl-6">Timestamp</th>
-                  <th className="p-4">Action</th>
-                  <th className="p-4">Module</th>
-                  <th className="p-4">User ID (UUID)</th>
-                  <th className="p-4 text-right pr-6">Data Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/40">
-                {filteredLogs.map(log => {
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-6">Timestamp</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Module</TableHead>
+                <TableHead>User ID (UUID)</TableHead>
+                <TableHead className="text-right pr-6">Data Details</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
+                    Loading audit trail...
+                  </TableCell>
+                </TableRow>
+              ) : filteredLogs.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                    No audit entries match filters.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredLogs.map(log => {
                   const isExpanded = expandedLogId === log.id;
                   return (
                     <React.Fragment key={log.id}>
-                      <tr className="hover:bg-slate-900/10 text-slate-300">
-                        <td className="p-4 pl-6 text-slate-500 font-medium">
+                      <TableRow className="cursor-pointer" onClick={() => toggleExpand(log.id)}>
+                        <TableCell className="pl-6 text-muted-foreground font-medium text-xs">
                           {new Date(log.timestamp).toLocaleString()}
-                        </td>
-                        <td className="p-4 font-mono font-bold text-indigo-400">{log.action}</td>
-                        <td className="p-4">
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700/50">
+                        </TableCell>
+                        <TableCell className="font-mono font-bold text-primary">{log.action}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-[10px] bg-muted/50">
                             {log.module}
-                          </span>
-                        </td>
-                        <td className="p-4 text-slate-500 font-mono">{log.user_id || 'SYSTEM'}</td>
-                        <td className="p-4 text-right pr-6">
-                          <button
-                            onClick={() => toggleExpand(log.id)}
-                            className="flex items-center space-x-1 ml-auto bg-slate-900 border border-slate-800 hover:bg-slate-800 px-2 py-1 rounded text-[10px] font-semibold text-slate-300 transition-all"
-                          >
-                            <span>Inspect Payload</span>
-                            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                          </button>
-                        </td>
-                      </tr>
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground font-mono text-xs">{log.user_id || 'SYSTEM'}</TableCell>
+                        <TableCell className="text-right pr-6">
+                          <Button variant="ghost" size="sm" className="h-8">
+                            Inspect Payload
+                            {isExpanded ? <ChevronUp className="w-3 h-3 ml-2" /> : <ChevronDown className="w-3 h-3 ml-2" />}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
                       {isExpanded && (
-                        <tr className="bg-slate-950/80">
-                          <td colSpan={5} className="p-6 pl-10 border-b border-slate-800/30">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block mb-2">
-                                  Old State Values
-                                </span>
-                                <pre className="bg-slate-900 p-4 rounded-lg text-[10px] text-slate-300 border border-slate-850 overflow-x-auto max-h-40">
-                                  {log.old_value ? JSON.stringify(log.old_value, null, 2) : 'NULL'}
-                                </pre>
-                              </div>
-                              <div>
-                                <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block mb-2">
-                                  New State Values
-                                </span>
-                                <pre className="bg-slate-900 p-4 rounded-lg text-[10px] text-slate-300 border border-slate-850 overflow-x-auto max-h-40">
-                                  {log.new_value ? JSON.stringify(log.new_value, null, 2) : 'NULL'}
-                                </pre>
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          <TableCell colSpan={5} className="p-0">
+                            <div className="p-6 pl-10 border-l-2 border-primary">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                  <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block mb-2">
+                                    Old State Values
+                                  </span>
+                                  <pre className="bg-muted p-4 rounded-lg text-xs font-mono text-foreground border overflow-x-auto max-h-48 whitespace-pre-wrap">
+                                    {log.old_value ? JSON.stringify(log.old_value, null, 2) : 'NULL'}
+                                  </pre>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block mb-2">
+                                    New State Values
+                                  </span>
+                                  <pre className="bg-muted p-4 rounded-lg text-xs font-mono text-foreground border overflow-x-auto max-h-48 whitespace-pre-wrap">
+                                    {log.new_value ? JSON.stringify(log.new_value, null, 2) : 'NULL'}
+                                  </pre>
+                                </div>
                               </div>
                             </div>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       )}
                     </React.Fragment>
                   );
-                })}
-
-                {filteredLogs.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="text-center p-8 text-slate-500">
-                      No audit entries matches filters.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 };

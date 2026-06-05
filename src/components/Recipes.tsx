@@ -1,7 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Plus, Edit2, BookOpen, X, RefreshCw, Trash2 } from 'lucide-react';
+import { Plus, Edit2, BookOpen, RefreshCw, Trash2 } from 'lucide-react';
+import { Card, CardContent } from './ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Button } from './ui/button';
+import { Badge } from './ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Textarea } from './ui/textarea';
+import { Label } from './ui/label';
+import { useToast } from '../hooks/use-toast';
+import { ScrollArea } from './ui/scroll-area';
 
 interface MenuItem {
   id: string;
@@ -30,6 +41,7 @@ interface InventoryCatalogItem {
 
 export const Recipes: React.FC = () => {
   const { profile } = useAuth();
+  const { toast } = useToast();
   
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [catalog, setCatalog] = useState<InventoryCatalogItem[]>([]);
@@ -51,13 +63,10 @@ export const Recipes: React.FC = () => {
   const [recipeIngredients, setRecipeIngredients] = useState<{ item_id: string; qty: number }[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState(1);
-
-  const [formError, setFormError] = useState('');
-  const [formSuccess, setFormSuccess] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const loadData = async () => {
     try {
-      // 1. Fetch menu items with their recipes and recipe ingredients
       const { data: menuData, error: menuError } = await supabase
         .from('menu_items')
         .select(`
@@ -75,7 +84,6 @@ export const Recipes: React.FC = () => {
       if (menuError) throw menuError;
       setMenuItems(menuData || []);
 
-      // 2. Fetch inventory catalog items (for recipe ingredients selection and cost details)
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
         .select('id, item_name, base_unit, cost_per_base_unit')
@@ -85,6 +93,7 @@ export const Recipes: React.FC = () => {
       setCatalog(catData || []);
     } catch (err) {
       console.error(err);
+      toast({ title: "Error", description: "Failed to load recipe data", variant: "destructive" });
     }
   };
 
@@ -128,8 +137,6 @@ export const Recipes: React.FC = () => {
       setCurrentSelectedItemId('');
       setCurrentQty(1);
     }
-    setFormError('');
-    setFormSuccess('');
     setShowItemModal(true);
   };
 
@@ -143,8 +150,6 @@ export const Recipes: React.FC = () => {
     setIsAvailable(item.is_available);
     setInstructions('');
     setRecipeIngredients([]);
-    setFormError('');
-    setFormSuccess('');
 
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
@@ -155,7 +160,6 @@ export const Recipes: React.FC = () => {
     }
 
     try {
-      // 1. Fetch recipe row
       let { data: recipeData, error: recipeError } = await supabase
         .from('recipes')
         .select('*')
@@ -170,7 +174,6 @@ export const Recipes: React.FC = () => {
         recipeId = recipeData.id;
       }
 
-      // 2. Fetch recipe ingredients
       if (recipeId) {
         const { data: ingData, error: ingError } = await supabase
           .from('recipe_ingredients')
@@ -190,7 +193,7 @@ export const Recipes: React.FC = () => {
       }
     } catch (err) {
       console.error('Error fetching recipe:', err);
-      alert('Error fetching recipe information');
+      toast({ title: "Error", description: "Error fetching recipe information", variant: "destructive" });
     }
 
     setShowItemModal(true);
@@ -198,14 +201,12 @@ export const Recipes: React.FC = () => {
 
   const handleSaveMenuItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFormError('');
-    setFormSuccess('');
-
     if (!itemName.trim() || !sku.trim()) {
-      setFormError('Name and SKU are required');
+      toast({ title: "Validation Error", description: "Name and SKU are required", variant: "destructive" });
       return;
     }
 
+    setIsSaving(true);
     try {
       const payload = {
         name: itemName.trim(),
@@ -234,7 +235,6 @@ export const Recipes: React.FC = () => {
         menuItemId = newMenuItem.id;
       }
 
-      // Save Recipe details (instructions and recipe_ingredients)
       let { data: recipeRow, error: findError } = await supabase
         .from('recipes')
         .select('id')
@@ -246,14 +246,12 @@ export const Recipes: React.FC = () => {
       let recipeId = '';
       if (recipeRow) {
         recipeId = recipeRow.id;
-        // Update instructions
         const { error: updateError } = await supabase
           .from('recipes')
           .update({ instructions, version: 1 })
           .eq('id', recipeId);
         if (updateError) throw updateError;
       } else {
-        // Insert new recipe row
         const { data: newRow, error: insertError } = await supabase
           .from('recipes')
           .insert({
@@ -267,14 +265,12 @@ export const Recipes: React.FC = () => {
         recipeId = newRow.id;
       }
 
-      // Delete old ingredients
       const { error: deleteError } = await supabase
         .from('recipe_ingredients')
         .delete()
         .eq('recipe_id', recipeId);
       if (deleteError) throw deleteError;
 
-      // Insert new ingredients
       if (recipeIngredients.length > 0) {
         const ingredientsPayload = recipeIngredients.map(ing => ({
           recipe_id: recipeId,
@@ -288,12 +284,14 @@ export const Recipes: React.FC = () => {
         if (insertIngsError) throw insertIngsError;
       }
 
-      setFormSuccess(selectedItem ? 'Menu item and recipe updated!' : 'Menu item and recipe created!');
+      toast({ title: "Success", description: selectedItem ? 'Menu item and recipe updated!' : 'Menu item and recipe created!' });
       await loadData();
-      setTimeout(() => setShowItemModal(false), 800);
+      setShowItemModal(false);
     } catch (err: any) {
       console.error(err);
-      setFormError(err.message || 'Error saving menu item and recipe');
+      toast({ title: "Error", description: err.message || 'Error saving menu item and recipe', variant: "destructive" });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -301,14 +299,13 @@ export const Recipes: React.FC = () => {
     if (!currentSelectedItemId) return;
     const exists = recipeIngredients.find(ri => ri.item_id === currentSelectedItemId);
     if (exists) {
-      setFormError('Ingredient already added to recipe.');
+      toast({ title: "Validation Error", description: "Ingredient already added to recipe.", variant: "destructive" });
       return;
     }
     setRecipeIngredients([
       ...recipeIngredients,
       { item_id: currentSelectedItemId, qty: Number(currentQty) }
     ]);
-    setFormError('');
   };
 
   const handleRemoveIngredient = (index: number) => {
@@ -318,223 +315,157 @@ export const Recipes: React.FC = () => {
   const isEditor = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto bg-slate-950">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+    <div className="flex-1 p-4 md:p-8 overflow-y-auto">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight">Recipes & Menu Mapping</h2>
-          <p className="text-sm text-slate-400">Map retail dishes sold at the POS to raw inventory ingredients for automatic deduction.</p>
+          <h2 className="text-3xl font-bold tracking-tight">Recipes & Menu Mapping</h2>
+          <p className="text-muted-foreground mt-1">Map retail dishes sold at the POS to raw inventory ingredients for automatic deduction.</p>
         </div>
 
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={loadData}
-            className="p-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
+        <div className="flex items-center space-x-2">
+          <Button variant="outline" size="icon" onClick={loadData}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
           
           {isEditor && (
-            <button
-              onClick={handleOpenItemCreate}
-              className="flex items-center space-x-2 bg-indigo-600 text-white px-3.5 py-2 rounded-lg text-xs font-bold shadow hover:bg-indigo-500 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Create Menu Item</span>
-            </button>
+            <Button onClick={handleOpenItemCreate}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Menu Item
+            </Button>
           )}
         </div>
       </div>
 
-      {/* Menu Items Table */}
-      <div className="glass rounded-xl overflow-hidden">
-        <table className="w-full text-left text-xs">
-          <thead>
-            <tr className="bg-slate-900 border-b border-slate-800 text-slate-400 font-semibold">
-              <th className="p-4 pl-6">Menu Dish</th>
-              <th className="p-4">SKU</th>
-              <th className="p-4">Category</th>
-              <th className="p-4 text-right">Retail Price</th>
-              <th className="p-4 text-right">Ingredient Cost</th>
-              <th className="p-4 text-right">Profit (Margin)</th>
-              <th className="p-4">Availability</th>
-              <th className="p-4">Status</th>
-              <th className="p-4 text-right pr-6">Recipe Mapping</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800/60">
-            {menuItems.map(item => {
-              const cost = calculateItemCost(item);
-              const profit = Number(item.price) - cost;
-              const margin = Number(item.price) > 0 ? (profit / Number(item.price)) * 100 : 0;
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-6">Menu Dish</TableHead>
+                <TableHead>SKU</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead className="text-right">Retail Price</TableHead>
+                <TableHead className="text-right">Ingredient Cost</TableHead>
+                <TableHead className="text-right">Profit (Margin)</TableHead>
+                <TableHead>Availability</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right pr-6">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {menuItems.map(item => {
+                const cost = calculateItemCost(item);
+                const profit = Number(item.price) - cost;
+                const margin = Number(item.price) > 0 ? (profit / Number(item.price)) * 100 : 0;
 
-              return (
-                <tr key={item.id} className="hover:bg-slate-900/10 text-slate-300">
-                  <td className="p-4 pl-6 font-bold text-slate-200">{item.name}</td>
-                  <td className="p-4 text-slate-500 font-mono">{item.sku}</td>
-                  <td className="p-4">
-                    <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700/50">
-                      {item.category}
-                    </span>
-                  </td>
-                  <td className="p-4 text-right font-bold text-slate-200">₱{Number(item.price).toFixed(2)}</td>
-                  <td className="p-4 text-right text-slate-400">₱{cost.toFixed(2)}</td>
-                  <td className="p-4 text-right">
-                    <span className={`font-bold ${margin > 50 ? 'text-emerald-400' : margin > 30 ? 'text-indigo-400' : 'text-amber-500'}`}>
-                      ₱{profit.toFixed(2)} <span className="text-[10px] font-normal text-slate-500">({margin.toFixed(1)}%)</span>
-                    </span>
-                  </td>
-                  <td className="p-4">
-                    <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold border ${
-                      item.is_available 
-                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
-                        : 'bg-red-500/10 border-red-500/20 text-red-400'
-                    }`}>
-                      {item.is_available ? 'In Stock' : 'Out of Stock'}
-                    </span>
-                  </td>
-                  <td className="p-4">
-                    <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold border ${
-                      item.status === 'active' 
-                        ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' 
-                        : 'bg-slate-800 border-slate-700 text-slate-500'
-                    }`}>
-                      {item.status}
-                    </span>
-                  </td>
-                  <td className="p-4 text-right pr-6 flex justify-end space-x-2">
-                    {isEditor && (
-                      <button
-                        onClick={() => handleOpenItemEdit(item)}
-                        className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800"
-                        title="Edit Item Info"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleOpenItemEdit(item)}
-                      className="flex items-center space-x-1 bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:text-white px-2.5 py-1 rounded text-[10px] font-bold text-indigo-400 transition-all shadow-sm"
-                    >
-                      <BookOpen className="w-3.5 h-3.5" />
-                      <span>Map Ingredients</span>
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
+                return (
+                  <TableRow key={item.id}>
+                    <TableCell className="pl-6 font-bold">{item.name}</TableCell>
+                    <TableCell className="text-muted-foreground font-mono">{item.sku}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="text-[10px] uppercase">
+                        {item.category}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right font-bold">₱{Number(item.price).toFixed(2)}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">₱{cost.toFixed(2)}</TableCell>
+                    <TableCell className="text-right">
+                      <span className={`font-bold ${margin > 50 ? 'text-emerald-500' : margin > 30 ? 'text-primary' : 'text-amber-500'}`}>
+                        ₱{profit.toFixed(2)} <span className="text-[10px] font-normal text-muted-foreground">({margin.toFixed(1)}%)</span>
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={item.is_available ? "default" : "destructive"} className="text-[9px] uppercase">
+                        {item.is_available ? 'In Stock' : 'Out of Stock'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={item.status === 'active' ? "outline" : "secondary"} className="text-[9px] uppercase">
+                        {item.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right pr-6">
+                      <div className="flex justify-end space-x-1">
+                        {isEditor && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpenItemEdit(item)} title="Edit Item Info">
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button variant="outline" size="sm" className="h-8 text-primary border-primary hover:bg-primary/10" onClick={() => handleOpenItemEdit(item)}>
+                          <BookOpen className="h-3.5 w-3.5 mr-1.5" />
+                          Map Ingredients
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
 
-            {menuItems.length === 0 && (
-              <tr>
-                <td colSpan={9} className="text-center p-8 text-slate-500">
-                  No menu items found. Get started by clicking 'Create Menu Item'.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* CREATE/EDIT MENU ITEM MODAL */}
-      {showItemModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="glass max-w-3xl w-full rounded-xl overflow-hidden shadow-2xl">
-            <div className="px-6 py-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                {selectedItem ? 'Edit Menu Item & Recipe' : 'New Menu Item & Recipe'}
-              </h3>
-              <button onClick={() => setShowItemModal(false)} className="text-slate-400 hover:text-white transition-all">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveMenuItem} className="p-6 space-y-6">
-              {formError && (
-                <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded">
-                  {formError}
-                </div>
+              {menuItems.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                    No menu items found. Get started by clicking 'Create Menu Item'.
+                  </TableCell>
+                </TableRow>
               )}
-              {formSuccess && (
-                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded">
-                  {formSuccess}
-                </div>
-              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <Dialog open={showItemModal} onOpenChange={setShowItemModal}>
+        <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-6 border-b shrink-0">
+            <DialogTitle>{selectedItem ? 'Edit Menu Item & Recipe' : 'New Menu Item & Recipe'}</DialogTitle>
+          </DialogHeader>
+          
+          <ScrollArea className="flex-1">
+            <form id="recipe-form" onSubmit={handleSaveMenuItem} className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Left Column: Menu Item Details */}
-                <div className="space-y-4">
-                  <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider border-b border-slate-800 pb-2">Dish Details</h4>
+                <div className="space-y-6">
+                  <div className="pb-2 border-b">
+                    <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Dish Details</h4>
+                  </div>
                   
-                  <div>
-                    <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                      Dish Name *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={itemName}
-                      onChange={(e) => setItemName(e.target.value)}
-                      placeholder="e.g. Classic Beef Burger"
-                      className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                    />
+                  <div className="space-y-2">
+                    <Label>Dish Name *</Label>
+                    <Input required value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="e.g. Classic Beef Burger" />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                        SKU *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={sku}
-                        onChange={(e) => setSku(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-                      />
+                    <div className="space-y-2">
+                      <Label>SKU *</Label>
+                      <Input required value={sku} onChange={(e) => setSku(e.target.value)} className="font-mono" />
                     </div>
-                    <div>
-                      <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                        Category *
-                      </label>
-                      <select
-                        value={category}
-                        onChange={(e) => setCategory(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                      >
-                        <option value="Burgers">Burgers</option>
-                        <option value="Sides">Sides</option>
-                        <option value="Beverages">Beverages</option>
-                        <option value="Desserts">Desserts</option>
-                      </select>
+                    <div className="space-y-2">
+                      <Label>Category *</Label>
+                      <Select value={category} onValueChange={setCategory}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Burgers">Burgers</SelectItem>
+                          <SelectItem value="Sides">Sides</SelectItem>
+                          <SelectItem value="Beverages">Beverages</SelectItem>
+                          <SelectItem value="Desserts">Desserts</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                        Price (₱) *
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        required
-                        value={price}
-                        onChange={(e) => setPrice(Number(e.target.value))}
-                        className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                      />
+                    <div className="space-y-2">
+                      <Label>Price (₱) *</Label>
+                      <Input type="number" step="0.01" required value={price} onChange={(e) => setPrice(Number(e.target.value))} />
                     </div>
-                    <div>
-                      <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                        Menu Status
-                      </label>
-                      <select
-                        value={itemStatus}
-                        onChange={(e: any) => setItemStatus(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                      >
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                      </select>
+                    <div className="space-y-2">
+                      <Label>Menu Status</Label>
+                      <Select value={itemStatus} onValueChange={(v: any) => setItemStatus(v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="inactive">Inactive</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
 
@@ -544,152 +475,131 @@ export const Recipes: React.FC = () => {
                       id="isAvailable"
                       checked={isAvailable}
                       onChange={(e) => setIsAvailable(e.target.checked)}
-                      className="rounded bg-slate-950 border-slate-800 text-indigo-600 focus:ring-indigo-500"
+                      className="rounded border-input text-primary focus:ring-primary h-4 w-4"
                     />
-                    <label htmlFor="isAvailable" className="text-xs text-slate-300 font-semibold select-none cursor-pointer">
+                    <Label htmlFor="isAvailable" className="cursor-pointer font-normal">
                       Available for Sale (POS check)
-                    </label>
+                    </Label>
                   </div>
                 </div>
 
                 {/* Right Column: Recipe & Ingredients Mapping */}
-                <div className="space-y-4">
-                  <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider border-b border-slate-800 pb-2">Recipe & Ingredients</h4>
-
-                  {/* Real-time Profit Margin Metrics Card */}
-                  <div className="grid grid-cols-3 gap-2 bg-slate-900/60 border border-slate-800/80 p-3 rounded-lg text-center">
-                    <div>
-                      <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-0.5">Est. Cost</span>
-                      <span className="text-slate-200 font-bold text-sm">₱{currentCost.toFixed(2)}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-0.5">Est. Profit</span>
-                      <span className="text-slate-200 font-bold text-sm">₱{currentProfit.toFixed(2)}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-0.5">Margin</span>
-                      <span className={`font-extrabold text-sm block ${currentMargin > 50 ? 'text-emerald-400' : currentMargin > 30 ? 'text-indigo-400' : 'text-amber-500'}`}>
-                        {currentMargin.toFixed(1)}%
-                      </span>
-                    </div>
+                <div className="space-y-6">
+                  <div className="pb-2 border-b">
+                    <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Recipe & Ingredients</h4>
                   </div>
 
-                  <div>
-                    <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                      Preparation Instructions / Steps
-                    </label>
-                    <textarea
+                  <Card className="bg-muted/50 border-border/50">
+                    <CardContent className="p-4 flex justify-between text-center">
+                      <div className="flex-1 border-r border-border/50">
+                        <span className="text-[10px] text-muted-foreground block uppercase font-bold tracking-wider mb-1">Est. Cost</span>
+                        <span className="font-bold text-sm">₱{currentCost.toFixed(2)}</span>
+                      </div>
+                      <div className="flex-1 border-r border-border/50">
+                        <span className="text-[10px] text-muted-foreground block uppercase font-bold tracking-wider mb-1">Est. Profit</span>
+                        <span className="font-bold text-sm">₱{currentProfit.toFixed(2)}</span>
+                      </div>
+                      <div className="flex-1">
+                        <span className="text-[10px] text-muted-foreground block uppercase font-bold tracking-wider mb-1">Margin</span>
+                        <span className={`font-extrabold text-sm ${currentMargin > 50 ? 'text-emerald-500' : currentMargin > 30 ? 'text-primary' : 'text-amber-500'}`}>
+                          {currentMargin.toFixed(1)}%
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <div className="space-y-2">
+                    <Label>Preparation Instructions / Steps</Label>
+                    <Textarea
                       value={instructions}
                       onChange={(e) => setInstructions(e.target.value)}
                       placeholder="e.g. Sear patty, toast bun, place sauce..."
-                      rows={2}
-                      className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 resize-none"
+                      rows={3}
                     />
                   </div>
 
-                  {/* Add Ingredient Section */}
                   {isEditor ? (
-                    <div className="bg-slate-900/40 p-3 rounded border border-slate-800 space-y-2">
-                      <label className="text-[10px] text-slate-400 font-semibold uppercase block">
-                        Add Ingredient to Recipe
-                      </label>
-                      <div className="flex space-x-2">
-                        <select
-                          value={currentSelectedItemId}
-                          onChange={(e) => setCurrentSelectedItemId(e.target.value)}
-                          className="flex-1 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-white focus:outline-none"
-                        >
-                          {catalog.map(item => (
-                            <option key={item.id} value={item.id}>
-                              {item.item_name} ({item.base_unit})
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          step="any"
-                          value={currentQty || ''}
-                          onChange={(e) => setCurrentQty(Number(e.target.value))}
-                          placeholder="Qty"
-                          className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-white text-center focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddIngredient}
-                          className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded text-xs font-semibold"
-                        >
-                          Add
-                        </button>
-                      </div>
-                    </div>
+                    <Card className="bg-muted/30">
+                      <CardContent className="p-4 space-y-3">
+                        <Label className="text-[10px] uppercase">Add Ingredient to Recipe</Label>
+                        <div className="flex space-x-2">
+                          <Select value={currentSelectedItemId} onValueChange={setCurrentSelectedItemId}>
+                            <SelectTrigger className="flex-1 h-9"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {catalog.map(item => (
+                                <SelectItem key={item.id} value={item.id}>
+                                  {item.item_name} ({item.base_unit})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            type="number"
+                            step="any"
+                            value={currentQty || ''}
+                            onChange={(e) => setCurrentQty(Number(e.target.value))}
+                            placeholder="Qty"
+                            className="w-24 h-9"
+                          />
+                          <Button type="button" size="sm" className="h-9 px-4" onClick={handleAddIngredient}>
+                            Add
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
                   ) : (
-                    <p className="text-xs text-slate-500">Only editors can manage recipe ingredient links.</p>
+                    <p className="text-xs text-muted-foreground">Only editors can manage recipe ingredient links.</p>
                   )}
 
-                  {/* Added Ingredients List Table */}
-                  <div className="bg-slate-950 rounded border border-slate-800 max-h-36 overflow-y-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="bg-slate-900 text-slate-500 border-b border-slate-800">
-                          <th className="p-2 pl-3">Ingredient</th>
-                          <th className="p-2 text-right">Qty Needed</th>
-                          <th className="p-2 text-center pr-3 w-12">Remove</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800/40">
+                  <div className="border rounded-md overflow-hidden max-h-48 overflow-y-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/50">
+                          <TableHead className="pl-4 h-8 text-xs">Ingredient</TableHead>
+                          <TableHead className="text-right h-8 text-xs">Qty Needed</TableHead>
+                          <TableHead className="w-12 h-8 text-center text-xs pr-4"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
                         {recipeIngredients.map((ing, idx) => {
                           const info = catalog.find(c => c.id === ing.item_id);
                           return (
-                            <tr key={idx} className="text-slate-300">
-                              <td className="p-2 pl-3 font-semibold text-slate-200">{info?.item_name || 'Unknown'}</td>
-                              <td className="p-2 text-right font-bold text-slate-100">
+                            <TableRow key={idx}>
+                              <TableCell className="pl-4 font-semibold text-xs py-2">{info?.item_name || 'Unknown'}</TableCell>
+                              <TableCell className="text-right font-bold text-xs py-2">
                                 {ing.qty} {info?.base_unit}
-                              </td>
-                              <td className="p-2 text-center pr-3">
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveIngredient(idx)}
-                                  className="text-slate-500 hover:text-red-400"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5 mx-auto" />
-                                </button>
-                              </td>
-                            </tr>
+                              </TableCell>
+                              <TableCell className="text-center pr-4 py-2">
+                                <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveIngredient(idx)}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
                           );
                         })}
-
                         {recipeIngredients.length === 0 && (
-                          <tr>
-                            <td colSpan={3} className="text-center p-4 text-slate-500">
+                          <TableRow>
+                            <TableCell colSpan={3} className="text-center p-4 text-xs text-muted-foreground">
                               No ingredients mapped. Real-time deduction is disabled for this dish.
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         )}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 </div>
               </div>
-
-              <div className="flex space-x-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowItemModal(false)}
-                  className="flex-1 bg-slate-900 border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold py-2 rounded text-center"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold py-2 rounded shadow"
-                >
-                  Save Menu Item & Recipe
-                </button>
-              </div>
             </form>
-          </div>
-        </div>
-      )}
+          </ScrollArea>
+          
+          <DialogFooter className="p-6 border-t shrink-0">
+            <Button type="button" variant="outline" onClick={() => setShowItemModal(false)}>Cancel</Button>
+            <Button type="submit" form="recipe-form" disabled={isSaving}>
+              {isSaving ? 'Saving...' : 'Save Menu Item & Recipe'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
