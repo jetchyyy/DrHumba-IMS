@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { PlusIcon as Plus, Pencil2Icon as Edit2, ReaderIcon as BookOpen, ReloadIcon as RefreshCw, TrashIcon as Trash2 } from '@radix-ui/react-icons';
+import { PlusIcon as Plus, Pencil2Icon as Edit2, ReaderIcon as BookOpen, ReloadIcon as RefreshCw, TrashIcon as Trash2, MagicWandIcon as ChefHat } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
@@ -337,7 +337,10 @@ export const Recipes: React.FC = () => {
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Recipes & Menu Mapping</h2>
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <ChefHat className="w-8 h-8 text-primary" />
+            <span>Recipes & Menu Mapping</span>
+          </h2>
           <p className="text-muted-foreground mt-1">Map retail dishes sold at the POS to raw inventory ingredients for automatic deduction.</p>
         </div>
 

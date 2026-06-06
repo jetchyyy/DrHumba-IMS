@@ -8,7 +8,8 @@ import {
   AlertTriangle,
   ArrowRight,
   RefreshCw,
-  Clock
+  Clock,
+  LayoutDashboard
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -150,7 +151,10 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Overview Dashboard</h2>
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <LayoutDashboard className="w-8 h-8 text-primary" />
+            <span>Overview Dashboard</span>
+          </h2>
           <p className="text-muted-foreground">Real-time status across all warehouses and restaurant branches.</p>
         </div>
         <Button onClick={loadData} disabled={refreshing} variant="outline" size="sm">

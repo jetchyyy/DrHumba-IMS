@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { PlusIcon as Plus, Pencil2Icon as Edit2, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, ExclamationTriangleIcon as AlertTriangle, TrashIcon as Trash2 } from '@radix-ui/react-icons';
+import { PlusIcon as Plus, Pencil2Icon as Edit2, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, ExclamationTriangleIcon as AlertTriangle, TrashIcon as Trash2, CubeIcon as Package } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -276,7 +276,10 @@ export const Inventory: React.FC = () => {
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Inventory</h2>
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <Package className="w-8 h-8 text-primary" />
+            <span>Inventory</span>
+          </h2>
           <p className="text-muted-foreground">
             {selectedBranch ? `Managing stock levels for ${selectedBranch.name}` : 'Select a branch first'}
           </p>

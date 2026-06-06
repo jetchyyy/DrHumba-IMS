@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 
 export const BranchManagement: React.FC = () => {
   const { profile, branches, refreshProfile } = useAuth();
@@ -91,7 +92,10 @@ export const BranchManagement: React.FC = () => {
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Branch Management</h2>
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <Store className="w-8 h-8 text-primary" />
+            <span>Branch Management</span>
+          </h2>
           <p className="text-muted-foreground mt-1">Add, review, and delete warehouses and retail restaurant branches.</p>
         </div>
         {isSuperAdmin && (
@@ -106,60 +110,79 @@ export const BranchManagement: React.FC = () => {
         {/* Branches list */}
         <div className="lg:col-span-1">
           <Card>
-            <CardHeader className="bg-muted/30 border-b pb-4">
-              <CardTitle className="text-lg uppercase tracking-wider text-muted-foreground">Active Locations</CardTitle>
-            </CardHeader>
             <CardContent className="p-0">
-              <div className="divide-y">
-                {branches.map((b) => (
-                  <div key={b.id} className="p-5 flex items-center justify-between hover:bg-muted/20 transition-all">
-                    <div className="flex items-center space-x-4">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center border ${
-                        b.is_warehouse 
-                          ? 'bg-primary/10 border-primary/20 text-primary' 
-                          : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
-                      }`}>
-                        {b.is_warehouse ? <Home className="w-5 h-5" /> : <Store className="w-5 h-5" />}
-                      </div>
-                      <div>
-                        <h4 className="text-base font-bold flex items-center space-x-2">
-                          <span>{b.name}</span>
-                          {b.is_warehouse && (
-                            <Badge variant="outline" className="text-[9px] uppercase border-primary/50 text-primary bg-primary/5">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-6 w-[250px]">Branch Name</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Location Address</TableHead>
+                    <TableHead className="text-center">Status</TableHead>
+                    {isSuperAdmin && <TableHead className="text-right pr-6">Actions</TableHead>}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {branches.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={isSuperAdmin ? 5 : 4} className="h-24 text-center text-muted-foreground">
+                        No branch locations loaded. Create one in the form on the left.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    branches.map((b) => (
+                      <TableRow key={b.id}>
+                        <TableCell className="pl-6 font-semibold">
+                          <div className="flex items-center space-x-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${
+                              b.is_warehouse 
+                                ? 'bg-primary/10 border-primary/20 text-primary' 
+                                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                            }`}>
+                              {b.is_warehouse ? <Home className="w-4 h-4" /> : <Store className="w-4 h-4" />}
+                            </div>
+                            <span>{b.name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {b.is_warehouse ? (
+                            <Badge variant="outline" className="text-[10px] uppercase border-primary/50 text-primary bg-primary/5">
                               Central Warehouse
                             </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] uppercase border-emerald-500/50 text-emerald-500 bg-emerald-500/5">
+                              Retail Branch
+                            </Badge>
                           )}
-                          <Badge variant={b.status === 'inactive' ? 'secondary' : 'default'} className="text-[9px] uppercase">
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          <div className="flex items-center space-x-1">
+                            <MapPin className="w-3.5 h-3.5" />
+                            <span>{b.location || 'No address specified'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant={b.status === 'inactive' ? 'secondary' : 'default'} className="text-[10px] uppercase">
                             {b.status || 'active'}
                           </Badge>
-                        </h4>
-                        <p className="text-sm text-muted-foreground flex items-center space-x-1 mt-1">
-                          <MapPin className="w-3.5 h-3.5" />
-                          <span>{b.location || 'No address specified'}</span>
-                        </p>
-                      </div>
-                    </div>
-
-                    {isSuperAdmin && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeleteBranch(b.id, b.name)}
-                        className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        title="Delete Branch"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-
-                {branches.length === 0 && (
-                  <div className="p-8 text-center text-muted-foreground">
-                    No branch locations loaded. Create one in the form on the left.
-                  </div>
-                )}
-              </div>
+                        </TableCell>
+                        {isSuperAdmin && (
+                          <TableCell className="text-right pr-6">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteBranch(b.id, b.name)}
+                              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              title="Delete Branch"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </div>

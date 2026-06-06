@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { settingsService } from '../lib/settingsService';
 import { printAdjustmentSlip } from '../lib/printService';
-import { PlusIcon as Plus, EyeOpenIcon as Eye, ReloadIcon as RefreshCw, TrashIcon as Trash2, FileTextIcon as Printer } from '@radix-ui/react-icons';
+import { PlusIcon as Plus, EyeOpenIcon as Eye, ReloadIcon as RefreshCw, TrashIcon as Trash2, FileTextIcon as Printer, ClipboardIcon as ClipboardList } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -335,7 +335,10 @@ export const Adjustments: React.FC = () => {
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Stock Adjustments</h2>
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <ClipboardList className="w-8 h-8 text-primary" />
+            <span>Stock Adjustments</span>
+          </h2>
           <p className="text-muted-foreground">Log damages, spoilage, or manual inventory count corrections.</p>
         </div>
 

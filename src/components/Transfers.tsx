@@ -358,7 +358,10 @@ export const Transfers: React.FC = () => {
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Stock Transfers</h2>
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <ArrowRightLeft className="w-8 h-8 text-primary" />
+            <span>Stock Transfers</span>
+          </h2>
           <p className="text-muted-foreground">Request, send, and confirm inventory movements between locations.</p>
         </div>
 

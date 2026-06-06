@@ -542,7 +542,10 @@ export const POS: React.FC = () => {
           {/* Header */}
           <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0">
             <div>
-              <h2 className="text-3xl font-bold tracking-tight">Point of Sale</h2>
+              <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+                <ShoppingCart className="w-8 h-8 text-primary" />
+                <span>Point of Sale</span>
+              </h2>
               <p className="text-muted-foreground">
                 Tap items to add to cart. Inventory deductions are validated at the database layer.
               </p>

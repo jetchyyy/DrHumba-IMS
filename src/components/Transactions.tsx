@@ -14,7 +14,8 @@ import {
   ReloadIcon as RefreshCw,
   MagnifyingGlassIcon as Search,
   CalendarIcon as Calendar,
-  FileTextIcon as Printer
+  FileTextIcon as Printer,
+  FileTextIcon as FileText
 } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -379,7 +380,10 @@ export const Transactions: React.FC = () => {
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Transactions Directory</h2>
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <FileText className="w-8 h-8 text-primary" />
+            <span>Transactions Directory</span>
+          </h2>
           <p className="text-muted-foreground">Consolidated ledger of Stock Receipts, Adjustments, Waste Logs, Transfers, and Invoices.</p>
         </div>
 

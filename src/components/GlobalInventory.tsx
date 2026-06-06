@@ -178,7 +178,10 @@ export const GlobalInventory: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Overall Inventory Stock</h2>
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <Layers className="w-8 h-8 text-primary" />
+            <span>Overall Inventory Stock</span>
+          </h2>
           <p className="text-muted-foreground">Aggregated stock balances and valuation across all branches and warehouses.</p>
         </div>
 

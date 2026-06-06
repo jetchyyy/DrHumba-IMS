@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { settingsService } from '../lib/settingsService';
 import { printStockInReceipt } from '../lib/printService';
-import { PlusIcon as Plus, TrashIcon as Trash2, EyeOpenIcon as Eye, ClipboardIcon as ClipboardCheck, ReloadIcon as RefreshCw, FileTextIcon as Printer } from '@radix-ui/react-icons';
+import { PlusIcon as Plus, TrashIcon as Trash2, EyeOpenIcon as Eye, ClipboardIcon as ClipboardCheck, ReloadIcon as RefreshCw, FileTextIcon as Printer, FilePlusIcon as FilePlus } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -305,7 +305,10 @@ export const StockReceiving: React.FC = () => {
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Stock Receiving</h2>
+          <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
+            <FilePlus className="w-8 h-8 text-primary" />
+            <span>Stock Receiving</span>
+          </h2>
           <p className="text-muted-foreground">Receive inventory shipments from suppliers and process unit conversions.</p>
         </div>
 
