@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useModal } from '../contexts/ModalContext';
 import {
   DashboardIcon as LayoutDashboard,
   BoxModelIcon as Store,
@@ -19,7 +20,8 @@ import {
   CountdownTimerIcon as History,
   SunIcon as Sun,
   MoonIcon as Moon,
-  HamburgerMenuIcon as Menu
+  HamburgerMenuIcon as Menu,
+  ReloadIcon as Spinner
 } from '@radix-ui/react-icons';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Button } from './ui/button';
@@ -72,8 +74,21 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
 }) => {
   const { profile, selectedBranch, setSelectedBranch, branches, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { confirm } = useModal();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const navItems = useNavItems();
   const canSwitchBranch = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name);
+
+  const handleSignOut = async () => {
+    if (await confirm('Sign Out', 'Are you sure you want to log out?')) {
+      setIsLoggingOut(true);
+      try {
+        await signOut();
+      } finally {
+        setIsLoggingOut(false);
+      }
+    }
+  };
 
   if (!profile) return null;
 
@@ -167,11 +182,16 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
         <Button
           variant="outline"
           size="sm"
-          onClick={signOut}
+          onClick={handleSignOut}
+          disabled={isLoggingOut}
           className="w-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30"
         >
-          <LogOut className="mr-2 h-4 w-4" />
-          Sign Out
+          {isLoggingOut ? (
+            <Spinner className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <LogOut className="mr-2 h-4 w-4" />
+          )}
+          {isLoggingOut ? 'Signing Out...' : 'Sign Out'}
         </Button>
       </div>
     </div>
