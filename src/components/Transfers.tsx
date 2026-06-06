@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { settingsService } from '../lib/settingsService';
+import { printTransferSlip } from '../lib/printService';
 import { EyeOpenIcon as Eye, ReloadIcon as RefreshCw, SymbolIcon as ArrowRightLeft, TrashIcon as Trash2, FileTextIcon as Printer } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -10,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Badge } from './ui/badge';
-import { useToast } from '../hooks/use-toast';
+import { useModal } from '../contexts/ModalContext';
 
 interface TransferRequest {
   id: string;
@@ -20,6 +22,8 @@ interface TransferRequest {
   status: 'requested' | 'approved' | 'rejected' | 'completed';
   remarks: string | null;
   created_at: string;
+  requested_by?: string | null;
+  approved_by?: string | null;
   source_branch?: { name: string };
   target_branch?: { name: string };
 }
@@ -42,7 +46,7 @@ interface CatalogItem {
 
 export const Transfers: React.FC = () => {
   const { profile, branches, selectedBranch } = useAuth();
-  const { toast } = useToast();
+  const { confirm, showSuccess, showError } = useModal();
   
   const [transfers, setTransfers] = useState<TransferRequest[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
@@ -77,6 +81,8 @@ export const Transfers: React.FC = () => {
           status,
           remarks,
           created_at,
+          requested_by,
+          approved_by,
           source_branch:branches!transfer_requests_source_branch_id_fkey(name),
           target_branch:branches!transfer_requests_target_branch_id_fkey(name)
         `)
@@ -118,7 +124,7 @@ export const Transfers: React.FC = () => {
     
     const exists = addedItems.find(i => i.item_id === currentSelectedItemId);
     if (exists) {
-      toast({ title: "Item already added", description: "Please modify it or delete first.", variant: "destructive" });
+      showError("Item already added. Please modify it or delete first.");
       return;
     }
 
@@ -139,12 +145,12 @@ export const Transfers: React.FC = () => {
     e.preventDefault();
 
     if (sourceBranchId === targetBranchId) {
-      toast({ title: "Validation Error", description: "Source and Target branch cannot be the same", variant: "destructive" });
+      showError("Source and Target branch cannot be the same");
       return;
     }
 
     if (addedItems.length === 0) {
-      toast({ title: "Validation Error", description: "Add at least one item to transfer", variant: "destructive" });
+      showError("Add at least one item to transfer");
       return;
     }
 
@@ -162,7 +168,7 @@ export const Transfers: React.FC = () => {
         });
 
         if (error) throw error;
-        toast({ title: "Success", description: "Stock shipment sent and in transit successfully!" });
+        showSuccess("Stock shipment sent and in transit successfully!");
       } else {
         const { error } = await supabase.rpc('fn_request_transfer', {
           p_source_branch_id: sourceBranchId,
@@ -171,7 +177,7 @@ export const Transfers: React.FC = () => {
         });
 
         if (error) throw error;
-        toast({ title: "Success", description: "Transfer request submitted successfully!" });
+        showSuccess("Transfer request submitted successfully!");
       }
 
       setTimeout(() => {
@@ -180,7 +186,7 @@ export const Transfers: React.FC = () => {
       }, 800);
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Error submitting transfer', variant: "destructive" });
+      showError(err.message || 'Error submitting transfer');
     }
   };
 
@@ -205,14 +211,15 @@ export const Transfers: React.FC = () => {
       setShowViewModal(true);
     } catch (err) {
       console.error(err);
-      toast({ title: "Error", description: "Error fetching transfer items", variant: "destructive" });
+      showError("Error fetching transfer items");
     }
   };
 
   const handleApproveTransfer = async (transferId: string) => {
-    if (!window.confirm('Are you sure you want to approve and dispatch this transfer? Stock will be immediately deducted from the source branch and marked as in transit.')) {
-      return;
-    }
+    if (!await confirm(
+      'Approve & Dispatch Transfer',
+      'Are you sure you want to approve and dispatch this transfer? Stock will be immediately deducted from the source branch and marked as in transit.'
+    )) return;
 
     setApproving(true);
     try {
@@ -222,21 +229,22 @@ export const Transfers: React.FC = () => {
 
       if (error) throw error;
 
-      toast({ title: "Success", description: "Transfer request approved and stock is now in transit!" });
+      showSuccess("Transfer request approved and stock is now in transit!");
       setShowViewModal(false);
       loadData();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to approve transfer.', variant: "destructive" });
+      showError(err.message || 'Failed to approve transfer.');
     } finally {
       setApproving(false);
     }
   };
 
   const handleReceiveTransfer = async (transferId: string) => {
-    if (!window.confirm('Confirm that you have received the exact items and quantities in this shipment?')) {
-      return;
-    }
+    if (!await confirm(
+      'Confirm & Receive Items',
+      'Confirm that you have received the exact items and quantities in this shipment?'
+    )) return;
 
     setReceiving(true);
     try {
@@ -246,21 +254,19 @@ export const Transfers: React.FC = () => {
 
       if (error) throw error;
 
-      toast({ title: "Success", description: "Stock shipment received and confirmed successfully!" });
+      showSuccess("Stock shipment received and confirmed successfully!");
       setShowViewModal(false);
       loadData();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to receive stock.', variant: "destructive" });
+      showError(err.message || 'Failed to receive stock.');
     } finally {
       setReceiving(false);
     }
   };
 
   const handleRejectTransfer = async (transferId: string) => {
-    if (!window.confirm('Are you sure you want to reject this request?')) {
-      return;
-    }
+    if (!await confirm('Reject Request', 'Are you sure you want to reject this request?')) return;
 
     try {
       const { error } = await supabase
@@ -270,78 +276,23 @@ export const Transfers: React.FC = () => {
 
       if (error) throw error;
 
-      toast({ title: "Success", description: "Transfer request rejected." });
+      showSuccess("Transfer request rejected successfully.");
       setShowViewModal(false);
       loadData();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to reject transfer.', variant: "destructive" });
+      showError(err.message || 'Failed to reject transfer.');
     }
   };
 
-  const handlePrintReceipt = (transfer: TransferRequest, items: TransferItem[]) => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      toast({ title: "Warning", description: "Please allow popups to generate the receipt.", variant: "destructive" });
-      return;
+  const handlePrintReceipt = async (transfer: TransferRequest, items: TransferItem[]) => {
+    try {
+      const settings = await settingsService.getSettings();
+      printTransferSlip(transfer, items, settings.transfer_slip);
+    } catch (err) {
+      console.error('Failed to print transfer receipt:', err);
+      showError("Failed to load print templates.");
     }
-    
-    const itemsHtml = items.map(item => `
-      <tr style="border-bottom: 1px solid #e2e8f0;">
-        <td style="padding: 12px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
-        <td style="padding: 12px; text-align: right; font-weight: 700;">${item.quantity_base_unit} ${item.inventory_items?.base_unit || 'units'}</td>
-      </tr>
-    `).join('');
-
-    const html = `
-      <html>
-        <head>
-          <title>Receipt - ${transfer.id}</title>
-          <style>
-            body { font-family: 'Inter', sans-serif; color: #1e293b; padding: 40px; }
-            .receipt-container { max-width: 800px; margin: 0 auto; }
-            .header { display: flex; justify-content: space-between; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; }
-            .brand { font-size: 24px; font-weight: 800; color: #4f46e5; }
-            .title { font-size: 14px; font-weight: 700; text-transform: uppercase; color: #64748b; }
-            .details-grid { display: grid; grid-template-cols: 1fr 1fr; gap: 24px; margin-bottom: 40px; }
-            .info-block h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 0 0 6px 0; }
-            .info-block p { font-size: 14px; font-weight: 600; margin: 0; color: #0f172a; }
-            .branches-box { display: flex; justify-content: space-between; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 40px; }
-            .items-table { width: 100%; border-collapse: collapse; margin-bottom: 50px; }
-            .items-table th { background-color: #f1f5f9; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #475569; padding: 12px; text-align: left; border-bottom: 1px solid #cbd5e1; }
-            .signatures { display: flex; justify-content: space-between; margin-top: 80px; }
-            .sig-box { width: 45%; border-top: 1px dashed #cbd5e1; padding-top: 15px; text-align: center; }
-            .print-btn { background-color: #4f46e5; color: white; border: none; padding: 10px 20px; font-size: 14px; border-radius: 6px; cursor: pointer; margin-bottom: 20px; }
-            @media print { .print-btn { display: none; } body { padding: 0; } }
-          </style>
-        </head>
-        <body>
-          <div class="receipt-container">
-            <button class="print-btn" onclick="window.print()">Print PDF</button>
-            <div class="header">
-              <div><div class="brand">SYSTEM</div><div style="font-size: 12px; color: #64748b;">Logistics Management</div></div>
-              <div style="text-align: right;"><div class="title">Transfer Receipt</div><div style="font-size: 12px; color: #64748b;">Status: ${transfer.status.toUpperCase()}</div></div>
-            </div>
-            <div class="details-grid">
-              <div class="info-block"><h3>Control Number</h3><p>${transfer.control_number || 'PENDING'}</p></div>
-              <div class="info-block" style="text-align: right;"><h3>Issue Date</h3><p>${new Date(transfer.created_at).toLocaleString()}</p></div>
-            </div>
-            <div class="branches-box">
-              <div><h3>From (Source)</h3><p>${transfer.source_branch?.name || 'Warehouse'}</p></div>
-              <div style="font-size: 24px; color: #94a3b8;">➔</div>
-              <div style="text-align: right;"><h3>To (Target)</h3><p>${transfer.target_branch?.name || 'Branch'}</p></div>
-            </div>
-            <table class="items-table"><thead><tr><th>Item Name</th><th style="text-align: right;">Quantity</th></tr></thead><tbody>${itemsHtml}</tbody></table>
-            <div class="signatures">
-              <div class="sig-box"><div style="font-size: 12px; font-weight: 700;">Dispatched By</div><div style="margin-top: 40px; font-size: 11px;">Name: ______________________</div></div>
-              <div class="sig-box"><div style="font-size: 12px; font-weight: 700;">Received By</div><div style="margin-top: 40px; font-size: 11px;">Name: ______________________</div></div>
-            </div>
-          </div>
-        </body>
-      </html>
-    `;
-    printWindow.document.write(html);
-    printWindow.document.close();
   };
 
   const canApprove = profile && ['super_admin', 'inventory_manager', 'branch_manager'].includes(profile.role_name);
@@ -659,17 +610,20 @@ export const Transfers: React.FC = () => {
                 {selectedTransfer.status === 'requested' && canApprove ? (
                   <>
                     <Button variant="destructive" onClick={() => handleRejectTransfer(selectedTransfer.id)}>
-                      Reject Request
+                      Reject
                     </Button>
                     <Button disabled={approving} onClick={() => handleApproveTransfer(selectedTransfer.id)}>
                       {approving ? 'Dispatching...' : 'Approve & Dispatch'}
                     </Button>
                   </>
-                ) : selectedTransfer.status === 'approved' && (
-                  profile?.role_name === 'super_admin' || 
-                  profile?.role_name === 'inventory_manager' || 
-                  profile?.branch_id === selectedTransfer.target_branch_id
-                ) ? (
+                ) : selectedTransfer.status === 'approved' && 
+                    profile?.id !== selectedTransfer.approved_by && 
+                    profile?.id !== selectedTransfer.requested_by && 
+                    profile?.branch_id !== selectedTransfer.source_branch_id && (
+                      profile?.role_name === 'super_admin' || 
+                      profile?.role_name === 'inventory_manager' || 
+                      profile?.branch_id === selectedTransfer.target_branch_id
+                    ) ? (
                   <>
                     <Button variant="outline" onClick={() => setShowViewModal(false)}>
                       Close

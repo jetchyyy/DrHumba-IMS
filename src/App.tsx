@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { ModalProvider } from './contexts/ModalContext';
 import { supabase } from './lib/supabase';
 import { Sidebar, MobileHeader, MobileBottomNav } from './components/Sidebar';
 import { OfflineBanner } from './components/OfflineBanner';
@@ -11,6 +12,7 @@ import { GlobalInventory } from './components/GlobalInventory';
 import { StockReceiving } from './components/StockReceiving';
 import { Transfers } from './components/Transfers';
 import { Adjustments } from './components/Adjustments';
+import { Transactions } from './components/Transactions';
 import { Recipes } from './components/Recipes';
 import { BranchManagement } from './components/BranchManagement';
 import { Analytics } from './components/Analytics';
@@ -136,7 +138,7 @@ const AppContent: React.FC = () => {
             <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center font-black text-primary-foreground shadow-lg mx-auto text-xl mb-2">
               R
             </div>
-            <CardTitle className="text-2xl font-bold tracking-wide">RESTOChain</CardTitle>
+            <CardTitle className="text-2xl font-bold tracking-wide">Dr. Humba</CardTitle>
             <CardDescription className="text-xs">
               Multi-Branch Restaurant Inventory System
             </CardDescription>
@@ -299,6 +301,8 @@ const AppContent: React.FC = () => {
         return <Transfers />;
       case 'adjustments':
         return <Adjustments />;
+      case 'transactions':
+        return <Transactions />;
       case 'recipes':
         return <Recipes />;
       case 'branches':
@@ -346,7 +350,9 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <AppContent />
+        <ModalProvider>
+          <AppContent />
+        </ModalProvider>
       </AuthProvider>
     </ThemeProvider>
   );

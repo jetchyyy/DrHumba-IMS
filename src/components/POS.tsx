@@ -9,13 +9,16 @@ import {
   MagnifyingGlassIcon as Search,
   CheckCircledIcon as CheckCircle,
   ExclamationTriangleIcon as WifiOff,
+  FileTextIcon as Printer,
 } from '@radix-ui/react-icons';
+import { settingsService } from '../lib/settingsService';
+import { printThermalInvoice } from '../lib/printService';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
-import { useToast } from '../hooks/use-toast';
+import { useModal } from '../contexts/ModalContext';
 import { ScrollArea } from './ui/scroll-area';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from './ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
@@ -220,8 +223,8 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
 // ─── Main POS Component ───────────────────────────────────────────────────────
 
 export const POS: React.FC = () => {
-  const { selectedBranch } = useAuth();
-  const { toast } = useToast();
+  const { selectedBranch, profile } = useAuth();
+  const { showSuccess, showError } = useModal();
   const { isOnline } = useNetworkStatus();
 
   const [items, setItems] = useState<MenuItem[]>([]);
@@ -258,6 +261,69 @@ export const POS: React.FC = () => {
 
   useEffect(() => { loadMenuItems(); }, []);
 
+  const handlePrintThermal = async (saleId: string) => {
+    try {
+      // 1. Fetch newly processed sale details from Supabase
+      const { data: saleData, error: saleError } = await supabase
+        .from('sales')
+        .select(`
+          id,
+          control_number,
+          branch_id,
+          cashier_id,
+          total_amount,
+          status,
+          created_at,
+          branches (name),
+          sale_items (
+            id,
+            quantity,
+            unit_price,
+            subtotal,
+            menu_items (name, sku)
+          )
+        `)
+        .eq('id', saleId)
+        .single();
+
+      if (saleError) throw saleError;
+      if (!saleData) return;
+
+      // 2. Fetch cashier email details
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('id', saleData.cashier_id)
+        .single();
+
+      const mappedSale = {
+        id: saleData.id,
+        control_number: saleData.control_number || null,
+        branch_id: saleData.branch_id,
+        cashier_id: saleData.cashier_id,
+        total_amount: Number(saleData.total_amount),
+        status: saleData.status,
+        created_at: saleData.created_at,
+        branch_name: (Array.isArray(saleData.branches) ? saleData.branches[0]?.name : (saleData.branches as any)?.name) || selectedBranch?.name || 'Main Branch',
+        cashier_email: profileData?.email || profile?.email || 'System',
+        items: (saleData.sale_items || []).map((si: any) => ({
+          id: si.id,
+          quantity: Number(si.quantity),
+          unit_price: Number(si.unit_price),
+          subtotal: Number(si.subtotal),
+          item_name: si.menu_items?.name || 'Unknown Dish',
+          sku: si.menu_items?.sku || ''
+        }))
+      };
+
+      const settings = await settingsService.getSettings();
+      printThermalInvoice(mappedSale, settings.sales_invoice);
+    } catch (err) {
+      console.error('Failed to load and print thermal invoice:', err);
+      showError('Failed to print receipt. Please reprint from Sales History.');
+    }
+  };
+
   // ─── Cart Helpers ──────────────────────────────────────────
 
   const addToCart = (item: MenuItem, qty = 1) => {
@@ -270,7 +336,7 @@ export const POS: React.FC = () => {
       }
       return [...prev, { menu_item_id: item.id, name: item.name, price: Number(item.price), quantity: qty }];
     });
-    toast({ title: 'Added to Cart', description: `${qty}× ${item.name} added.`, duration: 1500 });
+    showSuccess(`${qty}× ${item.name} added to cart.`);
   };
 
   const updateCartQty = (menuItemId: string, amount: number) => {
@@ -296,11 +362,11 @@ export const POS: React.FC = () => {
   const openPayment = () => {
     if (cart.length === 0) return;
     if (!selectedBranch) {
-      toast({ title: 'No Branch Selected', description: 'Please select an active branch context from the sidebar.', variant: 'destructive' });
+      showError('Please select an active branch context from the sidebar.');
       return;
     }
     if (!isOnline) {
-      toast({ title: 'No Connection', description: 'You are offline. Please restore your network connection before processing a transaction.', variant: 'destructive' });
+      showError('You are offline. Please restore your network connection before processing a transaction.');
       return;
     }
     setLastSaleResult(null);
@@ -330,20 +396,14 @@ export const POS: React.FC = () => {
       setPaymentOpen(false);
       setIsCartSheetOpen(false);
 
-      toast({
-        title: '✅ Sale Completed',
-        description:
-          method === 'cash' && change > 0
-            ? `Change due: ${formatPHP(change)}`
-            : 'Transaction recorded successfully.',
-      });
+      showSuccess(
+        method === 'cash' && change > 0
+          ? `Sale completed! Change due: ${formatPHP(change)}`
+          : 'Transaction recorded successfully.'
+      );
     } catch (err: any) {
       console.error('POS Checkout failed:', err);
-      toast({
-        title: 'Transaction Failed',
-        description: err.message || 'Rolled back — insufficient ingredient stock.',
-        variant: 'destructive',
-      });
+      showError(err.message || 'Rolled back — insufficient ingredient stock.');
     } finally {
       setCheckingOut(false);
     }
@@ -433,6 +493,15 @@ export const POS: React.FC = () => {
                 {lastSaleResult.method === 'cash' && lastSaleResult.change > 0 && (
                   <p className="text-base font-black">Change: {formatPHP(lastSaleResult.change)}</p>
                 )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2 w-full font-bold flex items-center justify-center gap-1.5 h-8 bg-emerald-600 hover:bg-emerald-500 text-white border-none"
+                  onClick={() => handlePrintThermal(lastSaleResult.id)}
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Print Thermal Receipt
+                </Button>
               </AlertDescription>
             </Alert>
           )}
@@ -468,7 +537,7 @@ export const POS: React.FC = () => {
 
         {!isOnline && (
           <div className="flex items-center gap-2 text-[10px] text-destructive font-medium bg-destructive/10 p-2 rounded border border-destructive/20">
-            <WifiOffIcon className="w-3.5 h-3.5 flex-shrink-0" />
+            <WifiOff className="w-3.5 h-3.5 flex-shrink-0" />
             Offline — transactions are blocked until connection is restored.
           </div>
         )}

@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { CountdownTimerIcon as History, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, ChevronDownIcon as ChevronDown, ChevronUpIcon as ChevronUp, CalendarIcon as Calendar, BackpackIcon as ShoppingBag, ValueIcon as DollarSign, EyeOpenIcon as Eye, ActivityLogIcon as TrendingUp } from '@radix-ui/react-icons';
+import { CountdownTimerIcon as History, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, ChevronDownIcon as ChevronDown, ChevronUpIcon as ChevronUp, CalendarIcon as Calendar, BackpackIcon as ShoppingBag, ValueIcon as DollarSign, EyeOpenIcon as Eye, ActivityLogIcon as TrendingUp, FileTextIcon as Printer } from '@radix-ui/react-icons';
+import { settingsService, DEFAULT_SALES_INVOICE_TEMPLATE } from '../lib/settingsService';
+import { printThermalInvoice } from '../lib/printService';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
@@ -14,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { format } from 'date-fns';
-import { useToast } from '../hooks/use-toast';
+import { useModal } from '../contexts/ModalContext';
 
 interface SaleItem {
   id: string;
@@ -27,6 +29,7 @@ interface SaleItem {
 
 interface SaleRecord {
   id: string;
+  control_number: string | null;
   branch_id: string;
   cashier_id: string;
   total_amount: number;
@@ -55,7 +58,7 @@ const formatPHP = (amount: number) =>
 
 export const SalesHistory: React.FC = () => {
   const { profile, branches } = useAuth();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useModal();
   
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,6 +90,7 @@ export const SalesHistory: React.FC = () => {
         .from('sales')
         .select(`
           id,
+          control_number,
           branch_id,
           cashier_id,
           total_amount,
@@ -123,6 +127,7 @@ export const SalesHistory: React.FC = () => {
         const cashierProfile = (profilesData || []).find(p => p.id === sale.cashier_id);
         return {
           id: sale.id,
+          control_number: sale.control_number || null,
           branch_id: sale.branch_id,
           cashier_id: sale.cashier_id,
           total_amount: Number(sale.total_amount),
@@ -182,11 +187,11 @@ export const SalesHistory: React.FC = () => {
         p_void_reason: voidReason.trim(),
       });
       if (error) throw error;
-      toast({ title: 'Sale Voided', description: `Invoice ${voidTarget.id.slice(0, 8)}… has been refunded and stock restored.` });
+      showSuccess(`Invoice ${voidTarget.id.slice(0, 8)}… has been refunded and stock restored.`);
       setVoidTarget(null);
       loadSalesData();
     } catch (err: any) {
-      toast({ title: 'Void Failed', description: err.message || 'Could not void sale.', variant: 'destructive' });
+      showError(err.message || 'Could not void sale.');
     } finally {
       setVoiding(false);
     }
@@ -227,6 +232,128 @@ export const SalesHistory: React.FC = () => {
 
     return matchesSearch && matchesBranch && matchesDate;
   });
+
+  const handlePrintReceipt = (sale: SaleRecord) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      showError("Please allow popups to generate the receipt.");
+      return;
+    }
+
+    const itemsHtml = sale.items.map(item => `
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 12px; font-weight: 500;">
+          ${item.item_name}
+          <div style="font-size: 10px; color: #64748b; font-family: monospace;">SKU: ${item.sku}</div>
+        </td>
+        <td style="padding: 12px; text-align: center;">${item.quantity}</td>
+        <td style="padding: 12px; text-align: right;">₱${item.unit_price.toFixed(2)}</td>
+        <td style="padding: 12px; text-align: right; font-weight: 700;">₱${item.subtotal.toFixed(2)}</td>
+      </tr>
+    `).join('');
+
+    const html = `
+      <html>
+        <head>
+          <title>Invoice - ${sale.control_number || sale.id}</title>
+          <style>
+            body { font-family: 'Inter', sans-serif; color: #1e293b; padding: 40px; }
+            .receipt-container { max-width: 800px; margin: 0 auto; }
+            .header { display: flex; justify-content: space-between; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; }
+            .brand { font-size: 24px; font-weight: 800; color: #4f46e5; }
+            .title { font-size: 14px; font-weight: 700; text-transform: uppercase; color: #64748b; }
+            .details-grid { display: grid; grid-template-cols: 1fr 1fr; gap: 24px; margin-bottom: 40px; }
+            .info-block h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 0 0 6px 0; }
+            .info-block p { font-size: 14px; font-weight: 600; margin: 0; color: #0f172a; }
+            .branches-box { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 40px; }
+            .branches-box h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 0 0 6px 0; }
+            .branches-box p { font-size: 14px; font-weight: 600; margin: 0; color: #0f172a; }
+            .items-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+            .items-table th { background-color: #f1f5f9; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #475569; padding: 12px; text-align: left; border-bottom: 1px solid #cbd5e1; }
+            .payment-summary { width: 300px; margin-left: auto; margin-bottom: 50px; font-size: 14px; line-height: 2; }
+            .payment-row { display: flex; justify-content: space-between; }
+            .total-row { font-size: 16px; font-weight: 800; border-top: 2px solid #cbd5e1; padding-top: 10px; margin-top: 5px; color: #4f46e5; }
+            .signatures { display: flex; justify-content: space-between; margin-top: 80px; }
+            .sig-box { width: 45%; border-top: 1px dashed #cbd5e1; padding-top: 15px; text-align: center; }
+            .print-btn { background-color: #4f46e5; color: white; border: none; padding: 10px 20px; font-size: 14px; border-radius: 6px; cursor: pointer; margin-bottom: 20px; }
+            @media print { .print-btn { display: none; } body { padding: 0; } }
+          </style>
+        </head>
+        <body>
+          <div class="receipt-container">
+            <button class="print-btn" onclick="window.print()">Print PDF</button>
+            <div class="header">
+              <div><div class="brand">SYSTEM</div><div style="font-size: 12px; color: #64748b;">Sales & Billing Management</div></div>
+              <div style="text-align: right;"><div class="title">Sales Invoice</div><div style="font-size: 12px; color: #64748b;">Status: ${sale.status.toUpperCase()}</div></div>
+            </div>
+            <div class="details-grid">
+              <div class="info-block"><h3>Control Number</h3><p>${sale.control_number || 'PENDING'}</p></div>
+              <div class="info-block" style="text-align: right;"><h3>Issue Date</h3><p>${new Date(sale.created_at).toLocaleString()}</p></div>
+            </div>
+            <div class="branches-box" style="display: grid; grid-template-cols: 1fr 1fr; gap: 20px;">
+              <div><h3>Branch Context</h3><p>${sale.branch_name}</p></div>
+              <div><h3>Cashier Register</h3><p>${sale.cashier_email}</p></div>
+            </div>
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th>Dish / Menu Item</th>
+                  <th style="text-align: center;">Qty</th>
+                  <th style="text-align: right;">Unit Price</th>
+                  <th style="text-align: right;">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+            </table>
+            <div class="payment-summary">
+              <div class="payment-row">
+                <span>Subtotal:</span>
+                <span>₱${sale.total_amount.toFixed(2)}</span>
+              </div>
+              <div class="payment-row">
+                <span>Payment Method:</span>
+                <span style="text-transform: capitalize;">${sale.payment_method || '—'}</span>
+              </div>
+              ${sale.amount_tendered !== null ? `
+              <div class="payment-row">
+                <span>Amount Tendered:</span>
+                <span>₱${sale.amount_tendered.toFixed(2)}</span>
+              </div>
+              ` : ''}
+              ${sale.change_given !== null && sale.change_given > 0 ? `
+              <div class="payment-row" style="color: #10b981; font-weight: 600;">
+                <span>Change Given:</span>
+                <span>₱${sale.change_given.toFixed(2)}</span>
+              </div>
+              ` : ''}
+              <div class="payment-row total-row">
+                <span>Total Amount:</span>
+                <span>₱${sale.total_amount.toFixed(2)}</span>
+              </div>
+            </div>
+            <div class="signatures">
+              <div class="sig-box"><div style="font-size: 12px; font-weight: 700;">Cashier Signature</div><div style="margin-top: 40px; font-size: 11px;">Name: ______________________</div></div>
+              <div class="sig-box"><div style="font-size: 12px; font-weight: 700;">Customer Acknowledgment</div><div style="margin-top: 40px; font-size: 11px;">Name/Signature: ______________________</div></div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
+  const handlePrintThermalReceipt = async (sale: SaleRecord) => {
+    try {
+      const settings = await settingsService.getSettings();
+      printThermalInvoice(sale, settings.sales_invoice);
+    } catch (err) {
+      console.error('Failed to print thermal receipt:', err);
+      printThermalInvoice(sale, DEFAULT_SALES_INVOICE_TEMPLATE);
+    }
+  };
 
   const totalRevenue = filteredSales.reduce((sum, s) => sum + s.total_amount, 0);
   const totalTransactions = filteredSales.length;
@@ -418,7 +545,7 @@ export const SalesHistory: React.FC = () => {
               <TableRow>
                 <TableHead className="w-10"></TableHead>
                 <TableHead>Timestamp</TableHead>
-                <TableHead>Invoice ID</TableHead>
+                <TableHead>Control No / ID</TableHead>
                 <TableHead>Branch</TableHead>
                 <TableHead>Cashier Register</TableHead>
                 <TableHead className="text-right">Revenue Value</TableHead>
@@ -454,7 +581,10 @@ export const SalesHistory: React.FC = () => {
                           {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                         </TableCell>
                         <TableCell className="font-medium text-muted-foreground">{dateStr}</TableCell>
-                        <TableCell className="font-mono text-[10px] text-muted-foreground font-semibold">{sale.id.slice(0, 8)}...</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          <div className="font-bold">{sale.control_number || 'Pending'}</div>
+                          <div className="text-[10px] text-muted-foreground">{sale.id.slice(0, 8)}...</div>
+                        </TableCell>
                         <TableCell className="font-bold">{sale.branch_name}</TableCell>
                         <TableCell className="text-muted-foreground font-mono">{sale.cashier_email}</TableCell>
                         <TableCell className="text-right font-black text-emerald-500">
@@ -469,6 +599,18 @@ export const SalesHistory: React.FC = () => {
                         </TableCell>
                         <TableCell className="text-right pr-4">
                           <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePrintThermalReceipt(sale);
+                              }}
+                              title="Print Thermal Invoice"
+                            >
+                              <Printer className="w-4 h-4 text-emerald-500" />
+                            </Button>
                             <Button variant="ghost" size="sm" className="h-8">
                               <Eye className="w-4 h-4 mr-1" />
                               View
@@ -492,9 +634,35 @@ export const SalesHistory: React.FC = () => {
                           <TableCell colSpan={8} className="p-0 border-l-2 border-primary">
                             <div className="p-6">
                               <div className="flex items-center justify-between border-b pb-2 mb-4">
-                                <h4 className="text-sm font-bold text-primary uppercase tracking-wider">
-                                  Invoice Detail Receipt Breakdown
-                                </h4>
+                                <div className="flex items-center space-x-3">
+                                  <h4 className="text-sm font-bold text-primary uppercase tracking-wider">
+                                    Invoice Details: {sale.control_number || 'Pending'}
+                                  </h4>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handlePrintReceipt(sale);
+                                    }}
+                                  >
+                                    <Printer className="mr-1 h-3.5 w-3.5" />
+                                    Print PDF
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-450 border-emerald-550/25"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handlePrintThermalReceipt(sale);
+                                    }}
+                                  >
+                                    <Printer className="mr-1 h-3.5 w-3.5 text-emerald-600" />
+                                    Print Thermal
+                                  </Button>
+                                </div>
                                 <span className="text-[10px] text-muted-foreground font-mono">
                                   UUID: {sale.id}
                                 </span>

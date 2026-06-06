@@ -11,7 +11,7 @@ import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
-import { useToast } from '../hooks/use-toast';
+import { useModal } from '../contexts/ModalContext';
 import { ScrollArea } from './ui/scroll-area';
 
 interface MenuItem {
@@ -41,7 +41,7 @@ interface InventoryCatalogItem {
 
 export const Recipes: React.FC = () => {
   const { profile } = useAuth();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useModal();
   
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [catalog, setCatalog] = useState<InventoryCatalogItem[]>([]);
@@ -93,7 +93,7 @@ export const Recipes: React.FC = () => {
       setCatalog(catData || []);
     } catch (err) {
       console.error(err);
-      toast({ title: "Error", description: "Failed to load recipe data", variant: "destructive" });
+      showError("Failed to load recipe data");
     }
   };
 
@@ -193,7 +193,7 @@ export const Recipes: React.FC = () => {
       }
     } catch (err) {
       console.error('Error fetching recipe:', err);
-      toast({ title: "Error", description: "Error fetching recipe information", variant: "destructive" });
+      showError("Error fetching recipe information");
     }
 
     setShowItemModal(true);
@@ -202,7 +202,7 @@ export const Recipes: React.FC = () => {
   const handleSaveMenuItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!itemName.trim() || !sku.trim()) {
-      toast({ title: "Validation Error", description: "Name and SKU are required", variant: "destructive" });
+      showError("Name and SKU are required");
       return;
     }
 
@@ -284,12 +284,12 @@ export const Recipes: React.FC = () => {
         if (insertIngsError) throw insertIngsError;
       }
 
-      toast({ title: "Success", description: selectedItem ? 'Menu item and recipe updated!' : 'Menu item and recipe created!' });
+      showSuccess(selectedItem ? 'Menu item and recipe updated!' : 'Menu item and recipe created!');
       await loadData();
       setShowItemModal(false);
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Error saving menu item and recipe', variant: "destructive" });
+      showError(err.message || 'Error saving menu item and recipe');
     } finally {
       setIsSaving(false);
     }
@@ -299,7 +299,7 @@ export const Recipes: React.FC = () => {
     if (!currentSelectedItemId) return;
     const exists = recipeIngredients.find(ri => ri.item_id === currentSelectedItemId);
     if (exists) {
-      toast({ title: "Validation Error", description: "Ingredient already added to recipe.", variant: "destructive" });
+      showError("Ingredient already added to recipe.");
       return;
     }
     setRecipeIngredients([

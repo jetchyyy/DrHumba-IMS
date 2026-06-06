@@ -6,13 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { useToast } from '../hooks/use-toast';
+import { useModal } from '../contexts/ModalContext';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
 
 export const BranchManagement: React.FC = () => {
   const { profile, branches, refreshProfile } = useAuth();
-  const { toast } = useToast();
+  const { confirm, showSuccess, showError } = useModal();
   
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
@@ -40,7 +40,7 @@ export const BranchManagement: React.FC = () => {
 
       if (insertError) throw insertError;
 
-      toast({ title: "Success", description: `Branch "${name}" created successfully!` });
+      showSuccess(`Branch "${name}" created successfully!`);
       setName('');
       setLocation('');
       setIsWarehouse(false);
@@ -48,14 +48,17 @@ export const BranchManagement: React.FC = () => {
       await refreshProfile();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to create branch', variant: "destructive" });
+      showError(err.message || 'Failed to create branch');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDeleteBranch = async (id: string, branchName: string) => {
-    if (!window.confirm(`Are you sure you want to delete branch "${branchName}"? This will delete all associated inventory balances.`)) {
+    if (!await confirm(
+      'Delete Branch',
+      `Are you sure you want to delete branch "${branchName}"? This will delete all associated inventory balances.`
+    )) {
       return;
     }
 
@@ -67,11 +70,11 @@ export const BranchManagement: React.FC = () => {
 
       if (deleteError) throw deleteError;
 
-      toast({ title: "Deleted", description: `Branch deleted.` });
+      showSuccess(`Branch "${branchName}" deleted.`);
       await refreshProfile();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to delete branch', variant: "destructive" });
+      showError(err.message || 'Failed to delete branch');
     }
   };
 

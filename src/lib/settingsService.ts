@@ -38,7 +38,7 @@ export const DEFAULT_TRANSFER_SLIP_TEMPLATE: TransferSlipTemplate = {
 };
 
 export const DEFAULT_SALES_INVOICE_TEMPLATE: SalesInvoiceTemplate = {
-  merchant_name: 'RESTOChain Foods',
+  merchant_name: 'Dr Humba',
   merchant_address: '123 Main St, Metro Manila',
   merchant_contact: '+63 912 345 6789',
   merchant_tin: 'TIN: 000-123-456-000',
@@ -74,7 +74,7 @@ export const settingsService = {
             settings.sales_invoice = { ...DEFAULT_SALES_INVOICE_TEMPLATE, ...row.value };
           }
         });
-        
+
         // Cache to localStorage in case we go offline
         localStorage.setItem('system_settings', JSON.stringify(settings));
       } else {

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { BellIcon as Bell, CheckIcon as Check, ReloadIcon as RefreshCw, ExclamationTriangleIcon as AlertTriangle, SymbolIcon as ArrowRightLeft, ExclamationTriangleIcon as FileWarning, ClockIcon as Clock } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
-import { useToast } from '../hooks/use-toast';
+import { useModal } from '../contexts/ModalContext';
 
 interface Notification {
   id: string;
@@ -17,7 +17,7 @@ interface Notification {
 
 export const Notifications: React.FC = () => {
   const { profile, selectedBranch } = useAuth();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useModal();
   
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,7 +66,7 @@ export const Notifications: React.FC = () => {
       setNotifications(notifications.map(n => n.id === id ? { ...n, is_read: true } : n));
     } catch (err) {
       console.error(err);
-      toast({ title: "Error", description: "Failed to mark as read", variant: "destructive" });
+      showError("Failed to mark as read");
     }
   };
 
@@ -84,10 +84,10 @@ export const Notifications: React.FC = () => {
       if (error) throw error;
 
       setNotifications(notifications.map(n => ({ ...n, is_read: true })));
-      toast({ title: "Success", description: "All notifications marked as read." });
+      showSuccess("All notifications marked as read.");
     } catch (err) {
       console.error(err);
-      toast({ title: "Error", description: "Failed to mark all as read", variant: "destructive" });
+      showError("Failed to mark all as read");
     }
   };
 

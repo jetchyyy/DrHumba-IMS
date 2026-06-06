@@ -39,21 +39,22 @@ export const useNavItems = () => {
   const role = profile.role_name;
 
   const tabs = [
-    { id: 'dashboard',       name: 'Dashboard',       icon: LayoutDashboard, show: true },
-    { id: 'pos',             name: 'POS (Sales)',      icon: ShoppingBag,     show: ['super_admin', 'branch_manager', 'cashier'].includes(role) },
-    { id: 'sales-history',   name: 'Sales History',    icon: History,         show: true },
-    { id: 'inventory',       name: 'Inventory Items',  icon: Package,         show: true },
-    { id: 'global-inventory',name: 'Overall Stock',    icon: Boxes,           show: true },
-    { id: 'receiving',       name: 'Stock Receiving',  icon: FilePlus,        show: ['super_admin', 'inventory_manager'].includes(role) },
-    { id: 'transfers',       name: 'Transfers',        icon: ArrowLeftRight,  show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'adjustments',     name: 'Adjustments',      icon: ClipboardList,   show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'recipes',         name: 'Recipes',          icon: ChefHat,         show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'branches',        name: 'Branches',         icon: Store,           show: ['super_admin', 'auditor'].includes(role) },
-    { id: 'analytics',       name: 'Analytics',        icon: BarChart3,       show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'notifications',   name: 'Notifications',    icon: Bell,            show: true },
-    { id: 'audit-logs',      name: 'Audit Logs',       icon: FileText,        show: ['super_admin', 'auditor'].includes(role) },
-    { id: 'users',           name: 'Staff Management', icon: Users,           show: ['super_admin'].includes(role) },
-    { id: 'settings',        name: 'Settings',         icon: SettingsIcon,    show: true },
+    { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, show: true },
+    { id: 'pos', name: 'POS (Sales)', icon: ShoppingBag, show: ['super_admin', 'branch_manager', 'cashier'].includes(role) },
+    { id: 'sales-history', name: 'Sales History', icon: History, show: true },
+    { id: 'inventory', name: 'Inventory Items', icon: Package, show: true },
+    { id: 'global-inventory', name: 'Overall Stock', icon: Boxes, show: true },
+    { id: 'receiving', name: 'Stock Receiving', icon: FilePlus, show: ['super_admin', 'inventory_manager'].includes(role) },
+    { id: 'transfers', name: 'Transfers', icon: ArrowLeftRight, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
+    { id: 'adjustments', name: 'Adjustments', icon: ClipboardList, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
+    { id: 'transactions', name: 'Transactions', icon: FileText, show: true },
+    { id: 'recipes', name: 'Recipes', icon: ChefHat, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
+    { id: 'branches', name: 'Branches', icon: Store, show: ['super_admin', 'auditor'].includes(role) },
+    { id: 'analytics', name: 'Analytics', icon: BarChart3, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
+    { id: 'notifications', name: 'Notifications', icon: Bell, show: true },
+    { id: 'audit-logs', name: 'Audit Logs', icon: FileText, show: ['super_admin', 'auditor'].includes(role) },
+    { id: 'users', name: 'Staff Management', icon: Users, show: ['super_admin'].includes(role) },
+    { id: 'settings', name: 'Settings', icon: SettingsIcon, show: true },
   ];
 
   return tabs.filter(tab => {
@@ -85,7 +86,7 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
           R
         </div>
         <div>
-          <h1 className="text-lg font-bold tracking-wide">RestoChain</h1>
+          <h1 className="text-lg font-bold tracking-wide">Dr. Humba</h1>
           <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Inventory System</p>
         </div>
       </div>
@@ -130,9 +131,8 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
             <Button
               key={tab.id}
               variant={isActive ? 'default' : 'ghost'}
-              className={`w-full justify-start h-10 px-3 transition-all ${
-                isActive ? 'shadow-md' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
-              }`}
+              className={`w-full justify-start h-10 px-3 transition-all ${isActive ? 'shadow-md' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+                }`}
               onClick={() => { setActiveTab(tab.id); onNavigate?.(); }}
             >
               <Icon className={`mr-3 h-4 w-4 ${isActive ? 'text-primary-foreground' : 'text-muted-foreground'}`} />
@@ -241,11 +241,11 @@ export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }
 
 // ── Mobile Bottom Tab Bar ─────────────────────────────────────────────────────
 const BOTTOM_TABS = [
-  { id: 'dashboard',   icon: LayoutDashboard, label: 'Home' },
-  { id: 'pos',         icon: ShoppingBag,     label: 'POS' },
-  { id: 'inventory',   icon: Package,         label: 'Items' },
-  { id: 'analytics',   icon: BarChart3,       label: 'Analytics' },
-  { id: 'settings',    icon: SettingsIcon,    label: 'Settings' },
+  { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
+  { id: 'pos', icon: ShoppingBag, label: 'POS' },
+  { id: 'inventory', icon: Package, label: 'Items' },
+  { id: 'analytics', icon: BarChart3, label: 'Analytics' },
+  { id: 'settings', icon: SettingsIcon, label: 'Settings' },
 ];
 
 export const MobileBottomNav: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
@@ -263,11 +263,10 @@ export const MobileBottomNav: React.FC<SidebarProps> = ({ activeTab, setActiveTa
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`relative flex-1 flex flex-col items-center justify-center gap-1 transition-colors ${
-                isActive
+              className={`relative flex-1 flex flex-col items-center justify-center gap-1 transition-colors ${isActive
                   ? 'text-primary'
                   : 'text-muted-foreground hover:text-foreground'
-              }`}
+                }`}
             >
               <Icon className={`h-5 w-5 transition-transform ${isActive ? 'scale-110' : ''}`} />
               <span className="text-[10px] font-medium">{tab.label}</span>

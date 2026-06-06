@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
 import { Badge } from './ui/badge';
-import { useToast } from '../hooks/use-toast';
+import { useModal } from '../contexts/ModalContext';
 
 interface ProfileRecord {
   id: string;
@@ -26,7 +26,7 @@ interface ProfileRecord {
 
 export const UserManagement: React.FC = () => {
   const { profile, branches } = useAuth();
-  const { toast } = useToast();
+  const { confirm, showSuccess, showError } = useModal();
   
   const [staff, setStaff] = useState<ProfileRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -111,12 +111,12 @@ export const UserManagement: React.FC = () => {
     e.preventDefault();
 
     if (!email.trim() || !password.trim()) {
-      toast({ title: "Validation Error", description: "Email and Password are required", variant: "destructive" });
+      showError("Email and Password are required");
       return;
     }
 
     if (password.length < 6) {
-      toast({ title: "Validation Error", description: "Password must be at least 6 characters", variant: "destructive" });
+      showError("Password must be at least 6 characters");
       return;
     }
 
@@ -132,7 +132,7 @@ export const UserManagement: React.FC = () => {
 
       if (rpcError) throw rpcError;
 
-      toast({ title: "Success", description: `Staff account successfully created! Email: ${email}` });
+      showSuccess(`Staff account successfully created! Email: ${email}`);
       setEmail('');
       setPassword('');
       setAllowedTabs(ROLE_DEFAULTS['cashier']);
@@ -140,7 +140,7 @@ export const UserManagement: React.FC = () => {
       loadStaff();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to create staff member. Verify if email already exists.', variant: "destructive" });
+      showError(err.message || 'Failed to create staff member. Verify if email already exists.');
     } finally {
       setSubmitting(false);
     }
@@ -161,13 +161,13 @@ export const UserManagement: React.FC = () => {
 
       if (rpcError) throw rpcError;
 
-      toast({ title: "Success", description: "Staff account metadata updated!" });
+      showSuccess("Staff account metadata updated!");
       setIsEditModalOpen(false);
       setEditingStaff(null);
       loadStaff();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to update staff configuration.', variant: "destructive" });
+      showError(err.message || 'Failed to update staff configuration.');
     } finally {
       setSubmitting(false);
     }
@@ -179,7 +179,7 @@ export const UserManagement: React.FC = () => {
       ? `Are you sure you want to suspend access for ${member.email}? They will be blocked from logging in.`
       : `Are you sure you want to restore access for ${member.email}?`;
       
-    if (!window.confirm(confirmMessage)) return;
+    if (!await confirm(nextStatus === 'suspended' ? 'Suspend Staff' : 'Restore Staff', confirmMessage)) return;
 
     try {
       const { error: rpcError } = await supabase.rpc('fn_update_staff_status', {
@@ -189,17 +189,17 @@ export const UserManagement: React.FC = () => {
 
       if (rpcError) throw rpcError;
 
-      toast({ title: "Status Updated", description: `Staff status updated to ${nextStatus}!` });
+      showSuccess(`Staff status updated to ${nextStatus}!`);
       loadStaff();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to update staff status.', variant: "destructive" });
+      showError(err.message || 'Failed to update staff status.');
     }
   };
 
   const handleDeleteStaff = async (member: ProfileRecord) => {
     const confirmMessage = `Are you absolutely sure you want to permanently delete the staff account for ${member.email}?\n\nThis will purge their login records and cannot be undone.`;
-    if (!window.confirm(confirmMessage)) return;
+    if (!await confirm('Delete Staff', confirmMessage)) return;
 
     try {
       const { error: rpcError } = await supabase.rpc('fn_delete_staff', {
@@ -208,11 +208,11 @@ export const UserManagement: React.FC = () => {
 
       if (rpcError) throw rpcError;
 
-      toast({ title: "Deleted", description: "Staff account successfully deleted." });
+      showSuccess("Staff account successfully deleted.");
       loadStaff();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to delete staff account.', variant: "destructive" });
+      showError(err.message || 'Failed to delete staff account.');
     }
   };
 

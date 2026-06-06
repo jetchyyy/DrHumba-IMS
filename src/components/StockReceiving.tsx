@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { PlusIcon as Plus, TrashIcon as Trash2, EyeOpenIcon as Eye, ClipboardIcon as ClipboardCheck, ReloadIcon as RefreshCw } from '@radix-ui/react-icons';
+import { settingsService } from '../lib/settingsService';
+import { printStockInReceipt } from '../lib/printService';
+import { PlusIcon as Plus, TrashIcon as Trash2, EyeOpenIcon as Eye, ClipboardIcon as ClipboardCheck, ReloadIcon as RefreshCw, FileTextIcon as Printer } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -10,10 +12,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Badge } from './ui/badge';
-import { useToast } from '../hooks/use-toast';
+import { useModal } from '../contexts/ModalContext';
 
 interface Receipt {
   id: string;
+  control_number: string | null;
   supplier: string;
   invoice_no: string | null;
   date_received: string;
@@ -41,7 +44,7 @@ interface CatalogItem {
 
 export const StockReceiving: React.FC = () => {
   const { selectedBranch } = useAuth();
-  const { toast } = useToast();
+  const { confirm, showSuccess, showError } = useModal();
   
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
@@ -105,11 +108,7 @@ export const StockReceiving: React.FC = () => {
     
     const exists = addedItems.find(i => i.item_id === currentSelectedItemId);
     if (exists) {
-      toast({
-        title: "Item already added",
-        description: "Please modify it or delete first.",
-        variant: "destructive"
-      });
+      showError("Item already added. Please modify it or delete first.");
       return;
     }
 
@@ -131,17 +130,17 @@ export const StockReceiving: React.FC = () => {
     e.preventDefault();
 
     if (!supplier.trim()) {
-      toast({ title: "Validation Error", description: "Supplier is required", variant: "destructive" });
+      showError("Supplier is required");
       return;
     }
 
     if (addedItems.length === 0) {
-      toast({ title: "Validation Error", description: "Add at least one item", variant: "destructive" });
+      showError("Add at least one item");
       return;
     }
 
     if (!selectedBranch) {
-      toast({ title: "Validation Error", description: "No branch context selected", variant: "destructive" });
+      showError("No branch context selected");
       return;
     }
 
@@ -173,14 +172,14 @@ export const StockReceiving: React.FC = () => {
 
       if (itemsError) throw itemsError;
 
-      toast({ title: "Success", description: "Receipt draft created!" });
+      showSuccess("Receipt draft created!");
       setTimeout(() => {
         setShowCreateModal(false);
         loadData();
       }, 800);
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Error creating receipt', variant: "destructive" });
+      showError(err.message || 'Error creating receipt');
     }
   };
 
@@ -206,14 +205,15 @@ export const StockReceiving: React.FC = () => {
       setShowViewModal(true);
     } catch (err) {
       console.error(err);
-      toast({ title: "Error", description: "Error fetching receipt items", variant: "destructive" });
+      showError("Error fetching receipt items");
     }
   };
 
   const handleProcessReceipt = async (receiptId: string) => {
-    if (!window.confirm('Are you sure you want to finalize this stock receipt?')) {
-      return;
-    }
+    if (!await confirm(
+      'Finalize Stock Receipt',
+      'Are you sure you want to finalize this stock receipt? This will update the branch inventory balances and write the movement ledger.'
+    )) return;
 
     setProcessingReceiptId(receiptId);
     try {
@@ -223,14 +223,24 @@ export const StockReceiving: React.FC = () => {
 
       if (error) throw error;
 
-      toast({ title: "Success", description: "Stock receipt successfully processed and ledger written." });
+      showSuccess("Stock receipt successfully processed and ledger written.");
       setShowViewModal(false);
       loadData();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to complete receipt.', variant: "destructive" });
+      showError(err.message || 'Failed to complete receipt.');
     } finally {
       setProcessingReceiptId(null);
+    }
+  };
+
+  const handlePrintReceipt = async (receipt: Receipt, items: ReceiptItem[]) => {
+    try {
+      const settings = await settingsService.getSettings();
+      printStockInReceipt(receipt, items, settings.transfer_slip);
+    } catch (err) {
+      console.error('Failed to print stock receipt:', err);
+      showError("Failed to load print templates.");
     }
   };
 
@@ -263,7 +273,7 @@ export const StockReceiving: React.FC = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-6">Invoice Date</TableHead>
+                <TableHead className="pl-6">Control No / Date</TableHead>
                 <TableHead>Supplier</TableHead>
                 <TableHead>Invoice No.</TableHead>
                 <TableHead>Status</TableHead>
@@ -273,7 +283,10 @@ export const StockReceiving: React.FC = () => {
             <TableBody>
               {receipts.map(rec => (
                 <TableRow key={rec.id}>
-                  <TableCell className="pl-6 font-medium">{rec.date_received}</TableCell>
+                  <TableCell className="pl-6">
+                    <div className="font-bold">{rec.control_number || 'Pending'}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{rec.date_received}</div>
+                  </TableCell>
                   <TableCell className="font-bold">{rec.supplier}</TableCell>
                   <TableCell className="font-mono text-muted-foreground">{rec.invoice_no || 'N/A'}</TableCell>
                   <TableCell>
@@ -447,10 +460,23 @@ export const StockReceiving: React.FC = () => {
       <Dialog open={showViewModal} onOpenChange={setShowViewModal}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Stock Invoice Details</DialogTitle>
-            <DialogDescription className="font-mono text-xs">
-              ID: {selectedReceipt?.id}
-            </DialogDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle>Stock In: {selectedReceipt?.control_number || 'Pending'}</DialogTitle>
+                <DialogDescription className="font-mono text-xs">
+                  ID: {selectedReceipt?.id}
+                </DialogDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mr-6"
+                onClick={() => selectedReceipt && handlePrintReceipt(selectedReceipt, receiptItems)}
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                Print PDF
+              </Button>
+            </div>
           </DialogHeader>
 
           {selectedReceipt && (

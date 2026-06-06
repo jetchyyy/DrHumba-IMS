@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { PlusIcon as Plus, EyeOpenIcon as Eye, ReloadIcon as RefreshCw, TrashIcon as Trash2 } from '@radix-ui/react-icons';
+import { settingsService } from '../lib/settingsService';
+import { printAdjustmentSlip } from '../lib/printService';
+import { PlusIcon as Plus, EyeOpenIcon as Eye, ReloadIcon as RefreshCw, TrashIcon as Trash2, FileTextIcon as Printer } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -10,10 +12,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Badge } from './ui/badge';
-import { useToast } from '../hooks/use-toast';
+import { useModal } from '../contexts/ModalContext';
 
 interface Adjustment {
   id: string;
+  control_number: string | null;
   branch_id: string;
   reason: 'damage' | 'spoilage' | 'expired' | 'lost' | 'manual_correction';
   remarks: string | null;
@@ -41,7 +44,7 @@ interface CatalogItem {
 
 export const Adjustments: React.FC = () => {
   const { profile, selectedBranch } = useAuth();
-  const { toast } = useToast();
+  const { confirm, showSuccess, showError } = useModal();
   
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
@@ -68,6 +71,7 @@ export const Adjustments: React.FC = () => {
         .from('stock_adjustments')
         .select(`
           id,
+          control_number,
           branch_id,
           reason,
           remarks,
@@ -112,7 +116,7 @@ export const Adjustments: React.FC = () => {
     
     const exists = addedItems.find(i => i.item_id === currentSelectedItemId);
     if (exists) {
-      toast({ title: "Item already added", description: "Please modify it or delete first.", variant: "destructive" });
+      showError("Item already added. Please modify it or delete first.");
       return;
     }
 
@@ -133,12 +137,12 @@ export const Adjustments: React.FC = () => {
     e.preventDefault();
 
     if (addedItems.length === 0) {
-      toast({ title: "Validation Error", description: "Add at least one item to adjust", variant: "destructive" });
+      showError("Add at least one item to adjust");
       return;
     }
 
     if (!selectedBranch) {
-      toast({ title: "Validation Error", description: "No branch context selected", variant: "destructive" });
+      showError("No branch context selected");
       return;
     }
 
@@ -177,14 +181,14 @@ export const Adjustments: React.FC = () => {
           message: `New adjustment (${reason}) pending approval at ${selectedBranch.name}`
         });
 
-      toast({ title: "Success", description: "Adjustment logged and pending approval!" });
+      showSuccess("Adjustment logged and pending approval!");
       setTimeout(() => {
         setShowCreateModal(false);
         loadData();
       }, 800);
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Error logging adjustment', variant: "destructive" });
+      showError(err.message || 'Error logging adjustment');
     }
   };
 
@@ -209,14 +213,15 @@ export const Adjustments: React.FC = () => {
       setShowViewModal(true);
     } catch (err) {
       console.error(err);
-      toast({ title: "Error", description: "Error fetching adjustment items", variant: "destructive" });
+      showError("Error fetching adjustment items");
     }
   };
 
   const handleApproveAdjustment = async (adjustmentId: string) => {
-    if (!window.confirm('Are you sure you want to approve this stock adjustment? Balance corrections will be instantly applied and movement ledgers committed.')) {
-      return;
-    }
+    if (!await confirm(
+      'Approve Stock Adjustment',
+      'Are you sure you want to approve this stock adjustment? Balance corrections will be instantly applied and movement ledgers committed.'
+    )) return;
 
     setProcessing(true);
     try {
@@ -226,21 +231,19 @@ export const Adjustments: React.FC = () => {
 
       if (error) throw error;
 
-      toast({ title: "Success", description: "Adjustment approved and inventory records updated!" });
+      showSuccess("Adjustment approved and inventory records updated!");
       setShowViewModal(false);
       loadData();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to approve adjustment.', variant: "destructive" });
+      showError(err.message || 'Failed to approve adjustment.');
     } finally {
       setProcessing(false);
     }
   };
 
   const handleRejectAdjustment = async (adjustmentId: string) => {
-    if (!window.confirm('Are you sure you want to reject this request?')) {
-      return;
-    }
+    if (!await confirm('Reject Adjustment Request', 'Are you sure you want to reject this request?')) return;
 
     try {
       const { error } = await supabase
@@ -250,16 +253,26 @@ export const Adjustments: React.FC = () => {
 
       if (error) throw error;
 
-      toast({ title: "Success", description: "Adjustment request rejected." });
+      showSuccess("Adjustment request rejected successfully.");
       setShowViewModal(false);
       loadData();
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Failed to reject adjustment.', variant: "destructive" });
+      showError(err.message || 'Failed to reject adjustment.');
     }
   };
 
   const canApprove = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
+
+  const handlePrintReceipt = async (adjustment: Adjustment, items: AdjustmentItem[]) => {
+    try {
+      const settings = await settingsService.getSettings();
+      printAdjustmentSlip(adjustment, items, settings.transfer_slip);
+    } catch (err) {
+      console.error('Failed to print adjustment receipt:', err);
+      showError("Failed to load print templates.");
+    }
+  };
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
@@ -290,7 +303,7 @@ export const Adjustments: React.FC = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-6">Date Logged</TableHead>
+                <TableHead className="pl-6">Control No / Date</TableHead>
                 <TableHead>Branch</TableHead>
                 <TableHead>Reason</TableHead>
                 <TableHead>Remarks</TableHead>
@@ -301,8 +314,9 @@ export const Adjustments: React.FC = () => {
             <TableBody>
               {adjustments.map(adj => (
                 <TableRow key={adj.id}>
-                  <TableCell className="pl-6 font-medium">
-                    {new Date(adj.created_at).toLocaleDateString()}
+                  <TableCell className="pl-6">
+                    <div className="font-bold">{adj.control_number || 'Pending'}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{new Date(adj.created_at).toLocaleDateString()}</div>
                   </TableCell>
                   <TableCell>{adj.branches?.name || 'Unknown'}</TableCell>
                   <TableCell className="capitalize">
@@ -477,10 +491,26 @@ export const Adjustments: React.FC = () => {
       <Dialog open={showViewModal} onOpenChange={setShowViewModal}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Adjustment #{selectedAdjustment?.id.slice(0, 8)}</DialogTitle>
-            <DialogDescription className="font-mono text-xs">
-              ID: {selectedAdjustment?.id}
-            </DialogDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle>
+                  {selectedAdjustment && ['spoilage', 'damage', 'expired'].includes(selectedAdjustment.reason) ? 'Food Waste: ' : 'Adjustment: '}
+                  {selectedAdjustment?.control_number || 'Pending'}
+                </DialogTitle>
+                <DialogDescription className="font-mono text-xs">
+                  ID: {selectedAdjustment?.id}
+                </DialogDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mr-6"
+                onClick={() => selectedAdjustment && handlePrintReceipt(selectedAdjustment, adjustmentItems)}
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                Print PDF
+              </Button>
+            </div>
           </DialogHeader>
 
           {selectedAdjustment && (

@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Card, CardContent } from './ui/card';
-import { useToast } from '../hooks/use-toast';
+import { useModal } from '../contexts/ModalContext';
 
 interface InventoryItem {
   id: string;
@@ -33,7 +33,7 @@ interface Balance {
 
 export const Inventory: React.FC = () => {
   const { profile, selectedBranch } = useAuth();
-  const { toast } = useToast();
+  const { confirm, showSuccess, showError } = useModal();
   
   // Navigation Tabs: 'catalog' or 'balances'
   const [activeSubTab, setActiveSubTab] = useState<'balances' | 'catalog'>('balances');
@@ -119,12 +119,12 @@ export const Inventory: React.FC = () => {
     e.preventDefault();
 
     if (!itemName.trim() || !sku.trim()) {
-      toast({ title: "Validation Error", description: "Name and SKU are required", variant: "destructive" });
+      showError("Name and SKU are required");
       return;
     }
 
     if (!editingItem && Number(initialQty) > 0 && !selectedBranch) {
-      toast({ title: "Validation Error", description: "Please select a branch first to record initial stock quantity.", variant: "destructive" });
+      showError("Please select a branch first to record initial stock quantity.");
       return;
     }
 
@@ -147,7 +147,7 @@ export const Inventory: React.FC = () => {
           .update(itemPayload)
           .eq('id', editingItem.id);
         if (error) throw error;
-        toast({ title: "Success", description: "Item updated successfully!" });
+        showSuccess("Item updated successfully!");
       } else {
         const { error } = await supabase.rpc('fn_create_inventory_item', {
           p_sku: sku.trim(),
@@ -163,19 +163,19 @@ export const Inventory: React.FC = () => {
           p_created_by: profile ? profile.id : null
         });
         if (error) throw error;
-        toast({ title: "Success", description: "Item created successfully!" });
+        showSuccess("Item created successfully!");
       }
 
       await loadInventoryData();
       setTimeout(() => setShowForm(false), 800);
     } catch (err: any) {
       console.error(err);
-      toast({ title: "Error", description: err.message || 'Error saving item. Make sure SKU is unique.', variant: "destructive" });
+      showError(err.message || 'Error saving item. Make sure SKU is unique.');
     }
   };
 
   const handleDeleteItem = async (item: InventoryItem) => {
-    if (!window.confirm(`Are you sure you want to delete ${item.item_name}?`)) {
+    if (!await confirm('Delete Item', `Are you sure you want to delete ${item.item_name}?`)) {
       return;
     }
     
@@ -187,20 +187,17 @@ export const Inventory: React.FC = () => {
         
       if (error) {
         if (error.code === '23503') {
-          toast({ 
-            title: "Cannot Delete Item", 
-            description: `Cannot delete "${item.item_name}" because it has existing transaction history or movements. You can set its status to "Inactive" instead.`,
-            variant: "destructive"
-          });
+          showError(`Cannot delete "${item.item_name}" because it has existing transaction history or movements. You can set its status to "Inactive" instead.`);
         } else {
           throw error;
         }
       } else {
+        showSuccess(`Item "${item.item_name}" deleted.`);
         await loadInventoryData();
       }
     } catch (err: any) {
       console.error('Error deleting item:', err);
-      toast({ title: "Error", description: err.message || 'Error deleting item', variant: "destructive" });
+      showError(err.message || 'Error deleting item');
     }
   };
 
@@ -225,12 +222,12 @@ export const Inventory: React.FC = () => {
       
       if (error) throw error;
       
-      toast({ title: "Success", description: "Stock added successfully!" });
+      showSuccess("Stock added successfully!");
       await loadInventoryData();
       setTimeout(() => setStockInItem(null), 800);
     } catch (err: any) {
       console.error('Error in stock in:', err);
-      toast({ title: "Error", description: err.message || 'Error adding stock', variant: "destructive" });
+      showError(err.message || 'Error adding stock');
     } finally {
       setStockInSubmitting(false);
     }
