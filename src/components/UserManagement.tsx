@@ -12,6 +12,14 @@ import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
 import { Badge } from './ui/badge';
 import { useModal } from '../contexts/ModalContext';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "./ui/pagination";
 
 interface ProfileRecord {
   id: string;
@@ -50,6 +58,14 @@ export const UserManagement: React.FC = () => {
   
   // Transaction processing states
   const [submitting, setSubmitting] = useState(false);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [staff.length]);
 
   const ROLE_DEFAULTS: Record<string, string[]> = {
     inventory_manager: ['inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'analytics'],
@@ -226,6 +242,9 @@ export const UserManagement: React.FC = () => {
 
   const isSuperAdmin = profile?.role_name === 'super_admin';
 
+  const totalPages = Math.ceil(staff.length / itemsPerPage);
+  const paginatedStaff = staff.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       {/* Header */}
@@ -279,7 +298,7 @@ export const UserManagement: React.FC = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                staff.map(member => {
+                paginatedStaff.map(member => {
                   const isSelf = member.id === profile?.id;
                   return (
                     <TableRow key={member.id}>
@@ -350,6 +369,37 @@ export const UserManagement: React.FC = () => {
               )}
             </TableBody>
           </Table>
+          {totalPages > 1 && (
+            <div className="py-4 border-t">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }).map((_, i) => (
+                    <PaginationItem key={i}>
+                      <PaginationLink 
+                        onClick={() => setCurrentPage(i + 1)}
+                        isActive={currentPage === i + 1}
+                        className="cursor-pointer"
+                      >
+                        {i + 1}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </CardContent>
       </Card>
 

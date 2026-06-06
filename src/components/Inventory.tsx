@@ -11,7 +11,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Card, CardContent } from './ui/card';
+import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { useModal } from '../contexts/ModalContext';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "./ui/pagination";
 
 interface InventoryItem {
   id: string;
@@ -40,6 +49,15 @@ export const Inventory: React.FC = () => {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [balances, setBalances] = useState<Balance[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedCategory, activeSubTab]);
   
   // Catalog Form state
   const [showForm, setShowForm] = useState(false);
@@ -236,10 +254,23 @@ export const Inventory: React.FC = () => {
   const isEditor = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
 
   const filteredItems = items.filter(item => {
-    return item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           item.category.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          item.sku.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
+    return matchesSearch && matchesCategory;
   });
+
+  const categories = ['All', ...Array.from(new Set(items.map(i => i.category)))];
+
+  const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
+  const paginatedItems = filteredItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const lowStockCount = items.filter(item => {
+    if (item.status !== 'active') return false;
+    const bal = balances.find(b => b.item_id === item.id);
+    const qty = bal ? Number(bal.quantity) : 0;
+    return qty < item.reorder_level;
+  }).length;
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
@@ -265,6 +296,16 @@ export const Inventory: React.FC = () => {
         </div>
       </div>
 
+      {lowStockCount > 0 && selectedBranch && (
+        <Alert className="mb-6 border-destructive/50 bg-destructive/10 text-destructive">
+          <AlertTriangle className="h-4 w-4" color="currentColor" />
+          <AlertTitle className="text-sm font-bold">Low Stock Alert</AlertTitle>
+          <AlertDescription className="text-xs">
+            There {lowStockCount === 1 ? 'is' : 'are'} <strong>{lowStockCount}</strong> active item{lowStockCount === 1 ? '' : 's'} running below the designated reorder level. Please replenish stock soon.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Tabs value={activeSubTab} onValueChange={(v) => setActiveSubTab(v as 'balances' | 'catalog')} className="space-y-6">
         <div className="flex flex-col sm:flex-row justify-between gap-4">
           <TabsList>
@@ -272,15 +313,27 @@ export const Inventory: React.FC = () => {
             <TabsTrigger value="catalog">Item Catalog</TabsTrigger>
           </TabsList>
           
-          <div className="relative w-full sm:w-80">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search items..."
-              className="pl-9"
-            />
+          <div className="flex gap-2 w-full sm:w-auto flex-col sm:flex-row">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search items..."
+                className="pl-9"
+              />
+            </div>
+            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <SelectTrigger className="w-full sm:w-[160px]">
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map(c => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -301,7 +354,7 @@ export const Inventory: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredItems.map(item => {
+                  {paginatedItems.map(item => {
                     const bal = balances.find(b => b.item_id === item.id);
                     const qty = bal ? Number(bal.quantity) : 0;
                     const isLow = qty < item.reorder_level;
@@ -358,6 +411,37 @@ export const Inventory: React.FC = () => {
                   )}
                 </TableBody>
               </Table>
+              {totalPages > 1 && (
+                <div className="py-4 border-t">
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious 
+                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                          className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                      {Array.from({ length: totalPages }).map((_, i) => (
+                        <PaginationItem key={i}>
+                          <PaginationLink 
+                            onClick={() => setCurrentPage(i + 1)}
+                            isActive={currentPage === i + 1}
+                            className="cursor-pointer"
+                          >
+                            {i + 1}
+                          </PaginationLink>
+                        </PaginationItem>
+                      ))}
+                      <PaginationItem>
+                        <PaginationNext 
+                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                          className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -381,7 +465,7 @@ export const Inventory: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredItems.map(item => (
+                  {paginatedItems.map(item => (
                     <TableRow key={item.id}>
                       <TableCell className="pl-6 font-mono text-primary font-medium">{item.sku}</TableCell>
                       <TableCell className="font-bold">{item.item_name}</TableCell>
@@ -421,6 +505,37 @@ export const Inventory: React.FC = () => {
                   )}
                 </TableBody>
               </Table>
+              {totalPages > 1 && (
+                <div className="py-4 border-t">
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious 
+                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                          className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                      {Array.from({ length: totalPages }).map((_, i) => (
+                        <PaginationItem key={i}>
+                          <PaginationLink 
+                            onClick={() => setCurrentPage(i + 1)}
+                            isActive={currentPage === i + 1}
+                            className="cursor-pointer"
+                          >
+                            {i + 1}
+                          </PaginationLink>
+                        </PaginationItem>
+                      ))}
+                      <PaginationItem>
+                        <PaginationNext 
+                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                          className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

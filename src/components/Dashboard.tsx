@@ -15,6 +15,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "./ui/pagination";
 
 interface DashboardStats {
   totalInventoryValue: number;
@@ -44,6 +52,14 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
   const [inventoryGrid, setInventoryGrid] = useState<ItemStockGrid[]>([]);
   const [lowStockItems, setLowStockItems] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [inventoryGrid.length]);
 
   const loadData = async () => {
     setRefreshing(true);
@@ -125,6 +141,9 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
     if (qty < reorder) return 'text-amber-500 bg-amber-500/10 font-semibold border border-amber-500/20 rounded px-2 py-0.5';
     return 'text-muted-foreground';
   };
+
+  const totalPages = Math.ceil(inventoryGrid.length / itemsPerPage);
+  const paginatedGrid = inventoryGrid.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
@@ -254,7 +273,7 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {inventoryGrid.map(item => (
+                {paginatedGrid.map(item => (
                   <TableRow key={item.id}>
                     <TableCell className="pl-6 font-semibold">{item.name}</TableCell>
                     <TableCell className="text-muted-foreground font-mono">{item.sku}</TableCell>
@@ -286,6 +305,37 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
               </TableBody>
             </Table>
           </div>
+          {totalPages > 1 && (
+            <div className="py-4 border-t px-2">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }).map((_, i) => (
+                    <PaginationItem key={i}>
+                      <PaginationLink 
+                        onClick={() => setCurrentPage(i + 1)}
+                        isActive={currentPage === i + 1}
+                        className="cursor-pointer"
+                      >
+                        {i + 1}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

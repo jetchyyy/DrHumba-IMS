@@ -12,7 +12,6 @@ import {
   MagicWandIcon as ChefHat,
   BackpackIcon as ShoppingBag,
   BarChartIcon as BarChart3,
-  BellIcon as Bell,
   FileTextIcon as FileText,
   GroupIcon as Users,
   GearIcon as SettingsIcon,
@@ -26,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from './ui/sheet';
+import { FloatingNotifications } from './FloatingNotifications';
 
 interface SidebarProps {
   activeTab: string;
@@ -51,14 +51,13 @@ export const useNavItems = () => {
     { id: 'recipes', name: 'Recipes', icon: ChefHat, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
     { id: 'branches', name: 'Branches', icon: Store, show: ['super_admin', 'auditor'].includes(role) },
     { id: 'analytics', name: 'Analytics', icon: BarChart3, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'notifications', name: 'Notifications', icon: Bell, show: true },
     { id: 'audit-logs', name: 'Audit Logs', icon: FileText, show: ['super_admin', 'auditor'].includes(role) },
     { id: 'users', name: 'Staff Management', icon: Users, show: ['super_admin'].includes(role) },
     { id: 'settings', name: 'Settings', icon: SettingsIcon, show: true },
   ];
 
   return tabs.filter(tab => {
-    if (['dashboard', 'notifications', 'settings'].includes(tab.id)) return true;
+    if (['dashboard', 'settings'].includes(tab.id)) return true;
     if (role === 'super_admin') return true;
     if (profile.allowed_tabs && Array.isArray(profile.allowed_tabs)) {
       return profile.allowed_tabs.includes(tab.id);
@@ -82,8 +81,8 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div className="p-6 border-b flex items-center space-x-3">
-        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center font-bold text-primary-foreground shadow-lg">
-          R
+        <div className="w-8 h-8 rounded-lg bg-white overflow-hidden shadow-lg border border-pink-100 flex-shrink-0">
+          <img src="/drhumbalogo.jpg" alt="Dr. Humba Logo" className="w-full h-full object-cover" />
         </div>
         <div>
           <h1 className="text-lg font-bold tracking-wide">Dr. Humba</h1>
@@ -154,6 +153,7 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
             <p className="text-xs font-semibold truncate">{profile.email}</p>
             <p className="text-[10px] text-muted-foreground capitalize font-medium">{profile.role_name.replace('_', ' ')}</p>
           </div>
+          <FloatingNotifications />
           <Button
             variant="ghost"
             size="icon"
@@ -194,15 +194,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
 export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
   const [open, setOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
+  const { profile, selectedBranch } = useAuth();
 
   const navItems = useNavItems();
   const currentTab = navItems.find(t => t.id === activeTab);
   const CurrentIcon = currentTab?.icon || LayoutDashboard;
+  
+  const canSwitchBranch = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name);
 
   return (
-    <header className="md:hidden sticky top-0 z-40 flex items-center justify-between px-4 py-3 border-b bg-background/95 backdrop-blur-sm">
-      {/* Left: hamburger + current page */}
-      <div className="flex items-center space-x-3">
+    <div className="md:hidden sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b shadow-sm flex flex-col">
+      <header className="flex items-center justify-between px-4 py-3">
+        {/* Left: hamburger + current page */}
+        <div className="flex items-center space-x-3">
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon" className="h-9 w-9">
@@ -228,14 +232,32 @@ export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }
 
       {/* Right: logo + theme toggle */}
       <div className="flex items-center space-x-2">
+        <FloatingNotifications />
         <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" onClick={toggleTheme}>
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
-        <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center font-bold text-primary-foreground text-xs">
-          R
+        <div className="w-7 h-7 rounded-md bg-white overflow-hidden shadow-sm border border-pink-100 flex-shrink-0">
+          <img src="/drhumbalogo.jpg" alt="Dr. Humba Logo" className="w-full h-full object-cover" />
         </div>
       </div>
-    </header>
+      </header>
+      
+      {/* Mobile Active Branch Indicator integrated into flow */}
+      {canSwitchBranch && selectedBranch && (
+        <div className="flex items-center justify-center gap-1.5 py-1.5 px-4 bg-muted/40 border-t border-border/50 text-[10px]">
+           <span className="relative flex h-2 w-2">
+             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+           </span>
+           <Boxes className="w-3.5 h-3.5 opacity-70" />
+           <span className="tracking-wide">
+             <span className="text-muted-foreground mr-1">Using</span>
+             <span className="font-bold">{selectedBranch.name}</span>
+             {selectedBranch.is_warehouse && <span className="ml-1 uppercase opacity-75">(Warehouse)</span>}
+           </span>
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -248,13 +270,17 @@ const BOTTOM_TABS = [
   { id: 'settings', icon: SettingsIcon, label: 'Settings' },
 ];
 
-export const MobileBottomNav: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
+interface MobileBottomNavProps extends SidebarProps {
+  isVisible?: boolean;
+}
+
+export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, setActiveTab, isVisible = true }) => {
   const navItems = useNavItems();
   // Only show bottom tabs the user has access to
   const visibleBottomTabs = BOTTOM_TABS.filter(bt => navItems.some(n => n.id === bt.id));
 
   return (
-    <nav className="md:hidden fixed bottom-6 left-4 right-4 z-40 bg-background/95 backdrop-blur-sm border rounded-2xl shadow-lg">
+    <nav className={`md:hidden fixed bottom-6 left-4 right-4 z-40 bg-background/95 backdrop-blur-sm border rounded-2xl shadow-lg transition-all duration-300 ${isVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-24 opacity-0 pointer-events-none'}`}>
       <div className="flex items-stretch h-16 px-2">
         {visibleBottomTabs.map(tab => {
           const Icon = tab.icon;

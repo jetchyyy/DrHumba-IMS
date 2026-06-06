@@ -1,13 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, ExclamationTriangleIcon as AlertTriangle, LayersIcon as Layers, EyeOpenIcon as Eye, ChevronDownIcon as ChevronDown, ChevronUpIcon as ChevronUp, BarChartIcon as BarChart3, ExclamationTriangleIcon as ShieldAlert } from '@radix-ui/react-icons';
+import { MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, ExclamationTriangleIcon as AlertTriangle, LayersIcon as Layers, EyeOpenIcon as Eye, BarChartIcon as BarChart3, ExclamationTriangleIcon as ShieldAlert } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from './ui/sheet';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "./ui/pagination";
 
 interface BranchBalance {
   branch_id: string;
@@ -37,7 +46,15 @@ export const GlobalInventory: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedBranchId, setSelectedBranchId] = useState('All');
-  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const [splitViewItem, setSplitViewItem] = useState<GlobalStockItem | null>(null);
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedCategory, selectedBranchId]);
 
   const loadGlobalStockData = async () => {
     setLoading(true);
@@ -128,6 +145,9 @@ export const GlobalInventory: React.FC = () => {
     return matchesSearch && matchesCategory;
   });
 
+  const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
+  const paginatedItems = filteredItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   const displayTotalItems = itemsWithDisplayValues.length;
   const displayTotalValuation = itemsWithDisplayValues.reduce((sum, item) => sum + item.display_valuation, 0);
 
@@ -140,8 +160,8 @@ export const GlobalInventory: React.FC = () => {
     }
   }, 0);
 
-  const toggleExpand = (id: string) => {
-    setExpandedItemId(expandedItemId === id ? null : id);
+  const openSplitView = (item: GlobalStockItem) => {
+    setSplitViewItem(item);
   };
 
   const formatPHP = (amount: number) => {
@@ -261,7 +281,6 @@ export const GlobalInventory: React.FC = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-10 pl-6"></TableHead>
                 <TableHead>SKU</TableHead>
                 <TableHead>Item Name</TableHead>
                 <TableHead>Category</TableHead>
@@ -284,23 +303,19 @@ export const GlobalInventory: React.FC = () => {
                 </TableRow>
               ) : filteredItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                     No items found matching your search.
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredItems.map(item => {
-                  const isExpanded = expandedItemId === item.id;
+                paginatedItems.map(item => {
                   return (
                     <React.Fragment key={item.id}>
                       <TableRow 
-                        onClick={() => toggleExpand(item.id)}
-                        className="cursor-pointer"
+                        onClick={() => openSplitView(item)}
+                        className="cursor-pointer hover:bg-muted/30 transition-colors"
                       >
-                        <TableCell className="pl-6 text-muted-foreground">
-                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                        </TableCell>
-                        <TableCell className="font-mono text-muted-foreground font-semibold">{item.sku}</TableCell>
+                        <TableCell className="font-mono text-muted-foreground font-semibold pl-6">{item.sku}</TableCell>
                         <TableCell className="font-bold">{item.item_name}</TableCell>
                         <TableCell>
                           <Badge variant="secondary" className="text-[10px] uppercase">
@@ -314,89 +329,121 @@ export const GlobalInventory: React.FC = () => {
                           {formatPHP(item.display_valuation)}
                         </TableCell>
                         <TableCell className="text-right pr-6">
-                          <Button variant="ghost" size="sm" className="h-8">
+                          <Button variant="ghost" size="sm" className="h-8" onClick={(e) => { e.stopPropagation(); openSplitView(item); }}>
                             <Eye className="w-4 h-4 mr-2" />
                             Show Split
                           </Button>
                         </TableCell>
                       </TableRow>
-
-                      {isExpanded && (
-                        <TableRow className="bg-muted/20 hover:bg-muted/20">
-                          <TableCell colSpan={7} className="p-0 border-l-2 border-primary">
-                            <div className="p-6">
-                              <div className="flex items-center justify-between mb-4">
-                                <h4 className="text-sm font-bold text-primary uppercase tracking-wider">
-                                  Branch Stock Breakdown: {item.item_name}
-                                </h4>
-                                <span className="text-[10px] text-muted-foreground font-medium">
-                                  Base Reorder Trigger: <span className="text-foreground font-bold">{item.reorder_level} {item.base_unit}</span>
-                                </span>
-                              </div>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                                {item.breakdown.map(br => {
-                                  const isLow = br.quantity < item.reorder_level;
-                                  const isSelectedBranch = br.branch_id === selectedBranchId;
-                                  return (
-                                    <div 
-                                      key={br.branch_id} 
-                                      className={`p-4 rounded-lg border flex flex-col justify-between space-y-2 transition-all ${
-                                        isSelectedBranch
-                                          ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
-                                          : isLow 
-                                            ? 'border-destructive/50 bg-destructive/5' 
-                                            : 'bg-background/50'
-                                      }`}
-                                    >
-                                      <div className="flex items-start justify-between">
-                                        <div>
-                                          <span className="text-sm font-bold truncate block max-w-[150px]">
-                                            {br.branch_name}
-                                          </span>
-                                          <span className="text-[10px] text-muted-foreground uppercase font-medium">
-                                            {br.is_warehouse ? 'Warehouse / Main' : 'Sales Branch'}
-                                          </span>
-                                        </div>
-                                        
-                                        {isLow && (
-                                          <Badge variant="destructive" className="h-5 px-1.5 text-[9px] uppercase">
-                                            <AlertTriangle className="w-3 h-3 mr-1" />
-                                            Low Stock
-                                          </Badge>
-                                        )}
-                                      </div>
-
-                                      <div className="flex items-end justify-between pt-2 border-t">
-                                        <div>
-                                          <span className="text-[10px] text-muted-foreground block">Quantity</span>
-                                          <span className="text-base font-black">
-                                            {br.quantity.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">{item.base_unit}</span>
-                                          </span>
-                                        </div>
-                                        <div className="text-right">
-                                          <span className="text-[10px] text-muted-foreground block">Valuation</span>
-                                          <span className="text-sm font-bold text-emerald-500">
-                                            {formatPHP(br.quantity * item.cost_per_base_unit)}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )}
                     </React.Fragment>
                   );
                 })
               )}
             </TableBody>
           </Table>
+          {totalPages > 1 && (
+            <div className="py-4 border-t">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }).map((_, i) => (
+                    <PaginationItem key={i}>
+                      <PaginationLink 
+                        onClick={() => setCurrentPage(i + 1)}
+                        isActive={currentPage === i + 1}
+                        className="cursor-pointer"
+                      >
+                        {i + 1}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Split View Drawer */}
+      <Sheet open={!!splitViewItem} onOpenChange={(open) => { if (!open) setSplitViewItem(null); }}>
+        <SheetContent side="right" className="w-[90vw] sm:w-[500px] overflow-y-auto">
+          <SheetHeader className="mb-6">
+            <SheetTitle className="text-xl font-bold">Branch Stock Breakdown</SheetTitle>
+            <SheetDescription className="flex flex-col gap-1">
+              <span className="font-bold text-foreground text-lg">{splitViewItem?.item_name}</span>
+              <span className="font-mono text-xs">SKU: {splitViewItem?.sku}</span>
+              <span className="text-xs mt-2">
+                Reorder Alert Level: <span className="font-bold text-foreground">{splitViewItem?.reorder_level} {splitViewItem?.base_unit}</span>
+              </span>
+            </SheetDescription>
+          </SheetHeader>
+
+          {splitViewItem && (
+            <div className="space-y-4 pb-10">
+              {splitViewItem.breakdown.map(br => {
+                const isLow = br.quantity < splitViewItem.reorder_level;
+                const isSelectedBranch = br.branch_id === selectedBranchId;
+                return (
+                  <div 
+                    key={br.branch_id} 
+                    className={`p-5 rounded-xl border shadow-sm flex flex-col justify-between space-y-3 transition-all ${
+                      isSelectedBranch
+                        ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                        : isLow 
+                          ? 'border-destructive/40 bg-destructive/5' 
+                          : 'bg-background/80 hover:bg-muted/20'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="text-base font-bold block">
+                          {br.branch_name}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">
+                          {br.is_warehouse ? 'Warehouse / Main' : 'Sales Branch'}
+                        </span>
+                      </div>
+                      
+                      {isLow && (
+                        <Badge variant="destructive" className="uppercase px-2 py-0.5 text-[10px] font-bold">
+                          <AlertTriangle className="w-3 h-3 mr-1.5 inline" />
+                          Low Stock
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="flex items-end justify-between pt-3 border-t">
+                      <div>
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-0.5">Available Qty</span>
+                        <span className="text-xl font-black">
+                          {br.quantity.toLocaleString()} <span className="text-sm font-semibold text-muted-foreground ml-0.5">{splitViewItem.base_unit}</span>
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-0.5">Est. Value</span>
+                        <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                          {formatPHP(br.quantity * splitViewItem.cost_per_base_unit)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };

@@ -7,13 +7,11 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
   PieChart,
   Pie,
   Cell
 } from 'recharts';
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from './ui/chart';
 import { BarChartIcon as BarChart3, ActivityLogIcon as TrendingUp, ReloadIcon as RefreshCw, ClockIcon as Clock } from '@radix-ui/react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -113,6 +111,15 @@ export const Analytics: React.FC = () => {
     Sales: p.quantity_sold,
     Revenue: Number(p.revenue)
   })) || [];
+
+  const topProductsConfig = {
+    Sales: { label: "Sales (Qty)", color: "hsl(var(--primary))" },
+    Revenue: { label: "Revenue (₱)", color: "#10b981" }
+  };
+
+  const wasteConfig = {
+    value: { label: "Cost (₱)" }
+  };
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
@@ -230,20 +237,17 @@ export const Analytics: React.FC = () => {
           <CardContent>
             <div className="h-80">
               {topProductsChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
+                <ChartContainer config={topProductsConfig} className="h-full w-full min-h-[300px]">
                   <BarChart data={topProductsChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} />
-                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
-                      labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
-                    />
-                    <Legend verticalAlign="top" height={36} iconType="circle" />
-                    <Bar dataKey="Sales" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Revenue" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <ChartLegend content={<ChartLegendContent />} />
+                    <Bar dataKey="Sales" fill="var(--color-Sales)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Revenue" fill="var(--color-Revenue)" radius={[4, 4, 0, 0]} />
                   </BarChart>
-                </ResponsiveContainer>
+                </ChartContainer>
               ) : (
                 <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
                   No product sales logged in this date range.
@@ -263,7 +267,7 @@ export const Analytics: React.FC = () => {
               {wasteChartData.length > 0 ? (
                 <>
                   <div className="h-60">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ChartContainer config={wasteConfig} className="h-full w-full min-h-[240px]">
                       <PieChart>
                         <Pie
                           data={wasteChartData}
@@ -278,11 +282,9 @@ export const Analytics: React.FC = () => {
                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                           ))}
                         </Pie>
-                        <Tooltip
-                          contentStyle={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
-                        />
+                        <ChartTooltip content={<ChartTooltipContent />} />
                       </PieChart>
-                    </ResponsiveContainer>
+                    </ChartContainer>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     {wasteChartData.map((entry, index) => (

@@ -12,7 +12,19 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Badge } from './ui/badge';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Calendar as CalendarComponent } from './ui/calendar';
+import { format } from 'date-fns';
+import { CalendarIcon as Calendar } from '@radix-ui/react-icons';
 import { useModal } from '../contexts/ModalContext';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "./ui/pagination";
 
 interface Receipt {
   id: string;
@@ -48,6 +60,19 @@ export const StockReceiving: React.FC = () => {
   
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  
+  // Filter state
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
+  const [startDate, setStartDate] = useState<Date | undefined>();
+  const [endDate, setEndDate] = useState<Date | undefined>();
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [dateFilter, startDate, endDate]);
   
   // Modals state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -244,6 +269,38 @@ export const StockReceiving: React.FC = () => {
     }
   };
 
+  const filteredReceipts = receipts.filter(receipt => {
+    let matchesDate = true;
+    const recDate = new Date(receipt.date_received);
+    const now = new Date();
+
+    if (dateFilter === 'today') {
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      matchesDate = recDate >= todayStart;
+    } else if (dateFilter === 'week') {
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      matchesDate = recDate >= weekAgo;
+    } else if (dateFilter === 'month') {
+      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      matchesDate = recDate >= monthAgo;
+    } else if (dateFilter === 'custom') {
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        matchesDate = matchesDate && recDate >= start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        matchesDate = matchesDate && recDate <= end;
+      }
+    }
+    return matchesDate;
+  });
+
+  const totalPages = Math.ceil(filteredReceipts.length / itemsPerPage);
+  const paginatedReceipts = filteredReceipts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
@@ -264,6 +321,72 @@ export const StockReceiving: React.FC = () => {
         </div>
       </div>
 
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <div className="flex items-center space-x-2">
+          <span className="text-sm text-muted-foreground font-medium">Filter by Date:</span>
+          <Select value={dateFilter} onValueChange={(v: any) => setDateFilter(v)}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="All Time" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Time</SelectItem>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="week">Last 7 Days</SelectItem>
+              <SelectItem value="month">Last 30 Days</SelectItem>
+              <SelectItem value="custom">Custom Range</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {dateFilter === 'custom' && (
+        <Card className="bg-muted/30 mb-6">
+          <CardContent className="p-4 flex flex-col sm:flex-row items-center gap-4 text-sm">
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
+              <span className="text-muted-foreground">Start:</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-[150px] justify-start text-left font-normal h-9">
+                    <Calendar className="mr-2 h-4 w-4" />
+                    {startDate ? format(startDate, 'PPP') : <span>Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <CalendarComponent mode="single" selected={startDate} onSelect={setStartDate} />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
+              <span className="text-muted-foreground">End:</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-[150px] justify-start text-left font-normal h-9">
+                    <Calendar className="mr-2 h-4 w-4" />
+                    {endDate ? format(endDate, 'PPP') : <span>Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <CalendarComponent mode="single" selected={endDate} onSelect={setEndDate} />
+                </PopoverContent>
+              </Popover>
+            </div>
+            {(startDate || endDate) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setStartDate(undefined);
+                  setEndDate(undefined);
+                }}
+                className="text-muted-foreground"
+              >
+                Clear Custom
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="px-6 py-4">
           <CardTitle>Delivery Receipts</CardTitle>
@@ -281,7 +404,14 @@ export const StockReceiving: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {receipts.map(rec => (
+              {filteredReceipts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                    No delivery receipts found for the selected dates.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                paginatedReceipts.map(rec => (
                 <TableRow key={rec.id}>
                   <TableCell className="pl-6">
                     <div className="font-bold">{rec.control_number || 'Pending'}</div>
@@ -301,17 +431,40 @@ export const StockReceiving: React.FC = () => {
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))}
-
-              {receipts.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center">
-                    No stock receipts logged yet. Create a draft to begin.
-                  </TableCell>
-                </TableRow>
-              )}
+              )))}
             </TableBody>
           </Table>
+          {totalPages > 1 && (
+            <div className="py-4 border-t">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }).map((_, i) => (
+                    <PaginationItem key={i}>
+                      <PaginationLink 
+                        onClick={() => setCurrentPage(i + 1)}
+                        isActive={currentPage === i + 1}
+                        className="cursor-pointer"
+                      >
+                        {i + 1}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </CardContent>
       </Card>
 

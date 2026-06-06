@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { CountdownTimerIcon as History, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, ChevronDownIcon as ChevronDown, ChevronUpIcon as ChevronUp, CalendarIcon as Calendar, BackpackIcon as ShoppingBag, ValueIcon as DollarSign, EyeOpenIcon as Eye, ActivityLogIcon as TrendingUp, FileTextIcon as Printer } from '@radix-ui/react-icons';
+import { CountdownTimerIcon as History, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, CalendarIcon as Calendar, BackpackIcon as ShoppingBag, ValueIcon as DollarSign, EyeOpenIcon as Eye, ActivityLogIcon as TrendingUp, FileTextIcon as Printer } from '@radix-ui/react-icons';
 import { settingsService, DEFAULT_SALES_INVOICE_TEMPLATE } from '../lib/settingsService';
 import { printThermalInvoice } from '../lib/printService';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
@@ -13,10 +13,19 @@ import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Calendar as CalendarComponent } from './ui/calendar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from './ui/sheet';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { format } from 'date-fns';
 import { useModal } from '../contexts/ModalContext';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "./ui/pagination";
 
 interface SaleItem {
   id: string;
@@ -70,8 +79,16 @@ export const SalesHistory: React.FC = () => {
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
   
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedBranchId, dateFilter, startDate, endDate]);
+  
   // UI States
-  const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
+  const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null);
 
   // Void / Refund dialog
   const [voidTarget, setVoidTarget] = useState<SaleRecord | null>(null);
@@ -168,8 +185,8 @@ export const SalesHistory: React.FC = () => {
     }
   }, [profile]);
 
-  const toggleExpand = (id: string) => {
-    setExpandedSaleId(expandedSaleId === id ? null : id);
+  const openSheet = (sale: SaleRecord) => {
+    setSelectedSale(sale);
   };
 
   const openVoidDialog = (sale: SaleRecord, e: React.MouseEvent) => {
@@ -232,6 +249,9 @@ export const SalesHistory: React.FC = () => {
 
     return matchesSearch && matchesBranch && matchesDate;
   });
+
+  const totalPages = Math.ceil(filteredSales.length / itemsPerPage);
+  const paginatedSales = filteredSales.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   const handlePrintReceipt = (sale: SaleRecord) => {
     const printWindow = window.open('', '_blank');
@@ -543,7 +563,6 @@ export const SalesHistory: React.FC = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-10"></TableHead>
                 <TableHead>Timestamp</TableHead>
                 <TableHead>Control No / ID</TableHead>
                 <TableHead>Branch</TableHead>
@@ -556,30 +575,26 @@ export const SalesHistory: React.FC = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-24 text-center">
+                  <TableCell colSpan={7} className="h-24 text-center">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto text-primary mb-2" />
                     Fetching sales transaction ledger...
                   </TableCell>
                 </TableRow>
               ) : filteredSales.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                     No sales history transactions found matching filter criteria.
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredSales.map(sale => {
-                  const isExpanded = expandedSaleId === sale.id;
+                paginatedSales.map(sale => {
                   const dateStr = new Date(sale.created_at).toLocaleString();
                   return (
                     <React.Fragment key={sale.id}>
                       <TableRow 
-                        onClick={() => toggleExpand(sale.id)}
-                        className="cursor-pointer"
+                        onClick={() => openSheet(sale)}
+                        className="cursor-pointer hover:bg-muted/30 transition-colors"
                       >
-                        <TableCell className="pl-4 text-muted-foreground">
-                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                        </TableCell>
                         <TableCell className="font-medium text-muted-foreground">{dateStr}</TableCell>
                         <TableCell className="font-mono text-xs">
                           <div className="font-bold">{sale.control_number || 'Pending'}</div>
@@ -611,7 +626,7 @@ export const SalesHistory: React.FC = () => {
                             >
                               <Printer className="w-4 h-4 text-emerald-500" />
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-8">
+                            <Button variant="ghost" size="sm" className="h-8" onClick={(e) => { e.stopPropagation(); openSheet(sale); }}>
                               <Eye className="w-4 h-4 mr-1" />
                               View
                             </Button>
@@ -628,112 +643,43 @@ export const SalesHistory: React.FC = () => {
                           </div>
                         </TableCell>
                       </TableRow>
-
-                      {isExpanded && (
-                        <TableRow className="bg-muted/20 hover:bg-muted/20">
-                          <TableCell colSpan={8} className="p-0 border-l-2 border-primary">
-                            <div className="p-6">
-                              <div className="flex items-center justify-between border-b pb-2 mb-4">
-                                <div className="flex items-center space-x-3">
-                                  <h4 className="text-sm font-bold text-primary uppercase tracking-wider">
-                                    Invoice Details: {sale.control_number || 'Pending'}
-                                  </h4>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handlePrintReceipt(sale);
-                                    }}
-                                  >
-                                    <Printer className="mr-1 h-3.5 w-3.5" />
-                                    Print PDF
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-450 border-emerald-550/25"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handlePrintThermalReceipt(sale);
-                                    }}
-                                  >
-                                    <Printer className="mr-1 h-3.5 w-3.5 text-emerald-600" />
-                                    Print Thermal
-                                  </Button>
-                                </div>
-                                <span className="text-[10px] text-muted-foreground font-mono">
-                                  UUID: {sale.id}
-                                </span>
-                              </div>
-
-                              {/* Payment Summary Row */}
-                              <div className="flex flex-wrap gap-4 mb-4 text-xs">
-                                <div className="bg-muted/50 rounded-lg px-3 py-2 border">
-                                  <p className="text-muted-foreground uppercase tracking-wider text-[10px] mb-0.5">Payment Method</p>
-                                  <p className="font-bold">{PAYMENT_LABELS[sale.payment_method || ''] || sale.payment_method || '—'}</p>
-                                </div>
-                                {sale.amount_tendered != null && (
-                                  <div className="bg-muted/50 rounded-lg px-3 py-2 border">
-                                    <p className="text-muted-foreground uppercase tracking-wider text-[10px] mb-0.5">Tendered</p>
-                                    <p className="font-bold">{formatPHP(sale.amount_tendered)}</p>
-                                  </div>
-                                )}
-                                {sale.change_given != null && sale.change_given > 0 && (
-                                  <div className="bg-emerald-500/10 rounded-lg px-3 py-2 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
-                                    <p className="uppercase tracking-wider text-[10px] mb-0.5">Change Given</p>
-                                    <p className="font-bold">{formatPHP(sale.change_given)}</p>
-                                  </div>
-                                )}
-                                {sale.status === 'refunded' && sale.void_reason && (
-                                  <div className="bg-destructive/10 rounded-lg px-3 py-2 border border-destructive/30 text-destructive">
-                                    <p className="uppercase tracking-wider text-[10px] mb-0.5">Void Reason</p>
-                                    <p className="font-bold">{sale.void_reason}</p>
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="border rounded-lg overflow-hidden bg-background/50">
-                                <Table>
-                                  <TableHeader>
-                                    <TableRow className="bg-muted/50">
-                                      <TableHead className="pl-4">Dish / Menu Item</TableHead>
-                                      <TableHead>SKU</TableHead>
-                                      <TableHead className="text-right">Unit Price</TableHead>
-                                      <TableHead className="text-center">Quantity</TableHead>
-                                      <TableHead className="text-right pr-4">Subtotal</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {sale.items.map((item) => (
-                                      <TableRow key={item.id}>
-                                        <TableCell className="pl-4 font-bold">{item.item_name}</TableCell>
-                                        <TableCell className="font-mono text-[10px] text-muted-foreground">{item.sku}</TableCell>
-                                        <TableCell className="text-right font-medium text-muted-foreground">{formatPHP(item.unit_price)}</TableCell>
-                                        <TableCell className="text-center font-bold">{item.quantity}</TableCell>
-                                        <TableCell className="text-right font-bold pr-4">{formatPHP(item.subtotal)}</TableCell>
-                                      </TableRow>
-                                    ))}
-                                    <TableRow className="bg-muted/30 font-bold">
-                                      <TableCell colSpan={4} className="pl-4 text-right">Invoice Total:</TableCell>
-                                      <TableCell className="text-right text-emerald-500 pr-4 text-sm font-black">
-                                        {formatPHP(sale.total_amount)}
-                                      </TableCell>
-                                    </TableRow>
-                                  </TableBody>
-                                </Table>
-                              </div>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )}
                     </React.Fragment>
                   );
                 })
               )}
             </TableBody>
           </Table>
+          {totalPages > 1 && (
+            <div className="py-4 border-t px-2">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }).map((_, i) => (
+                    <PaginationItem key={i}>
+                      <PaginationLink 
+                        onClick={() => setCurrentPage(i + 1)}
+                        isActive={currentPage === i + 1}
+                        className="cursor-pointer"
+                      >
+                        {i + 1}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -796,6 +742,111 @@ export const SalesHistory: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Invoice Details Drawer */}
+      <Sheet open={!!selectedSale} onOpenChange={(open) => { if (!open) setSelectedSale(null); }}>
+        <SheetContent side="right" className="w-[90vw] sm:w-[540px] overflow-y-auto">
+          <SheetHeader className="mb-6">
+            <SheetTitle className="text-xl font-bold flex items-center justify-between">
+              <span>Invoice Details</span>
+              <Badge variant={selectedSale?.status === 'completed' ? 'default' : 'destructive'} className="uppercase">
+                {selectedSale?.status}
+              </Badge>
+            </SheetTitle>
+            <SheetDescription className="font-mono text-xs text-muted-foreground flex flex-col gap-1">
+              <span>ID: {selectedSale?.id}</span>
+              <span>Control No: {selectedSale?.control_number || 'Pending'}</span>
+            </SheetDescription>
+          </SheetHeader>
+
+          {selectedSale && (
+            <div className="space-y-6">
+              {/* Action Buttons */}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handlePrintReceipt(selectedSale)}
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  Print PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-450 border-emerald-550/25"
+                  onClick={() => handlePrintThermalReceipt(selectedSale)}
+                >
+                  <Printer className="mr-2 h-4 w-4 text-emerald-600" />
+                  Print Thermal
+                </Button>
+              </div>
+
+              {/* Payment Summary */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-muted/50 rounded-lg px-3 py-2 border">
+                  <p className="text-muted-foreground uppercase tracking-wider text-[10px] mb-0.5">Payment Method</p>
+                  <p className="font-bold">{PAYMENT_LABELS[selectedSale.payment_method || ''] || selectedSale.payment_method || '—'}</p>
+                </div>
+                {selectedSale.amount_tendered != null && (
+                  <div className="bg-muted/50 rounded-lg px-3 py-2 border">
+                    <p className="text-muted-foreground uppercase tracking-wider text-[10px] mb-0.5">Tendered</p>
+                    <p className="font-bold">{formatPHP(selectedSale.amount_tendered)}</p>
+                  </div>
+                )}
+                {selectedSale.change_given != null && selectedSale.change_given > 0 && (
+                  <div className="bg-emerald-500/10 rounded-lg px-3 py-2 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
+                    <p className="uppercase tracking-wider text-[10px] mb-0.5">Change Given</p>
+                    <p className="font-bold">{formatPHP(selectedSale.change_given)}</p>
+                  </div>
+                )}
+                {selectedSale.status === 'refunded' && selectedSale.void_reason && (
+                  <div className="bg-destructive/10 rounded-lg px-3 py-2 border border-destructive/30 text-destructive col-span-2">
+                    <p className="uppercase tracking-wider text-[10px] mb-0.5">Void Reason</p>
+                    <p className="font-bold">{selectedSale.void_reason}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Items List */}
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-wider mb-3 text-muted-foreground">Order Items</h4>
+                <div className="border rounded-lg overflow-hidden bg-background/50">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead>Item</TableHead>
+                        <TableHead className="text-center">Qty</TableHead>
+                        <TableHead className="text-right">Price</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedSale.items.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell>
+                            <div className="font-bold text-xs">{item.item_name}</div>
+                            <div className="font-mono text-[10px] text-muted-foreground">{item.sku}</div>
+                          </TableCell>
+                          <TableCell className="text-center font-bold text-xs">{item.quantity}</TableCell>
+                          <TableCell className="text-right text-muted-foreground text-xs">{formatPHP(item.unit_price)}</TableCell>
+                          <TableCell className="text-right font-bold text-xs">{formatPHP(item.subtotal)}</TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="bg-muted/20">
+                        <TableCell colSpan={3} className="text-right font-bold">Total Amount:</TableCell>
+                        <TableCell className="text-right text-emerald-500 font-black text-sm">
+                          {formatPHP(selectedSale.total_amount)}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };

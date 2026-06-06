@@ -482,29 +482,7 @@ export const POS: React.FC = () => {
             </div>
           )}
 
-          {/* Last Sale Receipt */}
-          {lastSaleResult && cart.length === 0 && (
-            <Alert className="mt-4 border-emerald-500/50 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <CheckCircle className="h-4 w-4" color="currentColor" />
-              <AlertTitle className="text-xs font-bold">Sale Recorded</AlertTitle>
-              <AlertDescription className="text-[10px] space-y-1 mt-1">
-                <p className="font-mono break-all">ID: {lastSaleResult.id}</p>
-                <p>Method: <strong>{PAYMENT_LABELS[lastSaleResult.method as PaymentMethod]}</strong></p>
-                {lastSaleResult.method === 'cash' && lastSaleResult.change > 0 && (
-                  <p className="text-base font-black">Change: {formatPHP(lastSaleResult.change)}</p>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-2 w-full font-bold flex items-center justify-center gap-1.5 h-8 bg-emerald-600 hover:bg-emerald-500 text-white border-none"
-                  onClick={() => handlePrintThermal(lastSaleResult.id)}
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  Print Thermal Receipt
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
+          {/* Empty cart indicator or checkout success logic removed from here as we use a modal now */}
         </div>
       </ScrollArea>
 
@@ -680,6 +658,66 @@ export const POS: React.FC = () => {
         onConfirm={handleConfirmPayment}
         processing={checkingOut}
       />
+
+      {/* Sale Success / Print Invoice Modal */}
+      <Dialog open={!!lastSaleResult} onOpenChange={(open) => { if (!open) setLastSaleResult(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <div className="flex items-center space-x-2 text-emerald-600 dark:text-emerald-400">
+              <CheckCircle className="w-6 h-6" />
+              <DialogTitle className="text-xl font-bold">Sale Completed!</DialogTitle>
+            </div>
+            <DialogDescription className="text-xs">
+              Transaction has been recorded successfully.
+            </DialogDescription>
+          </DialogHeader>
+
+          {lastSaleResult && (
+            <div className="space-y-4 py-4">
+              <div className="bg-muted/50 p-4 rounded-lg space-y-2 border">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Transaction ID</span>
+                  <span className="font-mono">{lastSaleResult.id.slice(0, 8)}...</span>
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Payment Method</span>
+                  <span className="font-bold text-foreground">{PAYMENT_LABELS[lastSaleResult.method as PaymentMethod]}</span>
+                </div>
+                
+                {lastSaleResult.method === 'cash' && lastSaleResult.change > 0 && (
+                  <>
+                    <Separator className="my-2" />
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-bold text-muted-foreground">Change Due</span>
+                      <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                        {formatPHP(lastSaleResult.change)}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setLastSaleResult(null)} className="sm:flex-1">
+              Close (New Sale)
+            </Button>
+            <Button
+              className="sm:flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              onClick={() => {
+                if (lastSaleResult) {
+                  handlePrintThermal(lastSaleResult.id);
+                  setLastSaleResult(null);
+                }
+              }}
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Print Receipt
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

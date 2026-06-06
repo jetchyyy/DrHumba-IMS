@@ -17,6 +17,7 @@ export interface Branch {
   name: string;
   is_warehouse: boolean;
   location: string | null;
+  status?: string;
 }
 
 interface AuthContextType {

@@ -28,6 +28,14 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Calendar as CalendarComponent } from './ui/calendar';
 import { format } from 'date-fns';
 import { useModal } from '../contexts/ModalContext';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "./ui/pagination";
 
 interface UnifiedTransaction {
   id: string;
@@ -66,6 +74,14 @@ export const Transactions: React.FC = () => {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedType, selectedBranchId, dateFilter, startDate, endDate]);
 
   // Detail Modal State
   const [showViewModal, setShowViewModal] = useState(false);
@@ -355,6 +371,9 @@ export const Transactions: React.FC = () => {
     return matchesSearch && matchesType && matchesBranch && matchesDate;
   });
 
+  const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
+  const paginatedTransactions = filteredTransactions.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       {/* Page Header */}
@@ -538,7 +557,7 @@ export const Transactions: React.FC = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredTransactions.map(tx => {
+                paginatedTransactions.map(tx => {
                   const dateStr = new Date(tx.date).toLocaleString();
                   const typeInfo = TYPE_LABELS[tx.type] || { label: tx.type, color: '' };
                   const isSales = tx.type === 'invoice';
@@ -589,6 +608,37 @@ export const Transactions: React.FC = () => {
               )}
             </TableBody>
           </Table>
+          {totalPages > 1 && (
+            <div className="py-4 border-t px-2">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }).map((_, i) => (
+                    <PaginationItem key={i}>
+                      <PaginationLink 
+                        onClick={() => setCurrentPage(i + 1)}
+                        isActive={currentPage === i + 1}
+                        className="cursor-pointer"
+                      >
+                        {i + 1}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </CardContent>
       </Card>
 

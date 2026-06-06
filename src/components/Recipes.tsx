@@ -13,6 +13,14 @@ import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { useModal } from '../contexts/ModalContext';
 import { ScrollArea } from './ui/scroll-area';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "./ui/pagination";
 
 interface MenuItem {
   id: string;
@@ -64,6 +72,14 @@ export const Recipes: React.FC = () => {
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [menuItems.length]);
 
   const loadData = async () => {
     try {
@@ -314,6 +330,9 @@ export const Recipes: React.FC = () => {
 
   const isEditor = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
 
+  const totalPages = Math.ceil(menuItems.length / itemsPerPage);
+  const paginatedItems = menuItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
@@ -353,7 +372,7 @@ export const Recipes: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {menuItems.map(item => {
+              {paginatedItems.map(item => {
                 const cost = calculateItemCost(item);
                 const profit = Number(item.price) - cost;
                 const margin = Number(item.price) > 0 ? (profit / Number(item.price)) * 100 : 0;
@@ -410,6 +429,37 @@ export const Recipes: React.FC = () => {
               )}
             </TableBody>
           </Table>
+          {totalPages > 1 && (
+            <div className="py-4 border-t">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }).map((_, i) => (
+                    <PaginationItem key={i}>
+                      <PaginationLink 
+                        onClick={() => setCurrentPage(i + 1)}
+                        isActive={currentPage === i + 1}
+                        className="cursor-pointer"
+                      >
+                        {i + 1}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </CardContent>
       </Card>
 

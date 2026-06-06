@@ -147,7 +147,7 @@ export const Settings: React.FC = () => {
   const isEditorRole = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
 
   return (
-    <div className="flex-1 p-4 md:p-8 overflow-y-auto bg-slate-950 text-slate-100">
+    <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       {/* Header */}
       <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
         <div>
@@ -205,7 +205,7 @@ export const Settings: React.FC = () => {
             <div className="max-w-3xl space-y-6">
               {/* User Role Card */}
               {profile && (
-                <Card className="glass-dark border-primary/20">
+                <Card className="glass-dark border-border/50">
                   <CardContent className="p-6 flex items-center space-x-6">
                     <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 text-primary">
                       <UserCheck className="w-7 h-7" />
@@ -315,8 +315,8 @@ WHERE email = 'your-admin-email@example.com';`}
 
               {/* ─── COLUMN 1: TRANSFER SLIP TEMPLATE ─── */}
               <div className="space-y-6">
-                <Card className="border-slate-800/80 bg-slate-900/10">
-                  <CardHeader className="border-b border-slate-800/60 pb-4">
+                <Card>
+                  <CardHeader className="border-b pb-4">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-sm font-bold uppercase tracking-wider flex items-center space-x-2">
                         <FileText className="w-4 h-4 text-primary" />
@@ -378,25 +378,25 @@ WHERE email = 'your-admin-email@example.com';`}
                         <Label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
                           Voucher Logo Image (PNG / JPG)
                         </Label>
-                        <div className="flex items-center space-x-4 p-3 bg-slate-950 border border-slate-800 border-dashed rounded-lg">
+                        <div className="flex items-center space-x-4 p-3 bg-muted/30 border border-dashed rounded-lg">
                           {transferSlip.logo_url ? (
-                            <div className="relative w-16 h-16 bg-slate-900 border border-slate-800 rounded flex items-center justify-center p-1">
+                            <div className="relative w-16 h-16 bg-muted/50 border rounded flex items-center justify-center p-1">
                               <img src={transferSlip.logo_url} className="max-w-full max-h-full object-contain rounded" />
                               <button
                                 onClick={() => handleRemoveImage('transfer')}
-                                className="absolute -top-1.5 -right-1.5 p-1 bg-red-650 rounded-full hover:bg-red-500 transition-all text-white shadow"
+                                className="absolute -top-1.5 -right-1.5 p-1 bg-destructive rounded-full hover:bg-destructive/90 transition-all text-white shadow"
                                 title="Delete logo"
                               >
                                 <Trash2 className="w-2.5 h-2.5" />
                               </button>
                             </div>
                           ) : (
-                            <div className="w-16 h-16 rounded bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-600">
+                            <div className="w-16 h-16 rounded bg-muted/50 border flex items-center justify-center text-muted-foreground">
                               <ImageIcon className="w-6 h-6" />
                             </div>
                           )}
                           <div className="flex-1">
-                            <label className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer">
+                            <label className="inline-flex items-center space-x-1.5 bg-background border hover:bg-muted text-foreground px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer">
                               <Upload className="w-3.5 h-3.5" />
                               <span>Select Image File</span>
                               <input
@@ -438,13 +438,13 @@ WHERE email = 'your-admin-email@example.com';`}
                       </div>
 
                       {/* Signatures Toggle */}
-                      <div className="flex items-center space-x-2 py-2 border-t border-b border-slate-800/40">
+                      <div className="flex items-center space-x-2 py-2 border-t border-b border-border/50">
                         <Checkbox
                           id="show_signatures"
                           checked={transferSlip.show_signatures}
                           onCheckedChange={(checked) => setTransferSlip(prev => ({ ...prev, show_signatures: checked === true }))}
                         />
-                        <Label htmlFor="show_signatures" className="text-xs text-slate-300 select-none cursor-pointer">
+                        <Label htmlFor="show_signatures" className="text-xs select-none cursor-pointer">
                           Render Sender & Receiver Signature Boxes on Receipt
                         </Label>
                       </div>
@@ -475,8 +475,8 @@ WHERE email = 'your-admin-email@example.com';`}
                 </Card>
 
                 {/* TRANSFER SLIP LIVE PREVIEW */}
-                <Card className="border-slate-800/50 bg-slate-900/5">
-                  <CardHeader className="p-4 border-b border-slate-800/50 bg-slate-900/30">
+                <Card className="bg-muted/5">
+                  <CardHeader className="p-4 border-b bg-muted/30">
                     <CardTitle className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center space-x-1.5">
                       <Eye className="w-3.5 h-3.5 text-primary" />
                       <span>Transfer Slip Document Live Preview</span>
@@ -551,8 +551,8 @@ WHERE email = 'your-admin-email@example.com';`}
 
               {/* ─── COLUMN 2: SALES INVOICE (THERMAL) TEMPLATE ─── */}
               <div className="space-y-6">
-                <Card className="border-slate-800/80 bg-slate-900/10">
-                  <CardHeader className="border-b border-slate-800/60 pb-4">
+                <Card>
+                  <CardHeader className="border-b pb-4">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-sm font-bold uppercase tracking-wider flex items-center space-x-2">
                         <FileText className="w-4 h-4 text-emerald-500" />
@@ -652,25 +652,25 @@ WHERE email = 'your-admin-email@example.com';`}
                         <Label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
                           Invoice Logo (PNG / JPG)
                         </Label>
-                        <div className="flex items-center space-x-4 p-3 bg-slate-950 border border-slate-800 border-dashed rounded-lg">
+                        <div className="flex items-center space-x-4 p-3 bg-muted/30 border border-dashed rounded-lg">
                           {salesInvoice.logo_url ? (
-                            <div className="relative w-16 h-16 bg-slate-900 border border-slate-800 rounded flex items-center justify-center p-1">
+                            <div className="relative w-16 h-16 bg-muted/50 border rounded flex items-center justify-center p-1">
                               <img src={salesInvoice.logo_url} className="max-w-full max-h-full object-contain rounded" />
                               <button
                                 onClick={() => handleRemoveImage('sales')}
-                                className="absolute -top-1.5 -right-1.5 p-1 bg-red-655 rounded-full hover:bg-red-500 transition-all text-white shadow"
+                                className="absolute -top-1.5 -right-1.5 p-1 bg-destructive rounded-full hover:bg-destructive/90 transition-all text-white shadow"
                                 title="Delete logo"
                               >
                                 <Trash2 className="w-2.5 h-2.5" />
                               </button>
                             </div>
                           ) : (
-                            <div className="w-16 h-16 rounded bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-600">
+                            <div className="w-16 h-16 rounded bg-muted/50 border flex items-center justify-center text-muted-foreground">
                               <ImageIcon className="w-6 h-6" />
                             </div>
                           )}
                           <div className="flex-1">
-                            <label className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer">
+                            <label className="inline-flex items-center space-x-1.5 bg-background border hover:bg-muted text-foreground px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer">
                               <Upload className="w-3.5 h-3.5" />
                               <span>Select Image File</span>
                               <input
@@ -746,8 +746,8 @@ WHERE email = 'your-admin-email@example.com';`}
                 </Card>
 
                 {/* THERMAL INVOICE LIVE PREVIEW */}
-                <Card className="border-slate-800/50 bg-slate-900/5">
-                  <CardHeader className="p-4 border-b border-slate-800/50 bg-slate-900/30">
+                <Card className="bg-muted/5">
+                  <CardHeader className="p-4 border-b bg-muted/30">
                     <CardTitle className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center space-x-1.5">
                       <Eye className="w-3.5 h-3.5 text-primary" />
                       <span>Thermal Invoice Live Preview (58mm / 80mm Roll)</span>

@@ -9,6 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from './ui/badge';
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { useAuth } from '../contexts/AuthContext';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "./ui/pagination";
 
 interface AuditLog {
   id: string;
@@ -29,6 +37,14 @@ export const AuditLogs: React.FC = () => {
   const [selectedModule, setSelectedModule] = useState('All');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'simple' | 'technical'>('simple');
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedModule, viewMode]);
   
   // Lookup data for resolving UUIDs to friendly names
   const [userEmails, setUserEmails] = useState<Record<string, string>>({});
@@ -271,6 +287,9 @@ export const AuditLogs: React.FC = () => {
     return matchesSearch && matchesModule;
   });
 
+  const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
+  const paginatedLogs = filteredLogs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       {/* Header */}
@@ -360,7 +379,7 @@ export const AuditLogs: React.FC = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredLogs.map(log => {
+                paginatedLogs.map(log => {
                   const isExpanded = expandedLogId === log.id;
                   const userEmail = log.user_id ? userEmails[log.user_id] || log.user_id : 'SYSTEM';
                   return (
@@ -442,6 +461,37 @@ export const AuditLogs: React.FC = () => {
               )}
             </TableBody>
           </Table>
+          {totalPages > 1 && (
+            <div className="py-4 border-t">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }).map((_, i) => (
+                    <PaginationItem key={i}>
+                      <PaginationLink 
+                        onClick={() => setCurrentPage(i + 1)}
+                        isActive={currentPage === i + 1}
+                        className="cursor-pointer"
+                      >
+                        {i + 1}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
