@@ -17,7 +17,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
-import { Alert, AlertDescription, AlertTitle } from './ui/alert';
+
 import { useModal } from '../contexts/ModalContext';
 import { ScrollArea } from './ui/scroll-area';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from './ui/sheet';
