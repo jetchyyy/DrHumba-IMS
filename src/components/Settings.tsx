@@ -12,7 +12,8 @@ import {
   ResetIcon as RotateCcw,
   UploadIcon as Upload,
   EyeOpenIcon as Eye,
-  TrashIcon as Trash2
+  TrashIcon as Trash2,
+  ReaderIcon as BookOpenIcon
 } from '@radix-ui/react-icons';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
@@ -155,7 +156,7 @@ export const Settings: React.FC = () => {
             <SettingsIcon className="w-8 h-8 text-primary animate-spin-slow" />
             <span>System Settings</span>
           </h2>
-          <p className="text-muted-foreground mt-1">Configure document templates, logo uploads, and view database setup guides.</p>
+          <p className="text-muted-foreground mt-1">Configure document templates, logo uploads, and read the full user manual for the system.</p>
         </div>
 
         {/* Tab Switcher */}
@@ -175,8 +176,8 @@ export const Settings: React.FC = () => {
             onClick={() => setActiveSubTab('guide')}
             className="text-xs font-bold"
           >
-            <Database className="w-3.5 h-3.5 mr-1.5" />
-            System Setup Guide
+            <BookOpenIcon className="w-3.5 h-3.5 mr-1.5" />
+            User Manual
           </Button>
         </div>
       </div>
@@ -202,8 +203,9 @@ export const Settings: React.FC = () => {
       ) : (
         <div className="max-w-7xl mx-auto">
           {activeSubTab === 'guide' ? (
-            <div className="max-w-3xl space-y-6">
-              {/* User Role Card */}
+            <div className="max-w-4xl space-y-6">
+
+              {/* Current User Badge */}
               {profile && (
                 <Card className="glass-dark border-border/50">
                   <CardContent className="p-6 flex items-center space-x-6">
@@ -211,104 +213,268 @@ export const Settings: React.FC = () => {
                       <UserCheck className="w-7 h-7" />
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Your Assigned Profile</p>
-                      <h3 className="text-lg font-bold">{profile.email}</h3>
-                      <Badge variant="outline" className="mt-2 text-[10px] uppercase border-primary/50 text-primary bg-primary/5">
-                        Role: {profile.role_name.replace('_', ' ')}
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">Logged In As</p>
+                      <h3 className="text-base font-bold">{profile.email}</h3>
+                      <Badge variant="outline" className="mt-1.5 text-[10px] uppercase border-primary/50 text-primary bg-primary/5">
+                        {profile.role_name.replace(/_/g, ' ')}
                       </Badge>
                     </div>
                   </CardContent>
                 </Card>
               )}
 
-              {/* Database setup instructions */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center space-x-2">
-                    <Database className="w-5 h-5 text-primary" />
-                    <span>Database Schema & Migration Guide</span>
-                  </CardTitle>
-                  <CardDescription>
-                    All system business logic is executed in the database layer via PostgreSQL triggers, functions, and RLS policies.
-                    Ensure you run the schema migration and data seeding commands in your Supabase **SQL Editor**.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="p-4 bg-muted/50 border rounded-lg space-y-2">
-                    <h4 className="text-sm font-bold flex items-center space-x-2">
-                      <Terminal className="w-4 h-4 text-primary" />
-                      <span>Step 1: Execute Schema Migration</span>
-                    </h4>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Open the Supabase dashboard, navigate to the **SQL Editor**, and copy-paste the entire contents of the schema file:
-                    </p>
-                    <code className="text-[11px] text-primary/80 bg-background px-2 py-1 rounded block mt-2 border">
-                      supabase/migrations/20260603000000_schema.sql
-                    </code>
-                  </div>
-
-                  <div className="p-4 bg-muted/50 border rounded-lg space-y-2">
-                    <h4 className="text-sm font-bold flex items-center space-x-2">
-                      <Terminal className="w-4 h-4 text-primary" />
-                      <span>Step 2: Seed Demo Inventory Sandbox</span>
-                    </h4>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Immediately after the schema is created, execute the seeding file to populate branches, recipes, and warehouse inventory:
-                    </p>
-                    <code className="text-[11px] text-primary/80 bg-background px-2 py-1 rounded block mt-2 border">
-                      supabase/migrations/20260603000001_seed.sql
-                    </code>
-                  </div>
-
-                  <div className="p-4 bg-muted/50 border rounded-lg space-y-2">
-                    <h4 className="text-sm font-bold flex items-center space-x-2">
-                      <Terminal className="w-4 h-4 text-primary" />
-                      <span>Step 3: Enable Template Customization Table</span>
-                    </h4>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Execute the newly created system settings SQL script to support persistent document logo uploads and receipt templates:
-                    </p>
-                    <code className="text-[11px] text-primary/80 bg-background px-2 py-1 rounded block mt-2 border">
-                      supabase/migrations/20260603000008_system_settings.sql
-                    </code>
-                  </div>
+              {/* INTRO */}
+              <Card className="border-primary/20 bg-primary/5">
+                <CardContent className="p-6">
+                  <h3 className="text-lg font-extrabold tracking-tight mb-1 flex items-center space-x-2">
+                    <BookOpenIcon className="w-5 h-5 text-primary" />
+                    <span>Dr. Humba — Inventory Management System</span>
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    This manual walks through the full lifecycle of the system — from first-time Super Admin setup, to creating branches, managing staff, running the POS, and reviewing analytics. Follow the sections in order for a smooth onboarding experience.
+                  </p>
                 </CardContent>
               </Card>
 
-              {/* First admin provision instruction */}
+              {/* SECTION 1: Super Admin Provisioning */}
               <Card className="border-emerald-500/20 bg-emerald-500/5">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center space-x-2 text-emerald-600 dark:text-emerald-455">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold flex items-center space-x-2 text-emerald-600 dark:text-emerald-400">
                     <ShieldCheck className="w-5 h-5" />
-                    <span>Super Admin Provisioning (First-time Setup)</span>
+                    <span>Step 1 — Super Admin Account Provisioning</span>
                   </CardTitle>
-                  <CardDescription className="text-emerald-700/70 dark:text-emerald-400/70">
-                    By default, new users created in Supabase Auth are mapped to the lowest tier (`cashier`).
-                    To register your primary Super Admin account:
+                  <CardDescription className="text-emerald-700/70 dark:text-emerald-400/60 text-xs">
+                    Every new user created through the sign-up screen starts as a <code className="font-mono bg-background/50 px-1 rounded">cashier</code> by default.
+                    To turn a freshly created account into the primary Super Admin:
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <ol className="list-decimal pl-5 text-sm text-muted-foreground space-y-4">
+                <CardContent className="space-y-3">
+                  <ol className="list-decimal pl-5 text-sm text-muted-foreground space-y-3">
+                    <li>Go to the login screen and <strong className="text-foreground">Sign Up</strong> a new account with your preferred credentials.</li>
                     <li>
-                      Go to the login screen and <strong className="text-foreground">Sign Up</strong> a new user account with your desired credentials.
+                      Open the Supabase dashboard → <strong className="text-foreground">SQL Editor</strong> and run:
+                      <pre className="bg-background/80 text-foreground p-3 rounded font-mono text-[11px] mt-2 border select-all overflow-x-auto">{`UPDATE public.profiles
+SET role_name = 'super_admin'
+WHERE email = 'your-email@example.com';`}</pre>
+                      <span className="text-[11px] block mt-1 opacity-70">Replace with the email you signed up with.</span>
                     </li>
-                    <li>
-                      Open your Supabase <strong className="text-foreground">SQL Editor</strong> and run the following script to elevate this account:
-                      <pre className="bg-background/80 text-foreground p-3 rounded font-mono text-[11px] mt-2 border select-all overflow-x-auto">
-                        {`UPDATE public.profiles 
-SET role_name = 'super_admin' 
-WHERE email = 'your-admin-email@example.com';`}
-                      </pre>
-                      <span className="text-[11px] block mt-2 opacity-80">
-                        *(Replace <code className="text-primary font-mono bg-background px-1 rounded">your-admin-email@example.com</code> with the email address you signed up).*
-                      </span>
-                    </li>
-                    <li>
-                      Refresh the page and log in. You will have full Super Admin control, allowing you to create other staff, manage inventory, view analytics, and approve transfers!
-                    </li>
+                    <li>Refresh the page and log in. You will now have <strong className="text-foreground">full Super Admin</strong> access to all modules.</li>
                   </ol>
                 </CardContent>
               </Card>
+
+              {/* SECTION 2: Branch Management */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold flex items-center space-x-2">
+                    <Database className="w-5 h-5 text-primary" />
+                    <span>Step 2 — Creating Branches</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Branches represent physical locations (e.g. outlets or the central warehouse). At least one branch must exist before you can assign staff or manage inventory.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  <ol className="list-decimal pl-5 space-y-2">
+                    <li>Navigate to <strong className="text-foreground">Branch Management</strong> from the sidebar (visible to super_admin and inventory_manager).</li>
+                    <li>Click <strong className="text-foreground">+ Add Branch</strong>, provide a branch name, and toggle <em>Is Warehouse</em> if this branch is the central supply hub.</li>
+                    <li>The <strong className="text-foreground">Warehouse branch</strong> acts as the source for stock transfers to other branches. Only one warehouse should be designated.</li>
+                    <li>You can edit or delete branches from the same page. Deleting a branch will restrict all related inventory activity.</li>
+                  </ol>
+                  <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded text-amber-600 dark:text-amber-400 text-xs">
+                    ⚠️ Tip: Create the warehouse branch first so you can immediately load stock into it via Stock Receiving.
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* SECTION 3: User Management */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold flex items-center space-x-2">
+                    <UserCheck className="w-5 h-5 text-primary" />
+                    <span>Step 3 — Creating Staff Accounts &amp; Roles</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Each staff member needs a user account with the correct role and branch assignment.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-muted-foreground">
+                  <ol className="list-decimal pl-5 space-y-2">
+                    <li>Navigate to <strong className="text-foreground">User Management</strong> in the sidebar.</li>
+                    <li>Click <strong className="text-foreground">+ Invite User</strong> — enter the staff email. They will receive an invitation to set a password.</li>
+                    <li>Once registered, assign them a <strong className="text-foreground">Role</strong> and a <strong className="text-foreground">Branch</strong> from the user list.</li>
+                  </ol>
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    {[
+                      { role: 'super_admin', desc: 'Full system access. Manages all branches, users, settings, and reports.' },
+                      { role: 'inventory_manager', desc: 'Manages inventory catalog, stock receiving, adjustments, and approvals.' },
+                      { role: 'branch_manager', desc: 'Oversees one branch — can approve transfers within their scope.' },
+                      { role: 'cashier', desc: 'Operates the POS terminal. Can view their branch sales history.' },
+                      { role: 'auditor', desc: 'Read-only access to all transactions, analytics, and reports.' },
+                    ].map(({ role, desc }) => (
+                      <div key={role} className="p-2.5 bg-muted/40 border rounded">
+                        <code className="text-primary font-mono text-[10px] font-bold">{role.replace(/_/g, '_')}</code>
+                        <p className="text-[11px] mt-1 text-muted-foreground">{desc}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* SECTION 4: Inventory Catalog */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold flex items-center space-x-2">
+                    <FileText className="w-5 h-5 text-primary" />
+                    <span>Step 4 — Building the Inventory Catalog</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    The inventory catalog is the master list of all raw ingredients and supplies used across branches.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  <ol className="list-decimal pl-5 space-y-2">
+                    <li>Go to <strong className="text-foreground">Inventory</strong> in the sidebar.</li>
+                    <li>Click <strong className="text-foreground">+ Add Item</strong>. Fill in the item name, base unit (e.g. <em>kg</em>, <em>pcs</em>), purchase unit, and conversion factor.</li>
+                    <li>The <strong className="text-foreground">conversion factor</strong> converts between purchase and base units (e.g. 1 sack = 50 kg → factor: 50).</li>
+                    <li>Set a <strong className="text-foreground">reorder point</strong> to receive low-stock alerts automatically.</li>
+                    <li>Use <strong className="text-foreground">Stock In</strong> directly from an inventory item to receive initial stock into a branch.</li>
+                  </ol>
+                </CardContent>
+              </Card>
+
+              {/* SECTION 5: Recipes & Menu */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold flex items-center space-x-2">
+                    <Terminal className="w-5 h-5 text-primary" />
+                    <span>Step 5 — Recipes &amp; Menu Mapping</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Link menu items sold at the POS to inventory ingredients for automatic stock deduction per sale.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  <ol className="list-decimal pl-5 space-y-2">
+                    <li>Navigate to <strong className="text-foreground">Recipes &amp; Menu</strong> in the sidebar.</li>
+                    <li>Click <strong className="text-foreground">Create Menu Item</strong>. Enter the dish name, SKU, category, selling price, and availability status.</li>
+                    <li>Under <em>Ingredients</em>, add each raw ingredient with the quantity consumed per serving (in base units).</li>
+                    <li>The system will automatically display estimated ingredient cost, gross profit, and margin per dish.</li>
+                    <li>When a sale is processed through the POS, each ingredient is deducted from the current branch's stock based on the recipe.</li>
+                  </ol>
+                </CardContent>
+              </Card>
+
+              {/* SECTION 6: Stock Transfers */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold flex items-center space-x-2">
+                    <Database className="w-5 h-5 text-indigo-400" />
+                    <span>Step 6 — Stock Transfers (Warehouse → Branch)</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Stock is moved from the warehouse to branches via the Transfer module.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-muted-foreground">
+                  <ol className="list-decimal pl-5 space-y-2">
+                    <li>Go to <strong className="text-foreground">Transfers</strong>. A branch staff member can <strong className="text-foreground">Request Transfer</strong> from the warehouse, or a warehouse manager can <strong className="text-foreground">Dispatch Proactively</strong>.</li>
+                    <li>An inventory_manager or branch_manager reviews the request and clicks <strong className="text-foreground">Approve &amp; Dispatch</strong>. Stock is immediately deducted from the source branch.</li>
+                    <li>The <strong className="text-foreground">receiving branch staff</strong> (not the sender) must click <strong className="text-foreground">Confirm &amp; Receive Items</strong> to complete the transfer. This is enforced — the sender cannot self-approve receipt.</li>
+                    <li>On confirmation, a <strong className="text-foreground">Stock Receiving Transaction</strong> is automatically generated and the destination branch inventory is updated.</li>
+                  </ol>
+                  <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded text-indigo-400 text-xs">
+                    🔒 Maker-Checker Rule: The same person who dispatched cannot be the one who confirms receipt. This ensures accountability.
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* SECTION 7: Stock Adjustments */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold flex items-center space-x-2">
+                    <FileText className="w-5 h-5 text-amber-400" />
+                    <span>Step 7 — Stock Adjustments &amp; Waste Logging</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Log physical inventory discrepancies, spoilage, damage, or expiry.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  <ol className="list-decimal pl-5 space-y-2">
+                    <li>Navigate to <strong className="text-foreground">Adjustments</strong> in the sidebar.</li>
+                    <li>Click <strong className="text-foreground">+ Log Adjustment</strong>. Select the reason (Spoilage, Damage, Expired, Lost, Manual Correction) and add the items with their quantities (negative quantities deduct stock).</li>
+                    <li>Adjustments are submitted with a <em>Pending</em> status and require approval from an inventory_manager or super_admin.</li>
+                    <li>Once <strong className="text-foreground">Approved</strong>, the inventory balance is immediately corrected and a movement ledger entry is committed.</li>
+                    <li>Rejected adjustments leave inventory unchanged.</li>
+                  </ol>
+                </CardContent>
+              </Card>
+
+              {/* SECTION 8: POS */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold flex items-center space-x-2">
+                    <Terminal className="w-5 h-5 text-emerald-400" />
+                    <span>Step 8 — Point of Sale (POS)</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Process customer orders and generate sales invoices.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  <ol className="list-decimal pl-5 space-y-2">
+                    <li>Navigate to <strong className="text-foreground">POS</strong>. Only available to users assigned to a specific branch.</li>
+                    <li>Browse menu items by category. Click any item to add it to the cart (specify quantity).</li>
+                    <li>Click <strong className="text-foreground">Checkout</strong>, choose a payment method (Cash, Card, GCash, Maya), and confirm.</li>
+                    <li>A thermal sales invoice is automatically printed and ingredient stock is deducted from the branch in real-time.</li>
+                    <li>Cashiers can reprint invoices from the <strong className="text-foreground">Sales History</strong> page. Void/refund requires manager-level access.</li>
+                  </ol>
+                </CardContent>
+              </Card>
+
+              {/* SECTION 9: Transactions & Reporting */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold flex items-center space-x-2">
+                    <Eye className="w-5 h-5 text-purple-400" />
+                    <span>Step 9 — Transactions &amp; Reporting</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Review, audit, and export all inventory movement across the business.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  <ul className="list-disc pl-5 space-y-2">
+                    <li><strong className="text-foreground">Transactions</strong> — unified ledger showing Stock In, Adjustments, Transfers, Waste, and Sales Invoices. Filter by type, branch, date, and search by control number. Print any document as PDF.</li>
+                    <li><strong className="text-foreground">Sales History</strong> — complete sales log with per-transaction item breakdown, void capability, and thermal invoice reprint.</li>
+                    <li><strong className="text-foreground">Analytics</strong> — dashboards showing revenue trends, top-selling items, low-stock alerts, and branch-by-branch comparisons.</li>
+                    <li><strong className="text-foreground">Notifications</strong> — real-time alerts for low stock levels, pending transfer requests, and adjustment approvals awaiting review.</li>
+                  </ul>
+                </CardContent>
+              </Card>
+
+              {/* SECTION 10: Document Templates */}
+              <Card className="border-slate-700/30">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold flex items-center space-x-2">
+                    <FileText className="w-5 h-5 text-slate-400" />
+                    <span>Step 10 — Configuring Print Templates</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Customize the branding on printed documents.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  <ul className="list-disc pl-5 space-y-2">
+                    <li>Go to <strong className="text-foreground">Settings → Document Templates</strong> tab.</li>
+                    <li><strong className="text-foreground">Transfer Slip</strong> — used for Stock Receiving, Adjustments, and Transfer documents. Set header title, subtitle, logo, and signature labels.</li>
+                    <li><strong className="text-foreground">Sales Invoice (Thermal)</strong> — used for POS receipts. Set merchant name, address, TIN, contact, paper size (58mm / 80mm), and footer text.</li>
+                    <li>All template changes are saved globally and applied immediately to future print jobs.</li>
+                  </ul>
+                </CardContent>
+              </Card>
+
             </div>
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
