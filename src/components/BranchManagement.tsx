@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { BoxModelIcon as Store, DrawingPinIcon as MapPin, PlusIcon as Plus, TrashIcon as Trash2, HomeIcon as Home } from '@radix-ui/react-icons';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -16,11 +16,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 export const BranchManagement: React.FC = () => {
   const { profile, branches, refreshProfile } = useAuth();
   const { confirm, showSuccess, showError } = useModal();
-  
+
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [isWarehouse, setIsWarehouse] = useState(false);
-  const [status, setStatus] = useState<'active'|'inactive'>('active');
+  const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [submitting, setSubmitting] = useState(false);
   const [showModal, setShowModal] = useState(false);
 
@@ -52,7 +52,7 @@ export const BranchManagement: React.FC = () => {
       setIsWarehouse(false);
       setStatus('active');
       setShowModal(false);
-      
+
       await refreshProfile();
     } catch (err: any) {
       console.error(err);
@@ -133,11 +133,10 @@ export const BranchManagement: React.FC = () => {
                       <TableRow key={b.id}>
                         <TableCell className="pl-6 font-semibold">
                           <div className="flex items-center space-x-3">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${
-                              b.is_warehouse 
-                                ? 'bg-primary/10 border-primary/20 text-primary' 
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${b.is_warehouse
+                                ? 'bg-primary/10 border-primary/20 text-primary'
                                 : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
-                            }`}>
+                              }`}>
                               {b.is_warehouse ? <Home className="w-4 h-4" /> : <Store className="w-4 h-4" />}
                             </div>
                             <span>{b.name}</span>
@@ -219,7 +218,7 @@ export const BranchManagement: React.FC = () => {
 
             <div className="space-y-2">
               <Label>Status</Label>
-              <Select value={status} onValueChange={(val: 'active'|'inactive') => setStatus(val)}>
+              <Select value={status} onValueChange={(val: 'active' | 'inactive') => setStatus(val)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
