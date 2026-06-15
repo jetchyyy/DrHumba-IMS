@@ -89,6 +89,7 @@ export const Transfers: React.FC = () => {
   const [addedItems, setAddedItems] = useState<{ item_id: string; qty: number }[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState(50);
+  const [sourceInventory, setSourceInventory] = useState<Record<string, number>>({});
   
   const [approving, setApproving] = useState(false);
   const [receiving, setReceiving] = useState(false);
@@ -130,6 +131,37 @@ export const Transfers: React.FC = () => {
     loadData();
   }, []);
 
+  const fetchSourceInventory = async (branchId: string) => {
+    if (!branchId) {
+      setSourceInventory({});
+      return;
+    }
+    try {
+      const { data, error } = await supabase.rpc('fn_get_branch_inventory', {
+        p_branch_id: branchId
+      });
+      if (error) throw error;
+      const invMap: Record<string, number> = {};
+      if (data) {
+        data.forEach((row: any) => {
+          invMap[row.item_id] = Number(row.quantity);
+        });
+      }
+      setSourceInventory(invMap);
+    } catch (err) {
+      console.error("Error fetching source inventory:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (showCreateModal && sourceBranchId) {
+      fetchSourceInventory(sourceBranchId);
+      setAddedItems([]); // Reset items when source branch changes to prevent invalid stock transfer levels
+    } else {
+      setSourceInventory({});
+    }
+  }, [sourceBranchId, showCreateModal]);
+
   const handleOpenCreateModal = (proactive: boolean = false) => {
     setIsProactive(proactive);
     const warehouse = branches.find(b => b.is_warehouse);
@@ -147,9 +179,21 @@ export const Transfers: React.FC = () => {
   const handleAddItemToTransfer = () => {
     if (!currentSelectedItemId) return;
     
+    const qtyToAdd = Number(currentQty);
+    if (isNaN(qtyToAdd) || qtyToAdd <= 0) {
+      showError("Please enter a valid quantity greater than zero.");
+      return;
+    }
+
+    const availableQty = sourceInventory[currentSelectedItemId] || 0;
     const exists = addedItems.find(i => i.item_id === currentSelectedItemId);
     if (exists) {
       showError("Item already added. Please modify it or delete first.");
+      return;
+    }
+
+    if (qtyToAdd > availableQty) {
+      showError(`Cannot transfer exceeding available quantity of ${availableQty} in the source branch inventory.`);
       return;
     }
 
@@ -157,7 +201,7 @@ export const Transfers: React.FC = () => {
       ...addedItems,
       {
         item_id: currentSelectedItemId,
-        qty: Number(currentQty)
+        qty: qtyToAdd
       }
     ]);
   };
@@ -177,6 +221,16 @@ export const Transfers: React.FC = () => {
     if (addedItems.length === 0) {
       showError("Add at least one item to transfer");
       return;
+    }
+
+    // Final validation of added items against source inventory balances
+    for (const item of addedItems) {
+      const availableQty = sourceInventory[item.item_id] || 0;
+      if (item.qty > availableQty) {
+        const info = catalog.find(c => c.id === item.item_id);
+        showError(`Cannot transfer exceeding available quantity of ${availableQty} for ${info?.item_name || 'item'} in the source branch inventory.`);
+        return;
+      }
     }
 
     try {
@@ -601,13 +655,23 @@ export const Transfers: React.FC = () => {
                         <SelectValue placeholder="Select an item" />
                       </SelectTrigger>
                       <SelectContent>
-                        {catalog.map(item => (
-                          <SelectItem key={item.id} value={item.id}>
-                            {item.item_name} ({item.base_unit})
-                          </SelectItem>
-                        ))}
+                        {catalog.map(item => {
+                          const qty = sourceInventory[item.id] || 0;
+                          return (
+                            <SelectItem key={item.id} value={item.id}>
+                              {item.item_name} (Available: {qty} {item.base_unit})
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
+                    {currentSelectedItemId && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Current stock at source: <span className="font-semibold text-foreground">
+                          {sourceInventory[currentSelectedItemId] || 0} {catalog.find(c => c.id === currentSelectedItemId)?.base_unit}
+                        </span>
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Qty</Label>
