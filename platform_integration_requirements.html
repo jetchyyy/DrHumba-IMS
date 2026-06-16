@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Foodpanda & GrabFood Integration Requirements</title>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      font-size: 11pt;
+      color: #1a1a1a;
+      max-width: 816px;
+      margin: 40px auto;
+      padding: 0 40px;
+      line-height: 1.6;
+    }
+    h1 {
+      font-size: 20pt;
+      font-weight: bold;
+      color: #1a1a1a;
+      border-bottom: 2px solid #4f46e5;
+      padding-bottom: 8px;
+      margin-top: 32px;
+      margin-bottom: 16px;
+    }
+    h2 {
+      font-size: 16pt;
+      font-weight: bold;
+      color: #1a1a1a;
+      margin-top: 28px;
+      margin-bottom: 12px;
+    }
+    h3 {
+      font-size: 13pt;
+      font-weight: bold;
+      color: #333333;
+      margin-top: 20px;
+      margin-bottom: 8px;
+    }
+    h4 {
+      font-size: 11pt;
+      font-weight: bold;
+      color: #444444;
+      margin-top: 16px;
+      margin-bottom: 6px;
+    }
+    p, li {
+      font-size: 11pt;
+      color: #1a1a1a;
+      margin-bottom: 6px;
+    }
+    ul, ol {
+      padding-left: 24px;
+      margin-bottom: 12px;
+    }
+    li {
+      margin-bottom: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 20px 0;
+      font-size: 10pt;
+    }
+    th {
+      background-color: #f1f3f5;
+      font-weight: bold;
+      text-align: left;
+      padding: 8px 10px;
+      border: 1px solid #cccccc;
+      color: #1a1a1a;
+    }
+    td {
+      padding: 7px 10px;
+      border: 1px solid #cccccc;
+      vertical-align: top;
+      color: #1a1a1a;
+    }
+    .callout {
+      background-color: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 10px 14px;
+      margin: 14px 0;
+      font-size: 10pt;
+    }
+    .callout-important {
+      background-color: #d1ecf1;
+      border-left: 4px solid #0dcaf0;
+      padding: 10px 14px;
+      margin: 14px 0;
+      font-size: 10pt;
+    }
+    .callout-warning {
+      background-color: #f8d7da;
+      border-left: 4px solid #dc3545;
+      padding: 10px 14px;
+      margin: 14px 0;
+      font-size: 10pt;
+    }
+    .badge-required {
+      background-color: #dc3545;
+      color: white;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 9pt;
+      font-weight: bold;
+    }
+    .badge-recommended {
+      background-color: #ffc107;
+      color: #1a1a1a;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 9pt;
+      font-weight: bold;
+    }
+    .badge-optional {
+      background-color: #28a745;
+      color: white;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 9pt;
+      font-weight: bold;
+    }
+    .code {
+      font-family: 'Courier New', monospace;
+      background-color: #f4f4f4;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 10pt;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #dddddd;
+      margin: 24px 0;
+    }
+    .page-break {
+      page-break-before: always;
+    }
+    .checklist {
+      list-style: none;
+      padding-left: 4px;
+    }
+    .checklist li {
+      padding-left: 4px;
+    }
+    .checklist li::before {
+      content: "☐ ";
+      font-size: 12pt;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Foodpanda &amp; GrabFood Integration Requirements</h1>
+<p>Complete requirements checklist for integrating both delivery platforms with the <strong>Dr. Humba Restaurant Inventory Management System</strong>.</p>
+<p><em>Prepared: June 16, 2026</em></p>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>1. Foodpanda (Delivery Hero Middleware) Requirements</h2>
+
+<div class="callout-important">
+  <strong>ℹ️ Note:</strong> We already have the official Delivery Hero Integration Middleware API specification file (<span class="code">middlewareExternalApi.yaml</span>). This is the same system that powers Foodpanda globally.
+</div>
+
+<h3>1.1 Business Prerequisites</h3>
+<table>
+  <thead>
+    <tr>
+      <th style="width:30%">Requirement</th>
+      <th style="width:50%">Details</th>
+      <th style="width:20%">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Registered Foodpanda Merchant</strong></td>
+      <td>Dr. Humba must be an active Foodpanda merchant-partner with a signed commercial agreement</td>
+      <td>☐ Verify</td>
+    </tr>
+    <tr>
+      <td><strong>Chain ID</strong></td>
+      <td>Foodpanda assigns a unique <span class="code">chainCode</span> to your restaurant chain. Contact your Foodpanda Account Manager</td>
+      <td>☐ Request</td>
+    </tr>
+    <tr>
+      <td><strong>POS Vendor IDs</strong></td>
+      <td>Each Dr. Humba branch maps to a <span class="code">posVendorId</span> on Foodpanda's side. One per branch</td>
+      <td>☐ Request per branch</td>
+    </tr>
+    <tr>
+      <td><strong>API Credentials</strong></td>
+      <td><span class="code">client_id</span> and <span class="code">client_secret</span> for OAuth 2.0 authentication. Issued via the Delivery Hero Partner Portal or Account Manager</td>
+      <td>☐ Request</td>
+    </tr>
+    <tr>
+      <td><strong>Integration Type Agreement</strong></td>
+      <td>Confirm whether doing a <strong>direct</strong> integration (accept/reject orders via API) or <strong>indirect</strong> (accepted on Foodpanda device first, then forwarded)</td>
+      <td>☐ Clarify</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>1.2 Technical Prerequisites</h3>
+<table>
+  <thead>
+    <tr>
+      <th style="width:30%">Requirement</th>
+      <th style="width:70%">Details</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Publicly accessible HTTPS endpoint</strong></td>
+      <td>Foodpanda dispatches orders to your POS plugin via webhooks. Your server must expose endpoints that Foodpanda can reach over the internet</td>
+    </tr>
+    <tr>
+      <td><strong>OAuth 2.0 JWT Authentication</strong></td>
+      <td>All API calls to the Middleware require a Bearer token obtained from <span class="code">POST /v2/login</span> with <span class="code">grant_type: client_credentials</span></td>
+    </tr>
+    <tr>
+      <td><strong>Webhook handling</strong></td>
+      <td>You must implement the POS Plugin API endpoints (the "callback" side) to receive order dispatches and status updates from Foodpanda</td>
+    </tr>
+    <tr>
+      <td><strong>JSON catalog format</strong></td>
+      <td>Menu imports use the new Catalog Import API (replaces legacy XML). Full catalog pushes only — partial updates not yet supported</td>
+    </tr>
+    <tr>
+      <td><strong>Image hosting</strong></td>
+      <td>Menu item images must be served from publicly accessible, immutable URLs (max 20MB, max 16 megapixels)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>1.3 API Endpoints — Your System Calls Middleware</h3>
+<p>These are the endpoints <strong>your system calls</strong> on the Delivery Hero middleware:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Endpoint</th>
+      <th>Method</th>
+      <th>Purpose</th>
+      <th>Priority</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="code">/v2/login</span></td>
+      <td>POST</td>
+      <td>Obtain JWT authentication token</td>
+      <td><span class="badge-required">Required</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">/v2/order/status/{orderToken}</span></td>
+      <td>POST</td>
+      <td>Accept, reject, or mark order as picked up</td>
+      <td><span class="badge-required">Required</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">/v2/orders/{orderToken}/preparation-completed</span></td>
+      <td>POST</td>
+      <td>Notify rider that food is ready for pickup</td>
+      <td><span class="badge-recommended">Recommended</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">/v2/orders/{orderToken}/adjust-preparation-time</span></td>
+      <td>POST</td>
+      <td>Dynamically adjust kitchen prep time</td>
+      <td><span class="badge-optional">Optional</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">/v2/order/{orderToken}/modifications/product</span></td>
+      <td>POST</td>
+      <td>Modify order products (out-of-stock substitutions)</td>
+      <td><span class="badge-optional">Optional</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">/v2/chains/{chainCode}/remoteVendors/{posVendorId}/availability</span></td>
+      <td>GET / PUT</td>
+      <td>Check or update store open/closed status</td>
+      <td><span class="badge-recommended">Recommended</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">/v2/chains/{chainCode}/catalog</span></td>
+      <td>PUT</td>
+      <td>Push full menu catalog to Foodpanda</td>
+      <td><span class="badge-recommended">Recommended</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">/v2/chains/{chainCode}/vendors/{posVendorId}/items/availability</span></td>
+      <td>PUT</td>
+      <td>Toggle item availability (86'd items)</td>
+      <td><span class="badge-recommended">Recommended</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>1.4 Webhook Endpoints — Foodpanda Calls Your System</h3>
+<p>These are the <strong>POS Plugin endpoints</strong> your system must implement for Foodpanda to call:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Endpoint You Host</th>
+      <th>Purpose</th>
+      <th>Priority</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="code">POST /dispatch-order</span></td>
+      <td>Receives incoming order payload (items, prices, customer info, delivery details, callback URLs)</td>
+      <td><span class="badge-required">Required</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">POST /update-order-status</span></td>
+      <td>Receives order status updates (cancelled, rider assigned, product modification result)</td>
+      <td><span class="badge-required">Required</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">POST /catalog-import-status</span></td>
+      <td>Receives catalog import progress callbacks (success/failure of menu pushes)</td>
+      <td><span class="badge-optional">Optional</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>1.5 Order Lifecycle Flow (Foodpanda)</h3>
+<ol>
+  <li>Customer places order on Foodpanda app</li>
+  <li>Delivery Hero Middleware dispatches order to our system via webhook (<span class="code">POST /dispatch-order</span>)</li>
+  <li>Our system validates ingredient stock availability</li>
+  <li>Our system calls <span class="code">POST /v2/order/status/{token}</span> with <span class="code">order_accepted</span></li>
+  <li>Our system deducts ingredients from branch inventory and prints kitchen ticket</li>
+  <li>Kitchen completes preparation → our system calls <span class="code">POST /v2/orders/{token}/preparation-completed</span></li>
+  <li>Middleware notifies rider that food is ready</li>
+  <li>Rider picks up order → Middleware sends <span class="code">POST /update-order-status</span> (picked_up) to our system</li>
+  <li>Sale recorded in Sales History with <span class="code">sale_category = 'Foodpanda'</span></li>
+</ol>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>2. GrabFood Requirements</h2>
+
+<h3>2.1 Business Prerequisites</h3>
+<table>
+  <thead>
+    <tr>
+      <th style="width:30%">Requirement</th>
+      <th style="width:50%">Details</th>
+      <th style="width:20%">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Registered GrabFood Merchant</strong></td>
+      <td>Dr. Humba must be an active GrabFood merchant-partner. Register via GrabMerchant app (merchant.grab.com)</td>
+      <td>☐ Verify</td>
+    </tr>
+    <tr>
+      <td><strong>Merchant ID</strong></td>
+      <td>Grab assigns a unique <span class="code">merchantID</span> per store/branch</td>
+      <td>☐ Request per branch</td>
+    </tr>
+    <tr>
+      <td><strong>API Credentials</strong></td>
+      <td>OAuth 2.0 <span class="code">client_id</span> and <span class="code">client_secret</span> from the Grab Developer Portal (developer.grab.com)</td>
+      <td>☐ Request</td>
+    </tr>
+    <tr>
+      <td><strong>Commercial Agreement</strong></td>
+      <td>Engage Grab Business Development to sign a POS integration agreement</td>
+      <td>☐ Initiate</td>
+    </tr>
+    <tr>
+      <td><strong>Sandbox Access</strong></td>
+      <td>Request staging environment credentials for testing before production go-live</td>
+      <td>☐ Request</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>2.2 Technical Prerequisites</h3>
+<table>
+  <thead>
+    <tr>
+      <th style="width:30%">Requirement</th>
+      <th style="width:70%">Details</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Publicly accessible HTTPS endpoint</strong></td>
+      <td>Grab sends order notifications via webhooks to your registered URL</td>
+    </tr>
+    <tr>
+      <td><strong>OAuth 2.0 Authentication</strong></td>
+      <td>All Grab API calls use Bearer tokens</td>
+    </tr>
+    <tr>
+      <td><strong>Webhook endpoint registration</strong></td>
+      <td>Register your notification URL with Grab during onboarding</td>
+    </tr>
+    <tr>
+      <td><strong>GrabMerchant backup device</strong></td>
+      <td>Grab recommends keeping a backup Android tablet with the GrabMerchant app in case of API downtime</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>2.3 API Endpoints — Your System Calls Grab</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Endpoint</th>
+      <th>Method</th>
+      <th>Purpose</th>
+      <th>Priority</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="code">POST /partner/v1/order/prepare</span></td>
+      <td>POST</td>
+      <td>Accept or reject an incoming order</td>
+      <td><span class="badge-required">Required</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">PUT /partner/v1/order/cancel</span></td>
+      <td>PUT</td>
+      <td>Cancel an accepted order</td>
+      <td><span class="badge-required">Required</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">GET /partner/v1/order/cancelable</span></td>
+      <td>GET</td>
+      <td>Check if an order can still be cancelled</td>
+      <td><span class="badge-recommended">Recommended</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">PUT /partner/v1/orders/{orderID}</span></td>
+      <td>PUT</td>
+      <td>Edit an existing order</td>
+      <td><span class="badge-optional">Optional</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">GET /partner/v1/orders</span></td>
+      <td>GET</td>
+      <td>List recent orders</td>
+      <td><span class="badge-recommended">Recommended</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">POST /partner/v1/orders/mark</span></td>
+      <td>POST</td>
+      <td>Mark order as ready for pickup</td>
+      <td><span class="badge-recommended">Recommended</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">PUT /partner/v1/order/readytime</span></td>
+      <td>PUT</td>
+      <td>Update estimated ready time</td>
+      <td><span class="badge-optional">Optional</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">PUT /partner/v1/menu</span></td>
+      <td>PUT</td>
+      <td>Sync full menu to GrabFood</td>
+      <td><span class="badge-recommended">Recommended</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">PUT /partner/v1/batch/menu</span></td>
+      <td>PUT</td>
+      <td>Batch update menu items</td>
+      <td><span class="badge-optional">Optional</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">GET /partner/v1/merchant/menu/trace</span></td>
+      <td>GET</td>
+      <td>Trace menu sync status</td>
+      <td><span class="badge-optional">Optional</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">POST /partner/v1/merchant/menu/notification</span></td>
+      <td>POST</td>
+      <td>Notify Grab that menu has been updated</td>
+      <td><span class="badge-recommended">Recommended</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">PUT /partner/v1/merchant/pause</span></td>
+      <td>PUT</td>
+      <td>Pause/unpause store from receiving orders</td>
+      <td><span class="badge-recommended">Recommended</span></td>
+    </tr>
+    <tr>
+      <td><span class="code">GET /partner/v1/merchants/{merchantID}/store/status</span></td>
+      <td>GET</td>
+      <td>Get current store online status</td>
+      <td><span class="badge-optional">Optional</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>2.4 Webhooks — Grab Calls Your System</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Webhook Event</th>
+      <th>Purpose</th>
+      <th>Priority</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>New Order</strong></td>
+      <td>Incoming order with items, totals, delivery details</td>
+      <td><span class="badge-required">Required</span></td>
+    </tr>
+    <tr>
+      <td><strong>Order Cancelled</strong></td>
+      <td>Customer or Grab cancels order</td>
+      <td><span class="badge-required">Required</span></td>
+    </tr>
+    <tr>
+      <td><strong>Menu Sync Status</strong></td>
+      <td>Result of a menu push (success/failure)</td>
+      <td><span class="badge-optional">Optional</span></td>
+    </tr>
+    <tr>
+      <td><strong>Integration Status</strong></td>
+      <td>Integration health/status updates</td>
+      <td><span class="badge-optional">Optional</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>2.5 Order Lifecycle Flow (GrabFood)</h3>
+<ol>
+  <li>Customer places order on GrabFood app</li>
+  <li>Grab sends new order webhook to our system</li>
+  <li>Our system validates ingredient stock availability</li>
+  <li>Our system calls <span class="code">POST /partner/v1/order/prepare</span> to accept</li>
+  <li>Our system deducts ingredients from branch inventory and prints kitchen ticket</li>
+  <li>Kitchen completes preparation → our system calls <span class="code">POST /partner/v1/orders/mark</span> (ready)</li>
+  <li>Grab notifies rider for pickup</li>
+  <li>Grab sends pickup webhook to our system</li>
+  <li>Sale recorded in Sales History with <span class="code">sale_category = 'Grab'</span></li>
+</ol>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>3. Data Mapping to Dr. Humba System</h2>
+<p>How platform data maps to the existing Supabase database schema:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Platform Field</th>
+      <th>Dr. Humba Field</th>
+      <th>Database Table</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Order items</td>
+      <td><span class="code">sale_items</span></td>
+      <td><span class="code">sale_items</span></td>
+      <td>Map platform <span class="code">remoteId</span> → <span class="code">menu_item_id</span></td>
+    </tr>
+    <tr>
+      <td>Order total</td>
+      <td><span class="code">total_amount</span></td>
+      <td><span class="code">sales</span></td>
+      <td>Platform-calculated total</td>
+    </tr>
+    <tr>
+      <td>Order token / ID</td>
+      <td><span class="code">reference_number</span></td>
+      <td><span class="code">sales</span></td>
+      <td>External platform order reference</td>
+    </tr>
+    <tr>
+      <td>Platform name</td>
+      <td><span class="code">sale_category</span></td>
+      <td><span class="code">sales</span></td>
+      <td>Set to <span class="code">'Foodpanda'</span> or <span class="code">'Grab'</span> automatically</td>
+    </tr>
+    <tr>
+      <td>Payment method</td>
+      <td><span class="code">payment_method</span></td>
+      <td><span class="code">sales</span></td>
+      <td>Always <span class="code">'other'</span> (platform handles payment)</td>
+    </tr>
+    <tr>
+      <td>Branch mapping</td>
+      <td><span class="code">branch_id</span></td>
+      <td><span class="code">sales</span></td>
+      <td>Map <span class="code">posVendorId</span> / <span class="code">merchantID</span> → branch UUID</td>
+    </tr>
+    <tr>
+      <td>Cashier</td>
+      <td><span class="code">cashier_id</span></td>
+      <td><span class="code">sales</span></td>
+      <td>Use a system service account per platform</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>New Database Tables Needed</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Table Name</th>
+      <th>Purpose</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="code">platform_credentials</span></td>
+      <td>Store chainCode, vendorIds, API keys per branch per platform</td>
+    </tr>
+    <tr>
+      <td><span class="code">platform_orders</span></td>
+      <td>Track order lifecycle states (received → accepted → preparing → ready → picked up → completed)</td>
+    </tr>
+    <tr>
+      <td><span class="code">platform_menu_mappings</span></td>
+      <td>Map Dr. Humba <span class="code">menu_item_id</span> to platform-specific product IDs</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>4. Infrastructure Requirements</h2>
+
+<h3>4.1 Webhook Server</h3>
+
+<div class="callout-warning">
+  <strong>⚠️ Important:</strong> The current system is a client-side React app with Supabase backend. Webhooks require a <strong>server-side</strong> component that can receive HTTP requests from Foodpanda/Grab.
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Option</th>
+      <th>Approach</th>
+      <th>Pros</th>
+      <th>Cons</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Supabase Edge Functions</strong> (Recommended)</td>
+      <td>Deploy Deno-based webhook handlers on Supabase</td>
+      <td>No additional infra, same database access</td>
+      <td>Cold starts, 150s timeout limit</td>
+    </tr>
+    <tr>
+      <td><strong>Vercel/Netlify Serverless</strong></td>
+      <td>Deploy API routes as serverless functions</td>
+      <td>Easy deployment, good scaling</td>
+      <td>Separate from database, need Supabase client</td>
+    </tr>
+    <tr>
+      <td><strong>Dedicated Backend</strong></td>
+      <td>Express.js / Fastify on a VPS (e.g., DigitalOcean)</td>
+      <td>Full control, persistent connections</td>
+      <td>More ops overhead, separate deployment</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>4.2 Security Requirements</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Requirement</th>
+      <th>Details</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>HTTPS / TLS</strong></td>
+      <td>All webhook endpoints must be served over HTTPS</td>
+    </tr>
+    <tr>
+      <td><strong>Webhook signature validation</strong></td>
+      <td>Verify that incoming requests are genuinely from Foodpanda/Grab (via HMAC signatures or IP allowlisting)</td>
+    </tr>
+    <tr>
+      <td><strong>Credential encryption</strong></td>
+      <td>Store API keys encrypted at rest in the <span class="code">platform_credentials</span> table</td>
+    </tr>
+    <tr>
+      <td><strong>Rate limiting</strong></td>
+      <td>Implement rate limiting on webhook endpoints to prevent abuse</td>
+    </tr>
+    <tr>
+      <td><strong>Idempotency</strong></td>
+      <td>Handle duplicate webhook deliveries gracefully (use order token as idempotency key)</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>5. Onboarding Checklist</h2>
+
+<h3>Phase 1: Business Setup (Week 1–2)</h3>
+<ul class="checklist">
+  <li>Confirm active Foodpanda merchant status for all branches</li>
+  <li>Confirm active GrabFood merchant status for all branches</li>
+  <li>Contact Foodpanda Account Manager → request chainCode, posVendorId per branch, API credentials</li>
+  <li>Contact Grab Business Development → request merchantID per branch, developer portal access</li>
+  <li>Sign integration agreements with both platforms</li>
+  <li>Receive sandbox/staging credentials from both platforms</li>
+</ul>
+
+<h3>Phase 2: Technical Setup (Week 3–4)</h3>
+<ul class="checklist">
+  <li>Set up Supabase Edge Functions (or chosen webhook server)</li>
+  <li>Implement OAuth 2.0 token management for both platforms</li>
+  <li>Create <span class="code">platform_credentials</span>, <span class="code">platform_orders</span>, <span class="code">platform_menu_mappings</span> database tables</li>
+  <li>Build webhook receiver: <span class="code">POST /webhook/foodpanda/order</span></li>
+  <li>Build webhook receiver: <span class="code">POST /webhook/grab/order</span></li>
+  <li>Map each branch's posVendorId / merchantID to Supabase branch_id</li>
+</ul>
+
+<h3>Phase 3: Order Flow (Week 5–7)</h3>
+<ul class="checklist">
+  <li>Implement order acceptance flow (validate stock → accept → deduct ingredients → kitchen ticket)</li>
+  <li>Implement order rejection flow (insufficient stock → reject with reason)</li>
+  <li>Implement order cancellation handling (restore ingredients via existing void/refund logic)</li>
+  <li>Build real-time order dashboard in the Dr. Humba UI</li>
+  <li>Add platform order sound notifications / alerts</li>
+</ul>
+
+<h3>Phase 4: Menu Sync (Week 7–8)</h3>
+<ul class="checklist">
+  <li>Build menu export: Dr. Humba menu_items → Foodpanda catalog JSON format</li>
+  <li>Build menu export: Dr. Humba menu_items → GrabFood menu format</li>
+  <li>Implement auto-86 (mark unavailable) when ingredient stock hits low-stock threshold</li>
+  <li>Test full catalog push to both platforms in staging environment</li>
+</ul>
+
+<h3>Phase 5: Testing &amp; Go-Live (Week 9–10)</h3>
+<ul class="checklist">
+  <li>End-to-end testing in both platform sandboxes</li>
+  <li>Test order → ingredient deduction → Z-Report reconciliation</li>
+  <li>Test store pause/unpause from Dr. Humba dashboard</li>
+  <li>Pilot launch with one branch</li>
+  <li>Monitor for 1 week, fix edge cases</li>
+  <li>Roll out to all branches</li>
+</ul>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>6. Key Contacts &amp; Resources</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Resource</th>
+      <th>URL / Contact</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Foodpanda Dev Docs</strong></td>
+      <td>https://developers.deliveryhero.com/documentation/pos.html</td>
+    </tr>
+    <tr>
+      <td><strong>Foodpanda Middleware API Spec</strong></td>
+      <td>Already downloaded: middlewareExternalApi.yaml</td>
+    </tr>
+    <tr>
+      <td><strong>Foodpanda Account Manager</strong></td>
+      <td>Contact via Foodpanda merchant portal</td>
+    </tr>
+    <tr>
+      <td><strong>Grab Developer Portal</strong></td>
+      <td>https://developer.grab.com/</td>
+    </tr>
+    <tr>
+      <td><strong>Grab Merchant Help</strong></td>
+      <td>https://www.grab.com/ph/help/merchant/</td>
+    </tr>
+    <tr>
+      <td><strong>Grab SDKs</strong></td>
+      <td>Java, Python, Go available on GitHub (grab/grabfood-api-sdk-*)</td>
+    </tr>
+  </tbody>
+</table>
+
+</body>
+</html>

@@ -75,9 +75,10 @@ interface PaymentDialogProps {
   cartTotal: number;
   onConfirm: (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string) => Promise<void>;
   processing: boolean;
+  onStateChange?: (state: { method: PaymentMethod; tendered: number; refNumber: string } | null) => void;
 }
 
-const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal, onConfirm, processing }) => {
+const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal, onConfirm, processing, onStateChange }) => {
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [tenderedStr, setTenderedStr] = useState('');
   const [saleCategory, setSaleCategory] = useState<string>('Dine in');
@@ -94,6 +95,15 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
   const isValidCash = method !== 'cash' || tendered >= cartTotal;
 
   const canConfirm = isValidCash && hasRefNum && hasCustomCat;
+
+  // Propagate state to parent for customer display sync
+  useEffect(() => {
+    if (open && onStateChange) {
+      onStateChange({ method, tendered: parseFloat(tenderedStr) || 0, refNumber });
+    } else if (!open && onStateChange) {
+      onStateChange(null);
+    }
+  }, [open, method, tenderedStr, refNumber, onStateChange]);
 
   // Reset when dialog opens
   useEffect(() => {
@@ -286,7 +296,15 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
 
 // ─── Main POS Component ───────────────────────────────────────────────────────
 
-export const POS: React.FC = () => {
+interface POSProps {
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+}
+
+export const POS: React.FC<POSProps> = ({
+  isFullscreen = false,
+  onToggleFullscreen,
+}) => {
   const { selectedBranch, profile } = useAuth();
   const { showSuccess, showError } = useModal();
   const { isOnline } = useNetworkStatus();
@@ -304,6 +322,112 @@ export const POS: React.FC = () => {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string } | null>(null);
+
+  // Customer Display Sync state
+  const [supabaseChannel, setSupabaseChannel] = useState<any>(null);
+  const [paymentState, setPaymentState] = useState<{ method: PaymentMethod; tendered: number; refNumber: string } | null>(null);
+
+  const cartTotal = cart.reduce((s, ci) => s + ci.price * ci.quantity, 0);
+  const cartCount = cart.reduce((s, ci) => s + ci.quantity, 0);
+
+  // Set up Supabase Realtime sync channel
+  useEffect(() => {
+    if (!selectedBranch?.id || !profile?.id) return;
+
+    const channelName = `pos-sync:${selectedBranch.id}:${profile.id}`;
+    const channel = supabase.channel(channelName);
+    
+    channel.subscribe((status) => {
+      console.log(`Supabase Realtime Channel ${channelName} status:`, status);
+    });
+
+    setSupabaseChannel(channel);
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedBranch?.id, profile?.id]);
+
+  // Broadcast state helper
+  const broadcastState = (
+    currentCart: CartItem[],
+    total: number,
+    count: number,
+    isPaymentOpen: boolean,
+    isCheckingOut: boolean,
+    successResult: any,
+    payState: any
+  ) => {
+    const payload = {
+      cart: currentCart,
+      cartTotal: total,
+      cartCount: count,
+      paymentOpen: isPaymentOpen,
+      checkingOut: isCheckingOut,
+      lastSaleResult: successResult,
+      selectedBranch,
+      paymentMethod: payState?.method || null,
+      tendered: payState?.tendered || 0,
+      refNumber: payState?.refNumber || '',
+    };
+
+    // 1. Broadcast locally
+    try {
+      const bc = new BroadcastChannel('drhumba-pos-customer-sync');
+      bc.postMessage(payload);
+      bc.close();
+    } catch (e) {
+      console.warn('Local BroadcastChannel failed:', e);
+    }
+
+    // 2. Broadcast via Supabase Realtime
+    if (supabaseChannel) {
+      supabaseChannel.send({
+        type: 'broadcast',
+        event: 'pos-state-update',
+        payload
+      }).catch((err: any) => {
+        console.warn('Supabase Realtime broadcast failed:', err);
+      });
+    }
+  };
+
+  // Trigger broadcast whenever state changes
+  useEffect(() => {
+    broadcastState(cart, cartTotal, cartCount, paymentOpen, checkingOut, lastSaleResult, paymentState);
+  }, [cart, cartTotal, cartCount, paymentOpen, checkingOut, lastSaleResult, paymentState, supabaseChannel]);
+
+  const toggleFullscreen = async () => {
+    if (onToggleFullscreen) {
+      onToggleFullscreen();
+    } else {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+          if ((window.screen as any).orientation?.lock) {
+            await (window.screen as any).orientation.lock('landscape').catch((err: any) => {
+              console.warn('Orientation lock failed:', err);
+            });
+          }
+        } else {
+          if (document.exitFullscreen) {
+            await document.exitFullscreen();
+          }
+        }
+      } catch (err) {
+        console.error('Fullscreen toggle error:', err);
+      }
+    }
+  };
+
+  const openCustomerDisplay = () => {
+    if (!selectedBranch?.id || !profile?.id) {
+      showError('Please select a branch context before opening the customer display.');
+      return;
+    }
+    const url = `${window.location.origin}/customer-display?branchId=${selectedBranch.id}&cashierId=${profile.id}`;
+    window.open(url, 'customerDisplayWindow', 'width=1024,height=768,menubar=no,toolbar=no,location=no');
+  };
 
   const loadMenuItems = async () => {
     setLoading(true);
@@ -472,9 +596,6 @@ export const POS: React.FC = () => {
 
   const removeFromCart = (menuItemId: string) =>
     setCart(prev => prev.filter(ci => ci.menu_item_id !== menuItemId));
-
-  const cartTotal = cart.reduce((s, ci) => s + ci.price * ci.quantity, 0);
-  const cartCount = cart.reduce((s, ci) => s + ci.quantity, 0);
 
   // ─── Checkout ─────────────────────────────────────────────
 
@@ -677,11 +798,52 @@ export const POS: React.FC = () => {
                 Tap items to add to cart. Inventory deductions are validated at the database layer.
               </p>
             </div>
-            {selectedBranch && (
-              <Badge variant="outline" className="px-3.5 py-1.5 text-xs font-semibold bg-primary/10 text-primary border-primary/20">
-                Checkout: <span className="underline font-bold ml-1">{selectedBranch.name}</span>
-              </Badge>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedBranch && (
+                <Badge variant="outline" className="px-3.5 py-1.5 text-xs font-semibold bg-primary/10 text-primary border-primary/20">
+                  Checkout: <span className="underline font-bold ml-1">{selectedBranch.name}</span>
+                </Badge>
+              )}
+
+              {/* Customer Display Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openCustomerDisplay}
+                className="h-8 text-xs font-bold gap-1.5 border-primary/30 hover:bg-primary/10 text-primary"
+                title="Open Customer-Facing Display"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Customer Screen
+              </Button>
+
+              {/* Fullscreen Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleFullscreen}
+                className={`h-8 text-xs font-bold gap-1.5 ${isFullscreen ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
+                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+              >
+                {isFullscreen ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 9L3 3m0 0l2 5M3 3l5 2m6 4l6-6m0 0l-5 2m5-2l-2 5M9 15l-6 6m0 0l5-2m-5 2l-2-5m13-1l6 6m0 0l-2-5m2 5l-5-2" />
+                    </svg>
+                    Exit Full
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5h-4m4 0v-4m0 4l-5-5" />
+                    </svg>
+                    Fullscreen
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
 
           {/* Filters */}
@@ -755,7 +917,7 @@ export const POS: React.FC = () => {
         </div>
 
         {/* Mobile Cart Floating Bottom Bar */}
-        <div className="lg:hidden fixed bottom-[104px] md:bottom-0 left-4 right-4 md:left-0 md:right-0 p-4 bg-background border md:border-x-0 md:border-b-0 md:border-t rounded-2xl md:rounded-none shadow-lg flex justify-between items-center z-40">
+        <div className={`lg:hidden fixed ${isFullscreen ? 'bottom-4 md:bottom-0' : 'bottom-[104px] md:bottom-0'} left-4 right-4 md:left-0 md:right-0 p-4 bg-background border md:border-x-0 md:border-b-0 md:border-t rounded-2xl md:rounded-none shadow-lg flex justify-between items-center z-40`}>
           <div>
             <p className="text-xs text-muted-foreground font-semibold">Total ({cartCount} items)</p>
             <p className="text-lg font-bold text-primary">{formatPHP(cartTotal)}</p>
@@ -787,6 +949,7 @@ export const POS: React.FC = () => {
         cartTotal={cartTotal}
         onConfirm={handleConfirmPayment}
         processing={checkingOut}
+        onStateChange={setPaymentState}
       />
 
       {/* Sale Success / Print Invoice Modal */}

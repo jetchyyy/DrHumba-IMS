@@ -24,6 +24,7 @@ import { SalesHistory } from './components/SalesHistory';
 import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen';
 import { ActiveBranchPill } from './components/ActiveBranchPill';
 import { Pig404 } from './components/Pig404';
+import { CustomerDisplay } from './components/CustomerDisplay';
 import { EnvelopeClosedIcon as Mail, LockClosedIcon as Key, ReloadIcon as RefreshCw, ExclamationTriangleIcon as ShieldAlert, EyeOpenIcon, EyeClosedIcon } from '@radix-ui/react-icons';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -34,6 +35,11 @@ import { Alert, AlertDescription } from './components/ui/alert';
 
 const AppContent: React.FC = () => {
   const { user, profile, loading, refreshProfile, signOut } = useAuth();
+
+  // Check if this is the customer display screen
+  const isCustomerDisplay = 
+    window.location.pathname === '/customer-display' || 
+    window.location.search.includes('view=customer-display');
 
   // Navigation active state
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -54,9 +60,50 @@ const AppContent: React.FC = () => {
   // Preload assets for SplashScreen
   const [assetsLoaded, setAssetsLoaded] = useState(false);
   const [is404, setIs404] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
 
   useEffect(() => {
-    if (window.location.pathname !== '/') {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen().catch((err) => {
+          console.warn('Browser fullscreen request failed, using app-level fallback:', err);
+        });
+        // Fallback if browser fullscreen request is blocked/unsupported
+        if (!document.fullscreenElement) {
+          setIsFullscreen(true);
+        }
+        if ((window.screen as any).orientation?.lock) {
+          await (window.screen as any).orientation.lock('landscape').catch((err: any) => {
+            console.warn('Orientation lock failed:', err);
+          });
+        }
+      } else {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen().catch((err) => {
+            console.warn('Browser exit fullscreen failed:', err);
+          });
+        }
+        setIsFullscreen(false);
+      }
+    } catch (err) {
+      console.error('Fullscreen toggle error:', err);
+      setIsFullscreen(prev => !prev);
+    }
+  };
+
+  useEffect(() => {
+    const isCustomerPath = window.location.pathname === '/customer-display';
+    if (window.location.pathname !== '/' && !isCustomerPath) {
       setIs404(true);
     }
     
@@ -107,6 +154,10 @@ const AppContent: React.FC = () => {
 
   if (is404) {
     return <Pig404 />;
+  }
+
+  if (isCustomerDisplay) {
+    return <CustomerDisplay />;
   }
 
   // Render Login / Signup if user is not authenticated
@@ -307,7 +358,7 @@ const AppContent: React.FC = () => {
       case 'dashboard':
         return <Dashboard setActiveTab={setActiveTab} />;
       case 'pos':
-        return <POS />;
+        return <POS isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen} />;
       case 'sales-history':
         return <SalesHistory />;
       case 'inventory':
@@ -339,30 +390,32 @@ const AppContent: React.FC = () => {
     }
   };
 
+  const shouldHideSidebar = isFullscreen && activeTab === 'pos';
+
   return (
     <div className="min-h-screen flex bg-background text-foreground selection:bg-primary/30">
       <OfflineBanner />
       {/* Desktop Sidebar */}
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      {!shouldHideSidebar && <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />}
 
       {/* Mobile Top Header */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <MobileHeader activeTab={activeTab} setActiveTab={setActiveTab} />
+        {!shouldHideSidebar && <MobileHeader activeTab={activeTab} setActiveTab={setActiveTab} />}
 
         {/* Main Content Area — pb-28 leaves room for mobile floating bottom nav */}
         <main 
           onScroll={handleScroll}
-          className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden pb-28 md:pb-0"
+          className={`flex-1 flex flex-col overflow-y-auto overflow-x-hidden ${shouldHideSidebar ? 'pb-0' : 'pb-28 md:pb-0'}`}
         >
           {renderContent()}
         </main>
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} isVisible={showMobileNav} />
+      {!shouldHideSidebar && <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} isVisible={showMobileNav} />}
 
       <ActiveBranchSplashScreen />
-      <ActiveBranchPill />
+      {!shouldHideSidebar && <ActiveBranchPill />}
       <Toaster />
     </div>
   );

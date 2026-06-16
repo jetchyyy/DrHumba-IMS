@@ -26,9 +26,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import {
   settingsService,
   DEFAULT_TRANSFER_SLIP_TEMPLATE,
-  DEFAULT_SALES_INVOICE_TEMPLATE
+  DEFAULT_SALES_INVOICE_TEMPLATE,
+  DEFAULT_PROMOTIONS
 } from '../lib/settingsService';
-import type { TransferSlipTemplate, SalesInvoiceTemplate } from '../lib/settingsService';
+import type { TransferSlipTemplate, SalesInvoiceTemplate, CustomerPromotion } from '../lib/settingsService';
 import { useModal } from '../contexts/ModalContext';
 
 export const Settings: React.FC = () => {
@@ -36,16 +37,18 @@ export const Settings: React.FC = () => {
   const { confirm, showSuccess, showError } = useModal();
 
   // Navigation active tab
-  const [activeSubTab, setActiveSubTab] = useState<'guide' | 'templates'>('templates');
+  const [activeSubTab, setActiveSubTab] = useState<'guide' | 'templates' | 'promotions'>('templates');
 
   // Templates States
   const [transferSlip, setTransferSlip] = useState<TransferSlipTemplate>({ ...DEFAULT_TRANSFER_SLIP_TEMPLATE });
   const [salesInvoice, setSalesInvoice] = useState<SalesInvoiceTemplate>({ ...DEFAULT_SALES_INVOICE_TEMPLATE });
+  const [promotions, setPromotions] = useState<CustomerPromotion[]>([]);
 
   // UI States
   const [loading, setLoading] = useState(true);
   const [savingTransfer, setSavingTransfer] = useState(false);
   const [savingInvoice, setSavingInvoice] = useState(false);
+  const [savingPromos, setSavingPromos] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -55,6 +58,7 @@ export const Settings: React.FC = () => {
       const settings = await settingsService.getSettings();
       setTransferSlip(settings.transfer_slip);
       setSalesInvoice(settings.sales_invoice);
+      setPromotions(settings.customer_promotions || []);
     } catch (err) {
       console.error('Failed to load settings templates:', err);
     } finally {
@@ -131,6 +135,62 @@ export const Settings: React.FC = () => {
     }
   };
 
+  const handleSavePromosConfig = async () => {
+    setSavingPromos(true);
+    setError('');
+    setSuccess('');
+    try {
+      const ok = await settingsService.saveSettings('customer_promotions', promotions, profile?.id);
+      if (ok) {
+        showSuccess('Customer Screen Promotions updated successfully in Database!');
+      } else {
+        showSuccess('Saved successfully to local browser cache! (Database schema update pending)');
+      }
+    } catch (err: any) {
+      showError(err.message || 'Failed to save configuration');
+    } finally {
+      setSavingPromos(false);
+    }
+  };
+
+  const handleResetPromos = async () => {
+    if (await confirm('Reset Promotions', 'Reset Customer Screen promotions to system defaults?')) {
+      setPromotions([...DEFAULT_PROMOTIONS]);
+      showSuccess('Promotions reset to defaults locally. Save to apply.');
+    }
+  };
+
+  const handleAddPromo = () => {
+    if (promotions.length >= 8) {
+      showError('You can add a maximum of 8 promotions.');
+      return;
+    }
+    setPromotions(prev => [
+      ...prev,
+      {
+        title: 'New Hot Promotion',
+        desc: 'Promotion description text goes here. Make it interesting!',
+        image: '🔥 Chef Special',
+        color: 'from-pink-500 to-rose-600'
+      }
+    ]);
+  };
+
+  const handleRemovePromo = (index: number) => {
+    if (promotions.length <= 1) {
+      showError('You must have at least one promotion.');
+      return;
+    }
+    setPromotions(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUpdatePromo = (index: number, key: keyof CustomerPromotion, value: string) => {
+    setPromotions(prev => prev.map((promo, i) => {
+      if (i !== index) return promo;
+      return { ...promo, [key]: value };
+    }));
+  };
+
   const handleResetTransfer = async () => {
     if (await confirm('Reset Template', 'Reset Transfer Slip template to system defaults?')) {
       setTransferSlip({ ...DEFAULT_TRANSFER_SLIP_TEMPLATE });
@@ -160,7 +220,7 @@ export const Settings: React.FC = () => {
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex bg-muted p-1 rounded-lg self-start">
+        <div className="flex bg-muted p-1 rounded-lg self-start flex-wrap gap-1 md:gap-0">
           <Button
             variant={activeSubTab === 'templates' ? 'default' : 'ghost'}
             size="sm"
@@ -169,6 +229,15 @@ export const Settings: React.FC = () => {
           >
             <FileText className="w-3.5 h-3.5 mr-1.5" />
             Document Templates
+          </Button>
+          <Button
+            variant={activeSubTab === 'promotions' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveSubTab('promotions')}
+            className="text-xs font-bold"
+          >
+            <ImageIcon className="w-3.5 h-3.5 mr-1.5" />
+            Customer Screen Promos
           </Button>
           <Button
             variant={activeSubTab === 'guide' ? 'default' : 'ghost'}
@@ -202,7 +271,7 @@ export const Settings: React.FC = () => {
         </div>
       ) : (
         <div className="max-w-7xl mx-auto">
-          {activeSubTab === 'guide' ? (
+          {activeSubTab === 'guide' && (
             <div className="max-w-4xl space-y-6">
 
               {/* Current User Badge */}
@@ -476,7 +545,8 @@ WHERE email = 'your-email@example.com';`}</pre>
               </Card>
 
             </div>
-          ) : (
+          )}
+          {activeSubTab === 'templates' && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
 
               {/* ─── COLUMN 1: TRANSFER SLIP TEMPLATE ─── */}
@@ -1020,6 +1090,166 @@ WHERE email = 'your-email@example.com';`}</pre>
                 </Card>
               </div>
 
+            </div>
+          )}
+
+          {activeSubTab === 'promotions' && (
+            <div className="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-2 gap-8">
+              <Card>
+                <CardHeader className="border-b pb-4">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-bold uppercase tracking-wider flex items-center space-x-2">
+                      <ImageIcon className="w-4 h-4 text-primary" />
+                      <span>Customer Screen Promos</span>
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleResetPromos}
+                      className="h-8 w-8 text-muted-foreground hover:text-white"
+                      title="Reset to Defaults"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <CardDescription className="text-xs">
+                    Add, edit, or remove promotions displayed in a rotating slide on the POS Customer Terminal.
+                  </CardDescription>
+                </CardHeader>
+
+                <CardContent className="p-6 space-y-6">
+                  {!isEditorRole && (
+                    <div className="text-[11px] text-amber-500 bg-amber-500/10 p-2 rounded border border-amber-500/20">
+                      ⚠️ Note: Only admins/managers can save configurations to the cloud. Others can edit and save locally in their browser.
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    {promotions.map((promo, index) => (
+                      <div key={index} className="p-4 bg-muted/20 border border-border/80 rounded-2xl relative space-y-3 animate-fade-in">
+                        <div className="flex justify-between items-center">
+                          <Badge variant="outline" className="text-[10px] uppercase font-bold">
+                            Promotion #{index + 1}
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemovePromo(index)}
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            title="Remove Promotion"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Promotion Title */}
+                          <div className="space-y-2">
+                            <Label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Title</Label>
+                            <Input
+                              type="text"
+                              value={promo.title}
+                              onChange={(e) => handleUpdatePromo(index, 'title', e.target.value)}
+                              placeholder="e.g. Today's Special: Platter"
+                            />
+                          </div>
+
+                          {/* Badge Tag */}
+                          <div className="space-y-2">
+                            <Label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Badge Tag</Label>
+                            <Input
+                              type="text"
+                              value={promo.image}
+                              onChange={(e) => handleUpdatePromo(index, 'image', e.target.value)}
+                              placeholder="e.g. 🔥 Chef Recommended"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {/* Description */}
+                          <div className="space-y-2 md:col-span-2">
+                            <Label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Description</Label>
+                            <Input
+                              type="text"
+                              value={promo.desc}
+                              onChange={(e) => handleUpdatePromo(index, 'desc', e.target.value)}
+                              placeholder="e.g. Get 15% off..."
+                            />
+                          </div>
+
+                          {/* Gradient Preset */}
+                          <div className="space-y-2">
+                            <Label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Glow Accent Color</Label>
+                            <Select
+                              value={promo.color}
+                              onValueChange={(v) => handleUpdatePromo(index, 'color', v)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="from-pink-500 to-rose-600">Rose/Pink Gradient</SelectItem>
+                                <SelectItem value="from-amber-500 to-orange-600">Orange/Amber Gradient</SelectItem>
+                                <SelectItem value="from-purple-500 to-indigo-600">Purple/Indigo Gradient</SelectItem>
+                                <SelectItem value="from-emerald-500 to-teal-600">Teal/Emerald Gradient</SelectItem>
+                                <SelectItem value="from-slate-500 to-zinc-600">Slate/Gray Gradient</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    <Button
+                      variant="outline"
+                      type="button"
+                      onClick={handleAddPromo}
+                      className="w-full border-dashed border-primary/40 text-primary hover:bg-primary/5 text-xs font-bold py-5 rounded-2xl"
+                    >
+                      + Add Promotion Slide
+                    </Button>
+                  </div>
+
+                  <Button
+                    onClick={handleSavePromosConfig}
+                    disabled={savingPromos}
+                    className="w-full font-bold shadow py-6 text-sm"
+                  >
+                    <Save className="w-4 h-4 mr-1.5" />
+                    {savingPromos ? 'Saving promotions...' : 'Save Customer Promotions'}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* LIVE PROMOTIONS PREVIEW */}
+              <Card className="bg-zinc-50 border border-zinc-150 h-fit">
+                <CardHeader className="p-4 border-b">
+                  <CardTitle className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center space-x-1.5">
+                    <Eye className="w-3.5 h-3.5 text-primary" />
+                    <span>Customer Screen Live Preview</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6 flex flex-col items-center">
+                  <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-semibold mb-4">standby mode slide previews</p>
+                  
+                  <div className="w-full max-w-md bg-white border border-zinc-200 rounded-3xl p-6 shadow-xl relative overflow-hidden text-left select-none space-y-4">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-pink-500/10 to-transparent blur-xl"></div>
+                    {promotions.map((promo, idx) => (
+                      <div key={idx} className="border-b last:border-b-0 pb-4 last:pb-0 space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[9px] font-bold bg-pink-500/10 text-pink-600 border border-pink-500/20 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                            {promo.image || "🔥 Promo"}
+                          </span>
+                          <span className="text-[9px] text-zinc-400">Slide #{idx + 1}</span>
+                        </div>
+                        <h4 className="text-sm font-bold text-zinc-800">{promo.title || "Untitled Promo"}</h4>
+                        <p className="text-xs text-zinc-500 leading-relaxed">{promo.desc || "No description provided."}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
         </div>

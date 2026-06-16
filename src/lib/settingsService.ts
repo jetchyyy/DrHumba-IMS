@@ -22,9 +22,17 @@ export interface SalesInvoiceTemplate {
   font_size: 'small' | 'medium' | 'large';
 }
 
+export interface CustomerPromotion {
+  title: string;
+  desc: string;
+  image: string; // Used for badge/tag e.g. "🔥 Chef Recommended"
+  color: string; // Gradient preset, e.g. "from-pink-500 to-rose-600"
+}
+
 export interface SystemSettings {
   transfer_slip: TransferSlipTemplate;
   sales_invoice: SalesInvoiceTemplate;
+  customer_promotions: CustomerPromotion[];
 }
 
 export const DEFAULT_TRANSFER_SLIP_TEMPLATE: TransferSlipTemplate = {
@@ -49,11 +57,33 @@ export const DEFAULT_SALES_INVOICE_TEMPLATE: SalesInvoiceTemplate = {
   font_size: 'medium',
 };
 
+export const DEFAULT_PROMOTIONS: CustomerPromotion[] = [
+  {
+    title: "Today's Special: Dr. Humba Platter",
+    desc: "Get 15% off on our signature premium family platter. Fresh ingredients, direct from farm!",
+    image: "🔥 Chef Recommended",
+    color: "from-pink-500 to-rose-600",
+  },
+  {
+    title: "Double the Freshness, Double the Joy!",
+    desc: "Pair any meal with our fresh house blend iced tea for just ₱49.",
+    image: "🥤 Refreshing Choice",
+    color: "from-amber-500 to-orange-600",
+  },
+  {
+    title: "Join Our Loyalty Program",
+    desc: "Ask the cashier to sign up today! Earn 1 point per ₱100 spent and redeem exciting food rewards.",
+    image: "✨ Membership Rewards",
+    color: "from-purple-500 to-indigo-600",
+  }
+];
+
 export const settingsService = {
   async getSettings(): Promise<SystemSettings> {
     const settings: SystemSettings = {
       transfer_slip: { ...DEFAULT_TRANSFER_SLIP_TEMPLATE },
       sales_invoice: { ...DEFAULT_SALES_INVOICE_TEMPLATE },
+      customer_promotions: [...DEFAULT_PROMOTIONS],
     };
 
     // Load from database if possible
@@ -72,6 +102,8 @@ export const settingsService = {
             settings.transfer_slip = { ...DEFAULT_TRANSFER_SLIP_TEMPLATE, ...row.value };
           } else if (row.key === 'sales_invoice') {
             settings.sales_invoice = { ...DEFAULT_SALES_INVOICE_TEMPLATE, ...row.value };
+          } else if (row.key === 'customer_promotions') {
+            settings.customer_promotions = Array.isArray(row.value) ? row.value : [...DEFAULT_PROMOTIONS];
           }
         });
 
@@ -85,6 +117,7 @@ export const settingsService = {
             const parsed = JSON.parse(local);
             if (parsed.transfer_slip) settings.transfer_slip = { ...settings.transfer_slip, ...parsed.transfer_slip };
             if (parsed.sales_invoice) settings.sales_invoice = { ...settings.sales_invoice, ...parsed.sales_invoice };
+            if (parsed.customer_promotions) settings.customer_promotions = parsed.customer_promotions;
           } catch (e) {
             console.error('Failed to parse localStorage settings:', e);
           }
@@ -98,6 +131,7 @@ export const settingsService = {
           const parsed = JSON.parse(local);
           if (parsed.transfer_slip) settings.transfer_slip = { ...settings.transfer_slip, ...parsed.transfer_slip };
           if (parsed.sales_invoice) settings.sales_invoice = { ...settings.sales_invoice, ...parsed.sales_invoice };
+          if (parsed.customer_promotions) settings.customer_promotions = parsed.customer_promotions;
         } catch (e) {
           console.error('Failed to parse localStorage settings:', e);
         }
@@ -107,7 +141,7 @@ export const settingsService = {
     return settings;
   },
 
-  async saveSettings(key: 'transfer_slip' | 'sales_invoice', value: any, userId?: string): Promise<boolean> {
+  async saveSettings(key: 'transfer_slip' | 'sales_invoice' | 'customer_promotions', value: any, userId?: string): Promise<boolean> {
     // Save to local storage first
     try {
       const local = localStorage.getItem('system_settings');
