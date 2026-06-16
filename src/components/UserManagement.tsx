@@ -45,16 +45,20 @@ export const UserManagement: React.FC = () => {
   
   // Edit State
   const [editingStaff, setEditingStaff] = useState<ProfileRecord | null>(null);
-  const [editRole, setEditRole] = useState<'inventory_manager' | 'branch_manager' | 'cashier' | 'auditor'>('cashier');
+  const [editRole, setEditRole] = useState<string>('cashier');
   const [editBranchId, setEditBranchId] = useState('');
   const [editAllowedTabs, setEditAllowedTabs] = useState<string[]>([]);
+  const [editAllowTransfers, setEditAllowTransfers] = useState(false);
+  const [editCustomRole, setEditCustomRole] = useState('');
 
   // Creation Form State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'inventory_manager' | 'branch_manager' | 'cashier' | 'auditor'>('cashier');
+  const [role, setRole] = useState<string>('cashier');
   const [branchId, setBranchId] = useState('');
   const [allowedTabs, setAllowedTabs] = useState<string[]>(['pos', 'sales-history', 'inventory', 'global-inventory']);
+  const [allowTransfers, setAllowTransfers] = useState(false);
+  const [customRole, setCustomRole] = useState('');
   
   // Transaction processing states
   const [submitting, setSubmitting] = useState(false);
@@ -80,7 +84,6 @@ export const UserManagement: React.FC = () => {
     { id: 'inventory', name: 'Inventory Items' },
     { id: 'global-inventory', name: 'Overall Stock' },
     { id: 'receiving', name: 'Stock Receiving' },
-    { id: 'transfers', name: 'Transfers' },
     { id: 'adjustments', name: 'Adjustments' },
     { id: 'recipes', name: 'Recipes' },
     { id: 'branches', name: 'Branches' },
@@ -88,6 +91,30 @@ export const UserManagement: React.FC = () => {
     { id: 'audit-logs', name: 'Audit Logs' },
     { id: 'users', name: 'Staff Management' },
   ];
+
+  const handleRoleChange = (v: string) => {
+    setRole(v);
+    if (v === 'custom') {
+      setAllowedTabs(['pos', 'sales-history', 'inventory', 'global-inventory']);
+      setAllowTransfers(false);
+    } else {
+      const defaults = ROLE_DEFAULTS[v] || ['pos', 'sales-history', 'inventory', 'global-inventory'];
+      setAllowedTabs(defaults.filter(t => t !== 'transfers'));
+      setAllowTransfers(defaults.includes('transfers'));
+    }
+  };
+
+  const handleEditRoleChange = (v: string) => {
+    setEditRole(v);
+    if (v === 'custom') {
+      setEditAllowedTabs(['pos', 'sales-history', 'inventory', 'global-inventory']);
+      setEditAllowTransfers(false);
+    } else {
+      const defaults = ROLE_DEFAULTS[v] || ['pos', 'sales-history', 'inventory', 'global-inventory'];
+      setEditAllowedTabs(defaults.filter(t => t !== 'transfers'));
+      setEditAllowTransfers(defaults.includes('transfers'));
+    }
+  };
 
   const loadStaff = async () => {
     setLoading(true);
@@ -136,14 +163,32 @@ export const UserManagement: React.FC = () => {
       return;
     }
 
+    const finalRole = role === 'custom' ? customRole.trim() : role;
+    if (!finalRole) {
+      showError("Please specify the role");
+      return;
+    }
+
+    if (role === 'custom' && ['super_admin', 'inventory_manager', 'branch_manager', 'cashier', 'auditor'].includes(finalRole.toLowerCase())) {
+      showError("Cannot create a custom role with a reserved system role name.");
+      return;
+    }
+
+    const finalAllowedTabs = [...allowedTabs];
+    if (allowTransfers) {
+      finalAllowedTabs.push('transfers');
+    }
+
+    const isGlobal = ['inventory_manager', 'auditor'].includes(finalRole);
+
     setSubmitting(true);
     try {
       const { error: rpcError } = await supabase.rpc('fn_create_staff', {
         p_email: email.trim(),
         p_password: password,
-        p_role: role,
-        p_branch_id: ['branch_manager', 'cashier'].includes(role) ? branchId : null,
-        p_allowed_tabs: allowedTabs
+        p_role: finalRole,
+        p_branch_id: isGlobal ? null : branchId,
+        p_allowed_tabs: finalAllowedTabs
       });
 
       if (rpcError) throw rpcError;
@@ -151,7 +196,10 @@ export const UserManagement: React.FC = () => {
       showSuccess(`Staff account successfully created! Email: ${email}`);
       setEmail('');
       setPassword('');
-      setAllowedTabs(ROLE_DEFAULTS['cashier']);
+      setRole('cashier');
+      setCustomRole('');
+      setAllowTransfers(false);
+      setAllowedTabs(ROLE_DEFAULTS['cashier'].filter(t => t !== 'transfers'));
       setIsCreateModalOpen(false);
       loadStaff();
     } catch (err: any) {
@@ -166,13 +214,31 @@ export const UserManagement: React.FC = () => {
     e.preventDefault();
     if (!editingStaff) return;
 
+    const finalRole = editRole === 'custom' ? editCustomRole.trim() : editRole;
+    if (!finalRole) {
+      showError("Please specify the role");
+      return;
+    }
+
+    if (editRole === 'custom' && ['super_admin', 'inventory_manager', 'branch_manager', 'cashier', 'auditor'].includes(finalRole.toLowerCase())) {
+      showError("Cannot assign a reserved system role name as a custom role.");
+      return;
+    }
+
+    const finalAllowedTabs = [...editAllowedTabs];
+    if (editAllowTransfers) {
+      finalAllowedTabs.push('transfers');
+    }
+
+    const isGlobal = ['inventory_manager', 'auditor'].includes(finalRole);
+
     setSubmitting(true);
     try {
       const { error: rpcError } = await supabase.rpc('fn_edit_staff', {
         p_user_id: editingStaff.id,
-        p_role: editRole,
-        p_branch_id: ['branch_manager', 'cashier'].includes(editRole) ? editBranchId : null,
-        p_allowed_tabs: editAllowedTabs
+        p_role: finalRole,
+        p_branch_id: isGlobal ? null : editBranchId,
+        p_allowed_tabs: finalAllowedTabs
       });
 
       if (rpcError) throw rpcError;
@@ -233,14 +299,43 @@ export const UserManagement: React.FC = () => {
   };
 
   const openEditModal = (member: ProfileRecord) => {
+    const tabs = member.allowed_tabs || ROLE_DEFAULTS[member.role_name] || [];
     setEditingStaff(member);
-    setEditRole(member.role_name as any);
+    
+    const isCustom = !['inventory_manager', 'branch_manager', 'cashier', 'auditor', 'super_admin'].includes(member.role_name);
+    if (isCustom) {
+      setEditRole('custom');
+      setEditCustomRole(member.role_name);
+    } else {
+      setEditRole(member.role_name);
+      setEditCustomRole('');
+    }
+
     setEditBranchId(member.branch_id || (branches.length > 0 ? branches[0].id : ''));
-    setEditAllowedTabs(member.allowed_tabs || ROLE_DEFAULTS[member.role_name] || []);
+    setEditAllowedTabs(tabs.filter(t => t !== 'transfers'));
+    setEditAllowTransfers(tabs.includes('transfers'));
     setIsEditModalOpen(true);
   };
 
   const isSuperAdmin = profile?.role_name === 'super_admin';
+
+  const defaultRoles = ['inventory_manager', 'branch_manager', 'cashier', 'auditor'];
+  const uniqueRoles = Array.from(
+    new Set([
+      ...defaultRoles,
+      ...staff.map(s => s.role_name)
+    ])
+  ).filter(r => r !== 'super_admin');
+
+  const getRoleFriendlyName = (r: string) => {
+    switch (r) {
+      case 'inventory_manager': return 'Inventory Manager';
+      case 'branch_manager': return 'Branch Manager';
+      case 'cashier': return 'Cashier';
+      case 'auditor': return 'Auditor';
+      default: return r.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
+  };
 
   const totalPages = Math.ceil(staff.length / itemsPerPage);
   const paginatedStaff = staff.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -432,18 +527,18 @@ export const UserManagement: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>System Role</Label>
-                <Select value={role} onValueChange={(v: any) => { setRole(v); setAllowedTabs(ROLE_DEFAULTS[v] || []); }}>
+                <Select value={role} onValueChange={handleRoleChange}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="inventory_manager">Inventory Manager</SelectItem>
-                    <SelectItem value="branch_manager">Branch Manager</SelectItem>
-                    <SelectItem value="cashier">Cashier</SelectItem>
-                    <SelectItem value="auditor">Auditor</SelectItem>
+                    {uniqueRoles.map(r => (
+                      <SelectItem key={r} value={r}>{getRoleFriendlyName(r)}</SelectItem>
+                    ))}
+                    <SelectItem value="custom">+ Create Custom Role...</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {['branch_manager', 'cashier'].includes(role) ? (
+              {!['inventory_manager', 'auditor'].includes(role === 'custom' ? customRole : role) ? (
                 <div className="space-y-2">
                   <Label>Assigned Branch Context *</Label>
                   <Select value={branchId} onValueChange={setBranchId}>
@@ -465,6 +560,35 @@ export const UserManagement: React.FC = () => {
                   </div>
                 </div>
               )}
+            </div>
+
+            {role === 'custom' && (
+              <div className="space-y-2">
+                <Label>Custom Role Name *</Label>
+                <Input
+                  type="text"
+                  required
+                  value={customRole}
+                  onChange={(e) => setCustomRole(e.target.value)}
+                  placeholder="e.g. Kitchen Staff"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
+              <Checkbox
+                id="allow-transfers"
+                checked={allowTransfers}
+                onCheckedChange={(checked) => setAllowTransfers(!!checked)}
+              />
+              <div className="grid gap-1 leading-none">
+                <Label htmlFor="allow-transfers" className="text-sm font-semibold cursor-pointer">
+                  Allow Requesting Transfers (Subject to Admin Approval)
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Allow this staff member to create stock transfer requests.
+                </p>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -517,18 +641,18 @@ export const UserManagement: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>System Role</Label>
-                <Select value={editRole} onValueChange={(v: any) => { setEditRole(v); setEditAllowedTabs(ROLE_DEFAULTS[v] || []); }}>
+                <Select value={editRole} onValueChange={handleEditRoleChange}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="inventory_manager">Inventory Manager</SelectItem>
-                    <SelectItem value="branch_manager">Branch Manager</SelectItem>
-                    <SelectItem value="cashier">Cashier</SelectItem>
-                    <SelectItem value="auditor">Auditor</SelectItem>
+                    {uniqueRoles.map(r => (
+                      <SelectItem key={r} value={r}>{getRoleFriendlyName(r)}</SelectItem>
+                    ))}
+                    <SelectItem value="custom">+ Create Custom Role...</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {['branch_manager', 'cashier'].includes(editRole) ? (
+              {!['inventory_manager', 'auditor'].includes(editRole === 'custom' ? editCustomRole : editRole) ? (
                 <div className="space-y-2">
                   <Label>Assigned Branch Context *</Label>
                   <Select value={editBranchId} onValueChange={setEditBranchId}>
@@ -550,6 +674,35 @@ export const UserManagement: React.FC = () => {
                   </div>
                 </div>
               )}
+            </div>
+
+            {editRole === 'custom' && (
+              <div className="space-y-2">
+                <Label>Custom Role Name *</Label>
+                <Input
+                  type="text"
+                  required
+                  value={editCustomRole}
+                  onChange={(e) => setEditCustomRole(e.target.value)}
+                  placeholder="e.g. Kitchen Staff"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
+              <Checkbox
+                id="edit-allow-transfers"
+                checked={editAllowTransfers}
+                onCheckedChange={(checked) => setEditAllowTransfers(!!checked)}
+              />
+              <div className="grid gap-1 leading-none">
+                <Label htmlFor="edit-allow-transfers" className="text-sm font-semibold cursor-pointer">
+                  Allow Requesting Transfers (Subject to Admin Approval)
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Allow this staff member to create stock transfer requests.
+                </p>
+              </div>
             </div>
 
             <div className="space-y-2">

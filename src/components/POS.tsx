@@ -12,7 +12,7 @@ import {
   FileTextIcon as Printer,
 } from '@radix-ui/react-icons';
 import { settingsService } from '../lib/settingsService';
-import { printThermalInvoice } from '../lib/printService';
+import { printThermalInvoice, printKitchenReceipt } from '../lib/printService';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
@@ -73,29 +73,44 @@ interface PaymentDialogProps {
   open: boolean;
   onClose: () => void;
   cartTotal: number;
-  onConfirm: (method: PaymentMethod, tendered: number | null) => Promise<void>;
+  onConfirm: (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string) => Promise<void>;
   processing: boolean;
 }
 
 const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal, onConfirm, processing }) => {
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [tenderedStr, setTenderedStr] = useState('');
+  const [saleCategory, setSaleCategory] = useState<string>('Dine in');
+  const [customCategory, setCustomCategory] = useState<string>('');
+  const [refNumber, setRefNumber] = useState<string>('');
 
   const tendered = parseFloat(tenderedStr) || 0;
   const change = method === 'cash' ? tendered - cartTotal : 0;
+
+  const isRefNumRequired = method === 'gcash' || method === 'maya';
+  const hasRefNum = !isRefNumRequired || refNumber.trim().length > 0;
+  const isCustomCatRequired = saleCategory === 'other';
+  const hasCustomCat = !isCustomCatRequired || customCategory.trim().length > 0;
   const isValidCash = method !== 'cash' || tendered >= cartTotal;
+
+  const canConfirm = isValidCash && hasRefNum && hasCustomCat;
 
   // Reset when dialog opens
   useEffect(() => {
     if (open) {
       setMethod('cash');
       setTenderedStr('');
+      setSaleCategory('Dine in');
+      setCustomCategory('');
+      setRefNumber('');
     }
   }, [open]);
 
   const handleConfirm = async () => {
     const tValue = method === 'cash' ? (tendered || null) : null;
-    await onConfirm(method, tValue);
+    const finalCategory = saleCategory === 'other' ? customCategory.trim() : saleCategory;
+    const finalRef = (method === 'gcash' || method === 'maya') ? refNumber.trim() : '';
+    await onConfirm(method, tValue, finalCategory, finalRef);
   };
 
   const quickAmounts = useMemo(() => QUICK_CASH_AMOUNTS(cartTotal), [cartTotal]);
@@ -133,6 +148,55 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
               </SelectContent>
             </Select>
           </div>
+
+          {/* Reference Number for Gcash/Maya */}
+          {(method === 'gcash' || method === 'maya') && (
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                Reference Number *
+              </Label>
+              <Input
+                required
+                value={refNumber}
+                onChange={(e) => setRefNumber(e.target.value)}
+                placeholder={`Enter ${PAYMENT_LABELS[method]} Reference Number`}
+                autoFocus
+              />
+            </div>
+          )}
+
+          {/* Sale Category */}
+          <div className="space-y-2">
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+              Sale Category
+            </Label>
+            <Select value={saleCategory} onValueChange={setSaleCategory}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Dine in">Dine in</SelectItem>
+                <SelectItem value="Grab">Grab</SelectItem>
+                <SelectItem value="Foodpanda">Foodpanda</SelectItem>
+                <SelectItem value="other">Other specify:</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Custom Sale Category Input */}
+          {saleCategory === 'other' && (
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                Specify Sale Category *
+              </Label>
+              <Input
+                required
+                value={customCategory}
+                onChange={(e) => setCustomCategory(e.target.value)}
+                placeholder="e.g. Delivery Direct"
+              />
+            </div>
+          )}
 
           {/* Cash Tendered — only for cash */}
           {method === 'cash' && (
@@ -209,7 +273,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
           </Button>
           <Button
             onClick={handleConfirm}
-            disabled={processing || !isValidCash}
+            disabled={processing || !canConfirm}
             className="font-bold min-w-[140px]"
           >
             {processing ? 'Processing…' : `Confirm ${PAYMENT_LABELS[method]}`}
@@ -239,7 +303,7 @@ export const POS: React.FC = () => {
   // Payment dialog
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
-  const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string } | null>(null);
+  const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string } | null>(null);
 
   const loadMenuItems = async () => {
     setLoading(true);
@@ -274,6 +338,8 @@ export const POS: React.FC = () => {
           total_amount,
           status,
           created_at,
+          sale_category,
+          reference_number,
           branches (name),
           sale_items (
             id,
@@ -304,6 +370,8 @@ export const POS: React.FC = () => {
         total_amount: Number(saleData.total_amount),
         status: saleData.status,
         created_at: saleData.created_at,
+        sale_category: saleData.sale_category || 'Dine in',
+        reference_number: saleData.reference_number || '',
         branch_name: (Array.isArray(saleData.branches) ? saleData.branches[0]?.name : (saleData.branches as any)?.name) || selectedBranch?.name || 'Main Branch',
         cashier_email: profileData?.email || profile?.email || 'System',
         items: (saleData.sale_items || []).map((si: any) => ({
@@ -321,6 +389,57 @@ export const POS: React.FC = () => {
     } catch (err) {
       console.error('Failed to load and print thermal invoice:', err);
       showError('Failed to print receipt. Please reprint from Sales History.');
+    }
+  };
+
+  const handlePrintKitchen = async (saleId: string) => {
+    try {
+      // 1. Fetch newly processed sale details from Supabase
+      const { data: saleData, error: saleError } = await supabase
+        .from('sales')
+        .select(`
+          id,
+          control_number,
+          branch_id,
+          total_amount,
+          status,
+          created_at,
+          sale_category,
+          branches (name),
+          sale_items (
+            id,
+            quantity,
+            menu_items (name)
+          )
+        `)
+        .eq('id', saleId)
+        .single();
+
+      if (saleError) throw saleError;
+      if (!saleData) return;
+
+      // 2. Map details
+      const mappedSale = {
+        id: saleData.id,
+        control_number: saleData.control_number || null,
+        branch_id: saleData.branch_id,
+        total_amount: Number(saleData.total_amount),
+        status: saleData.status,
+        created_at: saleData.created_at,
+        sale_category: saleData.sale_category || 'Dine in',
+        branch_name: (Array.isArray(saleData.branches) ? saleData.branches[0]?.name : (saleData.branches as any)?.name) || selectedBranch?.name || 'Main Branch',
+        items: (saleData.sale_items || []).map((si: any) => ({
+          id: si.id,
+          quantity: Number(si.quantity),
+          item_name: si.menu_items?.name || 'Unknown Dish'
+        }))
+      };
+
+      const settings = await settingsService.getSettings();
+      printKitchenReceipt(mappedSale, settings.sales_invoice);
+    } catch (err) {
+      console.error('Failed to load and print kitchen receipt:', err);
+      showError('Failed to print kitchen receipt.');
     }
   };
 
@@ -373,7 +492,7 @@ export const POS: React.FC = () => {
     setPaymentOpen(true);
   };
 
-  const handleConfirmPayment = async (method: PaymentMethod, tendered: number | null) => {
+  const handleConfirmPayment = async (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string) => {
     if (!selectedBranch) return;
     setCheckingOut(true);
 
@@ -381,17 +500,25 @@ export const POS: React.FC = () => {
       const payload = cart.map(ci => ({ menu_item_id: ci.menu_item_id, quantity: ci.quantity }));
 
       const { data: saleId, error } = await supabase.rpc('fn_process_sale', {
-        p_branch_id:       selectedBranch.id,
-        p_items:           payload,
-        p_payment_method:  method,
-        p_amount_tendered: tendered,
+        p_branch_id:        selectedBranch.id,
+        p_items:            payload,
+        p_payment_method:   method,
+        p_amount_tendered:  tendered,
+        p_sale_category:    saleCategory,
+        p_reference_number: referenceNumber,
       });
 
       if (error) throw error;
 
       const change = method === 'cash' && tendered ? tendered - cartTotal : 0;
 
-      setLastSaleResult({ id: saleId as string, change, method });
+      setLastSaleResult({
+        id: saleId as string,
+        change,
+        method,
+        sale_category: saleCategory,
+        reference_number: referenceNumber
+      });
       setCart([]);
       setPaymentOpen(false);
       setIsCartSheetOpen(false);
@@ -664,7 +791,7 @@ export const POS: React.FC = () => {
 
       {/* Sale Success / Print Invoice Modal */}
       <Dialog open={!!lastSaleResult} onOpenChange={(open) => { if (!open) setLastSaleResult(null); }}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <div className="flex items-center space-x-2 text-emerald-600 dark:text-emerald-400">
               <CheckCircle className="w-6 h-6" />
@@ -686,6 +813,20 @@ export const POS: React.FC = () => {
                   <span>Payment Method</span>
                   <span className="font-bold text-foreground">{PAYMENT_LABELS[lastSaleResult.method as PaymentMethod]}</span>
                 </div>
+
+                {lastSaleResult.sale_category && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Sale Category</span>
+                    <span className="font-bold text-foreground">{lastSaleResult.sale_category}</span>
+                  </div>
+                )}
+
+                {lastSaleResult.reference_number && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Reference Number</span>
+                    <span className="font-mono text-foreground">{lastSaleResult.reference_number}</span>
+                  </div>
+                )}
                 
                 {lastSaleResult.method === 'cash' && lastSaleResult.change > 0 && (
                   <>
@@ -702,21 +843,34 @@ export const POS: React.FC = () => {
             </div>
           )}
 
-          <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setLastSaleResult(null)} className="sm:flex-1">
+          <DialogFooter className="flex flex-col gap-2 w-full sm:flex-col sm:space-x-0">
+            <div className="grid grid-cols-2 gap-2 w-full">
+              <Button
+                variant="secondary"
+                className="w-full font-bold"
+                onClick={() => {
+                  if (lastSaleResult) {
+                    handlePrintKitchen(lastSaleResult.id);
+                  }
+                }}
+              >
+                <Printer className="w-4 h-4 mr-2" />
+                Print Kitchen
+              </Button>
+              <Button
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                onClick={() => {
+                  if (lastSaleResult) {
+                    handlePrintThermal(lastSaleResult.id);
+                  }
+                }}
+              >
+                <Printer className="w-4 h-4 mr-2" />
+                Print Receipt
+              </Button>
+            </div>
+            <Button variant="outline" onClick={() => setLastSaleResult(null)} className="w-full">
               Close (New Sale)
-            </Button>
-            <Button
-              className="sm:flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-              onClick={() => {
-                if (lastSaleResult) {
-                  handlePrintThermal(lastSaleResult.id);
-                  setLastSaleResult(null);
-                }
-              }}
-            >
-              <Printer className="w-4 h-4 mr-2" />
-              Print Receipt
             </Button>
           </DialogFooter>
         </DialogContent>

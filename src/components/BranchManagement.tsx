@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { BoxModelIcon as Store, DrawingPinIcon as MapPin, PlusIcon as Plus, TrashIcon as Trash2, HomeIcon as Home } from '@radix-ui/react-icons';
+import { BoxModelIcon as Store, DrawingPinIcon as MapPin, PlusIcon as Plus, TrashIcon as Trash2, HomeIcon as Home, Pencil1Icon as Edit, CrossCircledIcon as ShieldOff, CheckCircledIcon as ShieldOn } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -23,6 +23,14 @@ export const BranchManagement: React.FC = () => {
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [submitting, setSubmitting] = useState(false);
   const [showModal, setShowModal] = useState(false);
+
+  // Edit States
+  const [editingBranch, setEditingBranch] = useState<any>(null);
+  const [editName, setEditName] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editIsWarehouse, setEditIsWarehouse] = useState(false);
+  const [editStatus, setEditStatus] = useState<'active' | 'inactive'>('active');
+  const [showEditModal, setShowEditModal] = useState(false);
 
   useEffect(() => {
     refreshProfile();
@@ -83,6 +91,70 @@ export const BranchManagement: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       showError(err.message || 'Failed to delete branch');
+    }
+  };
+
+  const handleToggleStatus = async (id: string, branchName: string, currentStatus: string) => {
+    const nextStatus = currentStatus === 'inactive' ? 'active' : 'inactive';
+    if (!await confirm(
+      `${nextStatus === 'active' ? 'Activate' : 'Deactivate'} Branch`,
+      `Are you sure you want to set branch "${branchName}" status to ${nextStatus}?`
+    )) {
+      return;
+    }
+
+    try {
+      const { error: updateError } = await supabase
+        .from('branches')
+        .update({ status: nextStatus })
+        .eq('id', id);
+
+      if (updateError) throw updateError;
+
+      showSuccess(`Branch "${branchName}" status set to ${nextStatus}.`);
+      await refreshProfile();
+    } catch (err: any) {
+      console.error(err);
+      showError(err.message || 'Failed to update branch status');
+    }
+  };
+
+  const openEditModal = (branch: any) => {
+    setEditingBranch(branch);
+    setEditName(branch.name);
+    setEditLocation(branch.location || '');
+    setEditIsWarehouse(branch.is_warehouse);
+    setEditStatus(branch.status || 'active');
+    setShowEditModal(true);
+  };
+
+  const handleUpdateBranch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBranch || !editName.trim()) return;
+
+    setSubmitting(true);
+    try {
+      const { error: updateError } = await supabase
+        .from('branches')
+        .update({
+          name: editName.trim(),
+          location: editLocation.trim() || null,
+          is_warehouse: editIsWarehouse,
+          status: editStatus
+        })
+        .eq('id', editingBranch.id);
+
+      if (updateError) throw updateError;
+
+      showSuccess(`Branch "${editName}" updated successfully!`);
+      setShowEditModal(false);
+      setEditingBranch(null);
+      await refreshProfile();
+    } catch (err: any) {
+      console.error(err);
+      showError(err.message || 'Failed to update branch');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -166,15 +238,35 @@ export const BranchManagement: React.FC = () => {
                         </TableCell>
                         {isSuperAdmin && (
                           <TableCell className="text-right pr-6">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDeleteBranch(b.id, b.name)}
-                              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                              title="Delete Branch"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            <div className="flex justify-end space-x-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEditModal(b)}
+                                className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
+                                title="Edit Branch"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleToggleStatus(b.id, b.name, b.status || 'active')}
+                                className={`h-8 w-8 ${b.status === 'inactive' ? 'text-emerald-500 hover:text-emerald-500 hover:bg-emerald-500/10' : 'text-amber-500 hover:text-amber-500 hover:bg-amber-500/10'}`}
+                                title={b.status === 'inactive' ? 'Activate Branch' : 'Deactivate Branch'}
+                              >
+                                {b.status === 'inactive' ? <ShieldOn className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteBranch(b.id, b.name)}
+                                className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                title="Delete Branch"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         )}
                       </TableRow>
@@ -246,6 +338,72 @@ export const BranchManagement: React.FC = () => {
               </Button>
               <Button type="submit" disabled={submitting}>
                 {submitting ? 'Creating...' : 'Create Location'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* EDIT MODAL */}
+      <Dialog open={showEditModal} onOpenChange={(open) => { if (!open) { setShowEditModal(false); setEditingBranch(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Branch: {editingBranch?.name}</DialogTitle>
+            <DialogDescription>
+              Modify name, address location, type, and status of this branch.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleUpdateBranch} className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label>Branch Name *</Label>
+              <Input
+                required
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="e.g. Branch C - Westside"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Location Address</Label>
+              <Input
+                value={editLocation}
+                onChange={(e) => setEditLocation(e.target.value)}
+                placeholder="e.g. 789 West Blvd, City"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={editStatus} onValueChange={(val: 'active' | 'inactive') => setEditStatus(val)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center space-x-2 pt-2 pb-4">
+              <Checkbox
+                id="editIsWarehouse"
+                checked={editIsWarehouse}
+                onCheckedChange={(checked) => setEditIsWarehouse(!!checked)}
+              />
+              <Label htmlFor="editIsWarehouse" className="font-normal cursor-pointer text-sm">
+                This location is a Central Warehouse
+              </Label>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { setShowEditModal(false); setEditingBranch(null); }}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? 'Saving...' : 'Save Changes'}
               </Button>
             </DialogFooter>
           </form>

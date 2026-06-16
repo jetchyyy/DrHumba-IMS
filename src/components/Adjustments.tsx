@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { settingsService } from '../lib/settingsService';
 import { printAdjustmentSlip } from '../lib/printService';
-import { PlusIcon as Plus, EyeOpenIcon as Eye, ReloadIcon as RefreshCw, TrashIcon as Trash2, FileTextIcon as Printer, ClipboardIcon as ClipboardList } from '@radix-ui/react-icons';
+import { PlusIcon as Plus, EyeOpenIcon as Eye, ReloadIcon as RefreshCw, TrashIcon as Trash2, FileTextIcon as Printer, ClipboardIcon as ClipboardList, CameraIcon, UploadIcon, ImageIcon, Cross2Icon as XIcon } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -90,6 +90,122 @@ export const Adjustments: React.FC = () => {
   
   const [processing, setProcessing] = useState(false);
 
+  // Camera & File Attachment States
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState('');
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+
+  const startCamera = async (deviceId?: string) => {
+    setCameraError('');
+    try {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+      
+      const constraints: MediaStreamConstraints = {
+        video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' }
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      setCameraStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      
+      // Enumerate devices to allow switching cameras
+      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = allDevices.filter(d => d.kind === 'videoinput');
+      setDevices(videoDevices);
+      
+      const activeTrack = stream.getVideoTracks()[0];
+      if (activeTrack) {
+        const settings = activeTrack.getSettings();
+        if (settings.deviceId) {
+          setSelectedDeviceId(settings.deviceId);
+        }
+      }
+    } catch (err: any) {
+      console.error('Camera access error:', err);
+      setCameraError(err.message || 'Could not access camera. Please check permissions.');
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      setPhotoUrl(dataUrl);
+      stopCamera();
+      setIsCameraActive(false);
+      showSuccess("Photo captured successfully!");
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (file.size > 2 * 1024 * 1024) {
+      showError("File size must be less than 2MB.");
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        const img = new Image();
+        img.src = reader.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          const maxDim = 800;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.7);
+            setPhotoUrl(compressed);
+            showSuccess("Image loaded and compressed successfully!");
+          } else {
+            setPhotoUrl(reader.result as string);
+          }
+        };
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const loadData = async () => {
     try {
       const { data: adjData, error: adjError } = await supabase
@@ -129,6 +245,8 @@ export const Adjustments: React.FC = () => {
     setRemarks('');
     setPhotoUrl('');
     setAddedItems([]);
+    setIsCameraActive(false);
+    stopCamera();
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
       setCurrentQty(-10);
@@ -509,16 +627,26 @@ export const Adjustments: React.FC = () => {
       </Card>
 
       {/* CREATE MODAL */}
-      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+      <Dialog 
+        open={showCreateModal} 
+        onOpenChange={(open) => {
+          setShowCreateModal(open);
+          if (!open) {
+            stopCamera();
+            setIsCameraActive(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-6 border-b shrink-0">
             <DialogTitle>Log Stock Adjustment</DialogTitle>
             <DialogDescription>
               Submit an inventory count correction. Requires manager approval.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSaveAdjustment} className="space-y-6 pt-4">
+          <form onSubmit={handleSaveAdjustment} className="flex-1 min-h-0 flex flex-col">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Adjustment Reason *</Label>
@@ -536,12 +664,112 @@ export const Adjustments: React.FC = () => {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Photo Attachment URL (Optional)</Label>
-                <Input
-                  value={photoUrl}
-                  onChange={(e) => setPhotoUrl(e.target.value)}
-                  placeholder="https://example.com/spoilage.jpg"
-                />
+                <Label className="flex justify-between items-center">
+                  <span>Photo Attachment (Optional)</span>
+                  {photoUrl && (
+                    <Button 
+                      type="button" 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-6 px-2 text-destructive text-xs hover:bg-destructive/10"
+                      onClick={() => setPhotoUrl('')}
+                    >
+                      Remove Photo
+                    </Button>
+                  )}
+                </Label>
+                
+                {photoUrl ? (
+                  <div className="border border-border/80 rounded-lg p-3 bg-muted/20 relative group overflow-hidden">
+                    {photoUrl.startsWith('data:image/') ? (
+                      <div className="flex flex-col items-center">
+                        <img 
+                          src={photoUrl} 
+                          alt="Attachment preview" 
+                          className="max-h-40 rounded-md object-contain border bg-background shadow-sm"
+                        />
+                        <span className="text-[10px] text-muted-foreground mt-2 font-medium">
+                          Captured / Uploaded Image ({Math.round(photoUrl.length / 1024)} KB)
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center space-y-2">
+                        <img 
+                          src={photoUrl} 
+                          alt="Attachment preview" 
+                          className="max-h-40 rounded-md object-contain border bg-background shadow-sm"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                        <div className="w-full flex items-center space-x-2">
+                          <Input
+                            value={photoUrl}
+                            onChange={(e) => setPhotoUrl(e.target.value)}
+                            placeholder="Image URL"
+                            className="text-xs h-8"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="border border-dashed border-border/100 rounded-lg p-6 bg-muted/10 flex flex-col items-center justify-center space-y-4">
+                    <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 text-primary">
+                      <ImageIcon className="w-6 h-6" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-semibold">Add proof of damage or spoilage</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Capture with camera, upload a file, or provide a link</p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="bg-primary text-primary-foreground font-semibold"
+                        onClick={() => {
+                          setIsCameraActive(true);
+                          startCamera();
+                        }}
+                      >
+                        <CameraIcon className="w-4 h-4 mr-1.5" />
+                        Take Photo
+                      </Button>
+                      
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileUpload}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          id="adjustment-file-upload"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="font-semibold"
+                          asChild
+                        >
+                          <label htmlFor="adjustment-file-upload">
+                            <UploadIcon className="w-4 h-4 mr-1.5" />
+                            Upload File
+                          </label>
+                        </Button>
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground text-xs hover:bg-muted"
+                        onClick={() => setPhotoUrl('https://')}
+                      >
+                        Use Image URL
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -631,7 +859,9 @@ export const Adjustments: React.FC = () => {
               </div>
             </div>
 
-            <DialogFooter>
+            </div>
+
+            <DialogFooter className="p-6 border-t shrink-0">
               <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
                 Cancel
               </Button>
@@ -643,10 +873,119 @@ export const Adjustments: React.FC = () => {
         </DialogContent>
       </Dialog>
 
+      {/* CAMERA CAPTURE DIALOG */}
+      <Dialog 
+        open={isCameraActive} 
+        onOpenChange={(open) => {
+          if (!open) {
+            stopCamera();
+            setIsCameraActive(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md p-0 overflow-hidden bg-black text-white border-none">
+          <DialogHeader className="p-4 bg-zinc-900 border-b border-zinc-800 shrink-0 flex-row items-center justify-between space-y-0">
+            <DialogTitle className="text-white text-base">Capture Photo Attachment</DialogTitle>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-800"
+              onClick={() => {
+                stopCamera();
+                setIsCameraActive(false);
+              }}
+            >
+              <XIcon className="h-4 w-4" />
+            </Button>
+          </DialogHeader>
+
+          <div className="relative bg-zinc-950 aspect-video md:aspect-[4/3] flex items-center justify-center">
+            {cameraError ? (
+              <div className="p-6 text-center text-rose-400 space-y-3">
+                <p className="text-sm font-semibold">{cameraError}</p>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="bg-transparent border-zinc-700 text-white hover:bg-zinc-800"
+                  onClick={() => startCamera(selectedDeviceId)}
+                >
+                  Retry Access
+                </Button>
+              </div>
+            ) : (
+              <>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-4 border-2 border-dashed border-white/20 rounded-md pointer-events-none flex items-center justify-center">
+                  <span className="text-[10px] uppercase tracking-wider text-white/40 font-semibold px-2 py-1 bg-black/40 rounded">
+                    Align item in frame
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="p-4 bg-zinc-900 flex flex-col space-y-4 items-center shrink-0">
+            {devices.length > 1 && (
+              <div className="w-full flex items-center space-x-2 justify-center">
+                <span className="text-xs text-zinc-400">Switch Camera:</span>
+                <Select 
+                  value={selectedDeviceId} 
+                  onValueChange={(id) => {
+                    setSelectedDeviceId(id);
+                    startCamera(id);
+                  }}
+                >
+                  <SelectTrigger className="w-48 bg-zinc-800 border-zinc-700 h-8 text-xs text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-800 border-zinc-700 text-white">
+                    {devices.map((device, idx) => (
+                      <SelectItem key={device.deviceId} value={device.deviceId} className="text-xs hover:bg-zinc-700 focus:bg-zinc-700 text-white">
+                        {device.label || `Camera ${idx + 1}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            <div className="flex items-center justify-center space-x-6 py-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="bg-transparent border-zinc-700 text-white hover:bg-zinc-800 px-4 h-10 text-xs font-semibold"
+                onClick={() => {
+                  stopCamera();
+                  setIsCameraActive(false);
+                }}
+              >
+                Cancel
+              </Button>
+              
+              <Button
+                type="button"
+                disabled={!!cameraError || !cameraStream}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold h-12 w-12 rounded-full p-0 flex items-center justify-center border-4 border-zinc-800 hover:scale-105 transition-transform"
+                onClick={capturePhoto}
+                title="Capture Photo"
+              >
+                <div className="w-4 h-4 rounded-full bg-white" />
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+ 
       {/* VIEW MODAL */}
       <Dialog open={showViewModal} onOpenChange={setShowViewModal}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
+        <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-6 border-b shrink-0">
             <div className="flex items-center justify-between">
               <div>
                 <DialogTitle>
@@ -670,7 +1009,8 @@ export const Adjustments: React.FC = () => {
           </DialogHeader>
 
           {selectedAdjustment && (
-            <div className="space-y-6 pt-4">
+            <>
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
               <div className="grid grid-cols-2 gap-4 text-sm bg-muted/30 p-4 rounded-lg">
                 <div>
                   <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Branch Location</span>
@@ -696,9 +1036,19 @@ export const Adjustments: React.FC = () => {
                 {selectedAdjustment.photo_url && (
                   <div className="col-span-2">
                     <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold mb-1">Attachment Photo</span>
-                    <a href={selectedAdjustment.photo_url} target="_blank" rel="noreferrer" className="text-primary hover:underline break-all">
-                      {selectedAdjustment.photo_url}
-                    </a>
+                    {selectedAdjustment.photo_url.startsWith('data:image/') ? (
+                      <div className="mt-1 border border-border/80 rounded bg-background p-2 max-w-xs shadow-sm">
+                        <img 
+                          src={selectedAdjustment.photo_url} 
+                          alt="Attachment" 
+                          className="max-h-32 rounded object-contain mx-auto"
+                        />
+                      </div>
+                    ) : (
+                      <a href={selectedAdjustment.photo_url} target="_blank" rel="noreferrer" className="text-primary hover:underline break-all text-xs font-semibold">
+                        {selectedAdjustment.photo_url}
+                      </a>
+                    )}
                   </div>
                 )}
                 <div className="col-span-2">
@@ -735,7 +1085,9 @@ export const Adjustments: React.FC = () => {
                 </div>
               </div>
 
-              <DialogFooter className="flex space-x-2 sm:space-x-0">
+              </div>
+
+              <DialogFooter className="p-6 border-t shrink-0 flex space-x-2 sm:space-x-0">
                 {selectedAdjustment.status === 'pending' && canApprove ? (
                   <>
                     <Button variant="destructive" onClick={() => handleRejectAdjustment(selectedAdjustment.id)}>
@@ -751,7 +1103,7 @@ export const Adjustments: React.FC = () => {
                   </Button>
                 )}
               </DialogFooter>
-            </div>
+            </>
           )}
         </DialogContent>
       </Dialog>

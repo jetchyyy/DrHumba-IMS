@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { CountdownTimerIcon as History, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, CalendarIcon as Calendar, BackpackIcon as ShoppingBag, ValueIcon as DollarSign, EyeOpenIcon as Eye, ActivityLogIcon as TrendingUp, FileTextIcon as Printer } from '@radix-ui/react-icons';
-import { settingsService, DEFAULT_SALES_INVOICE_TEMPLATE } from '../lib/settingsService';
-import { printThermalInvoice } from '../lib/printService';
+import { CountdownTimerIcon as History, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, CalendarIcon as Calendar, BackpackIcon as ShoppingBag, ValueIcon as DollarSign, EyeOpenIcon as Eye, ActivityLogIcon as TrendingUp, FileTextIcon as Printer, FileTextIcon as FileIcon } from '@radix-ui/react-icons';
+import { settingsService, DEFAULT_SALES_INVOICE_TEMPLATE, DEFAULT_TRANSFER_SLIP_TEMPLATE } from '../lib/settingsService';
+import { printThermalInvoice, printEndOfDayReport, printEndOfDayPDFReport } from '../lib/printService';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
@@ -99,6 +99,233 @@ export const SalesHistory: React.FC = () => {
 
   const isAdminRole = ['super_admin', 'inventory_manager', 'auditor'].includes(profile?.role_name || '');
 
+  // Z-Report / End of Day States
+  const [showEODModal, setShowEODModal] = useState(false);
+  const [eodDate, setEodDate] = useState<Date>(new Date());
+  const [eodBranchId, setEodBranchId] = useState<string>('');
+  const [eodStartTime, setEodStartTime] = useState<string>('00:00');
+  const [eodEndTime, setEodEndTime] = useState<string>('23:59');
+  const [eodCashierId, setEodCashierId] = useState<string>('All');
+  const [openingCash, setOpeningCash] = useState<number>(10000);
+  const [actualCash, setActualCash] = useState<number>(10000);
+  const [profilesList, setProfilesList] = useState<{ id: string; email: string; branch_id: string | null }[]>([]);
+
+  // Initialize eodBranchId and eodCashierId when profile or branches load
+  useEffect(() => {
+    if (profile) {
+      if (!isAdminRole && profile.branch_id) {
+        setEodBranchId(profile.branch_id);
+      } else if (branches && branches.length > 0) {
+        setEodBranchId(branches[0].id);
+      }
+
+      if (!isAdminRole) {
+        setEodCashierId(profile.id);
+      } else {
+        setEodCashierId('All');
+      }
+    }
+  }, [profile, branches, isAdminRole]);
+
+  // Auto-fill time fields based on selected cashier and date transactions
+  useEffect(() => {
+    if (!showEODModal || !eodDate || !eodBranchId) return;
+
+    const startOfDay = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), 0, 0, 0, 0);
+    const endOfDay = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), 23, 59, 59, 999);
+
+    const matches = sales.filter(s => {
+      const saleDate = new Date(s.created_at);
+      const matchesBranch = s.branch_id === eodBranchId;
+      const matchesCashier = eodCashierId === 'All' || s.cashier_id === eodCashierId;
+      const matchesDate = saleDate >= startOfDay && saleDate <= endOfDay;
+      return matchesBranch && matchesCashier && matchesDate;
+    });
+
+    if (matches.length > 0) {
+      const sorted = [...matches].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      const earliest = new Date(sorted[0].created_at);
+      const latest = new Date(sorted[sorted.length - 1].created_at);
+
+      const formatTime = (d: Date) => {
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        return `${hh}:${mm}`;
+      };
+
+      setEodStartTime(formatTime(earliest));
+      setEodEndTime(formatTime(latest));
+    } else {
+      setEodStartTime('00:00');
+      setEodEndTime('23:59');
+    }
+  }, [eodDate, eodBranchId, eodCashierId, sales, showEODModal]);
+
+  // Aggregate stats dynamically for the selected branch, cashier, and date/time range
+  const eodReportData = useMemo(() => {
+    if (!eodBranchId || !eodDate) return null;
+
+    const startParts = eodStartTime.split(':');
+    const startHour = parseInt(startParts[0], 10) || 0;
+    const startMin = parseInt(startParts[1], 10) || 0;
+
+    const endParts = eodEndTime.split(':');
+    const endHour = parseInt(endParts[0], 10) || 0;
+    const endMin = parseInt(endParts[1], 10) || 0;
+
+    const startTimestamp = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), startHour, startMin, 0, 0);
+    const endTimestamp = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), endHour, endMin, 59, 999);
+
+    const daySales = sales.filter(s => {
+      const saleDate = new Date(s.created_at);
+      const matchesBranch = s.branch_id === eodBranchId;
+      const matchesCashier = eodCashierId === 'All' || s.cashier_id === eodCashierId;
+      const matchesDate = saleDate >= startTimestamp && saleDate <= endTimestamp;
+      return matchesBranch && matchesCashier && matchesDate;
+    });
+
+    const initStats = () => ({ salesQty: 0, salesAmt: 0, refundsQty: 0, refundsAmt: 0, netQty: 0, netAmt: 0 });
+    const cashSummary = initStats();
+    const cardSummary = initStats();
+    const gcashSummary = initStats();
+    const mayaSummary = initStats();
+    const otherSummary = initStats();
+    const salesSummary = initStats();
+
+    let cancelledCount = 0;
+    let cancelledAmount = 0;
+    let earliestTime: Date | null = null;
+    let latestTime: Date | null = null;
+
+    daySales.forEach(s => {
+      const saleDate = new Date(s.created_at);
+      if (!earliestTime || saleDate < earliestTime) earliestTime = saleDate;
+      if (!latestTime || saleDate > latestTime) latestTime = saleDate;
+
+      const isCompleted = s.status === 'completed';
+      const isRefunded = s.status === 'refunded';
+      const amt = Number(s.total_amount);
+
+      if (isRefunded) {
+        cancelledCount += 1;
+        cancelledAmount += amt;
+      }
+
+      const updateStat = (stat: any) => {
+        if (isCompleted) {
+          stat.salesQty += 1;
+          stat.salesAmt += amt;
+        } else if (isRefunded) {
+          stat.refundsQty += 1;
+          stat.refundsAmt += amt;
+        }
+        stat.netQty = stat.salesQty - stat.refundsQty;
+        stat.netAmt = stat.salesAmt - stat.refundsAmt;
+      };
+
+      const method = (s.payment_method || 'cash').toLowerCase();
+      if (method === 'cash') updateStat(cashSummary);
+      else if (method === 'card') updateStat(cardSummary);
+      else if (method === 'gcash') updateStat(gcashSummary);
+      else if (method === 'maya') updateStat(mayaSummary);
+      else updateStat(otherSummary);
+
+      updateStat(salesSummary);
+    });
+
+    const netSalesTotal = salesSummary.netAmt;
+    const vatAmount = netSalesTotal * 0.12 / 1.12;
+
+    const cashSales = cashSummary.salesAmt;
+    const cashRefunds = cashSummary.refundsAmt;
+    const expectedDrawer = Number(openingCash) + cashSales - cashRefunds;
+    const overShort = Number(actualCash) - expectedDrawer;
+
+    const selectedBranch = branches.find(b => b.id === eodBranchId);
+    const branchName = selectedBranch?.name || 'Unknown Branch';
+    const branchLocation = selectedBranch?.location || '';
+    
+    // Determine cashier manager name
+    let managerName = 'All Cashiers';
+    if (eodCashierId !== 'All') {
+      const chosen = profilesList.find(p => p.id === eodCashierId);
+      managerName = chosen?.email || profile?.email || 'System Manager';
+    }
+    
+    const register = '1';
+
+    const formatDateStr = (d: Date | null) => d ? d.toLocaleString('en-PH', { hour12: false }) : 'N/A';
+
+    // Generate Z-Report control number dynamically
+    const branchInitials = branchName
+      .split(' ')
+      .map(w => w[0])
+      .join('')
+      .replace(/[^A-Za-z0-9]/g, '')
+      .toUpperCase() || branchName.substring(0, 3).toUpperCase();
+    const cashierPrefix = eodCashierId === 'All' 
+      ? 'ALL' 
+      : (managerName.split('@')[0].replace(/[^A-Za-z0-9]/g, '').substring(0, 8).toUpperCase() || 'CASHIER');
+    const dateFormatted = format(eodDate, 'yyyyMMdd');
+    const controlNumber = `Z-${dateFormatted}-${branchInitials}-${cashierPrefix}`;
+
+    return {
+      controlNumber,
+      branchName,
+      branchLocation,
+      shiftOpenTime: earliestTime ? formatDateStr(earliestTime) : startTimestamp.toLocaleString('en-PH', { hour12: false }),
+      shiftCloseTime: latestTime ? formatDateStr(latestTime) : endTimestamp.toLocaleString('en-PH', { hour12: false }),
+      register,
+      reportDate: new Date().toLocaleString('en-PH', { hour12: false }),
+      managerName,
+      cashSummary,
+      cardSummary,
+      gcashSummary,
+      mayaSummary,
+      otherSummary,
+      salesSummary,
+      cancelledCount,
+      cancelledAmount,
+      vatAmount,
+      openingCash: Number(openingCash),
+      cashSales,
+      cashRefunds,
+      expectedDrawer,
+      actualDrawer: Number(actualCash),
+      overShort
+    };
+  }, [sales, eodBranchId, eodDate, eodStartTime, eodEndTime, eodCashierId, openingCash, actualCash, branches, profile, profilesList]);
+
+  // Set default actual cash counted drawer value when expected drawer changes
+  const expectedVal = eodReportData?.expectedDrawer || 10000;
+  useEffect(() => {
+    setActualCash(expectedVal);
+  }, [expectedVal, showEODModal]);
+
+  const handlePrintEOD = async () => {
+    if (!eodReportData) return;
+    try {
+      const settings = await settingsService.getSettings();
+      printEndOfDayReport(eodReportData, settings.sales_invoice);
+    } catch (err) {
+      console.error('Failed to load EOD template:', err);
+      printEndOfDayReport(eodReportData, DEFAULT_SALES_INVOICE_TEMPLATE);
+    }
+  };
+
+  const handlePrintEODPDF = async () => {
+    if (!eodReportData) return;
+    try {
+      const settings = await settingsService.getSettings();
+      printEndOfDayPDFReport(eodReportData, settings.transfer_slip);
+    } catch (err) {
+      console.error('Failed to load EOD PDF template:', err);
+      printEndOfDayPDFReport(eodReportData, DEFAULT_TRANSFER_SLIP_TEMPLATE);
+    }
+  };
+
+  const eligibleCashiers = profilesList;
+
   const loadSalesData = async () => {
     if (!profile) return;
     setLoading(true);
@@ -137,8 +364,9 @@ export const SalesHistory: React.FC = () => {
 
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, email');
+        .select('id, email, branch_id');
       if (profilesError) throw profilesError;
+      setProfilesList(profilesData || []);
 
       const mappedSales: SaleRecord[] = (salesData || []).map((sale: any) => {
         const cashierProfile = (profilesData || []).find(p => p.id === sale.cashier_id);
@@ -396,9 +624,15 @@ export const SalesHistory: React.FC = () => {
           </p>
         </div>
 
-        <Button onClick={loadSalesData} disabled={loading} variant="outline" size="icon">
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </Button>
+        <div className="flex items-center space-x-2">
+          <Button onClick={() => setShowEODModal(true)} className="bg-primary hover:bg-primary/90 text-white font-bold flex items-center">
+            <FileIcon className="w-4 h-4 mr-2" />
+            End of Day Report
+          </Button>
+          <Button onClick={loadSalesData} disabled={loading} variant="outline" size="icon">
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
       </div>
 
       {/* Summary Metrics */}
@@ -847,6 +1081,323 @@ export const SalesHistory: React.FC = () => {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* End of Day Z-Report Modal */}
+      <Dialog open={showEODModal} onOpenChange={setShowEODModal}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center space-x-2 text-xl font-bold">
+              <Printer className="w-5 h-5 text-primary" />
+              <span>Generate Z Sales Shift Report</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Perform end-of-day cash counting and print the shift sales report.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-4">
+            {/* Left Column: Configuration inputs */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Report Configurations</h3>
+              
+              {/* Branch Selector */}
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  Branch Location
+                </Label>
+                {isAdminRole ? (
+                  <Select value={eodBranchId} onValueChange={setEodBranchId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map(br => (
+                        <SelectItem key={br.id} value={br.id}>{br.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="bg-muted p-2 rounded text-sm font-bold border">
+                    {branches.find(b => b.id === eodBranchId)?.name || 'My Branch'}
+                  </div>
+                )}
+              </div>
+
+              {/* Cashier Selector */}
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  Cashier Register Shift
+                </Label>
+                {isAdminRole ? (
+                  <Select value={eodCashierId} onValueChange={setEodCashierId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Cashier" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="All">All Cashiers (Consolidated)</SelectItem>
+                      {eligibleCashiers.map(p => (
+                        <SelectItem key={p.id} value={p.id}>{p.email}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="bg-muted p-2 rounded text-sm font-bold border">
+                    {profile?.email || 'Logged Cashier'}
+                  </div>
+                )}
+              </div>
+
+              {/* Date Selector */}
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold block">
+                  Report Date
+                </Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal h-10">
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {eodDate ? format(eodDate, 'PPP') : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <CalendarComponent
+                      mode="single"
+                      selected={eodDate}
+                      onSelect={(d) => d && setEodDate(d)}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Shift Hours Time Inputs */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                    Shift Start Time
+                  </Label>
+                  <Input
+                    type="time"
+                    value={eodStartTime}
+                    onChange={(e) => setEodStartTime(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                    Shift End Time
+                  </Label>
+                  <Input
+                    type="time"
+                    value={eodEndTime}
+                    onChange={(e) => setEodEndTime(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Opening Cash Input */}
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  Opening Cash Drawer (₱)
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={openingCash}
+                  onChange={(e) => setOpeningCash(Number(e.target.value) || 0)}
+                  placeholder="e.g. 10000.00"
+                />
+              </div>
+
+              {/* Actual Drawer Cash Count Input */}
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  Actual Cash Counted (₱)
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={actualCash}
+                  onChange={(e) => setActualCash(Number(e.target.value) || 0)}
+                  placeholder="Enter counted cash in drawer"
+                />
+              </div>
+
+              {/* Live Status Indicators */}
+              {eodReportData && (
+                <div className="p-4 rounded-lg bg-muted/40 border space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground font-medium">Expected Drawer Cash:</span>
+                    <span className="font-bold text-foreground">{formatPHP(eodReportData.expectedDrawer)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground font-medium">Actual Drawer Cash:</span>
+                    <span className="font-bold text-foreground">{formatPHP(eodReportData.actualDrawer)}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2 mt-1">
+                    <span className="text-muted-foreground font-bold">Over/Short:</span>
+                    <span className={`font-black ${eodReportData.overShort < 0 ? 'text-destructive' : 'text-emerald-500'}`}>
+                      {eodReportData.overShort > 0 ? '+' : ''}{formatPHP(eodReportData.overShort)}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column: Thermal Z-Report Preview */}
+            <div className="space-y-2 flex flex-col h-full">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                Report Receipt Preview
+              </Label>
+              {eodReportData ? (
+                <div className="border border-border/80 rounded-lg bg-background p-4 shadow-inner max-h-[380px] overflow-y-auto font-mono text-[10px] space-y-4 leading-relaxed w-full">
+                  <div className="text-center font-bold text-xs uppercase mb-1">
+                    {eodReportData.branchName}
+                  </div>
+                  {eodReportData.branchLocation && (
+                    <div className="text-center text-[9px] text-muted-foreground mb-2">
+                      {eodReportData.branchLocation}
+                    </div>
+                  )}
+                  <div className="text-center font-bold border border-foreground/60 py-1 uppercase text-xs">
+                    Z Sales Shift Report
+                  </div>
+                  
+                  <div className="space-y-0.5 text-[9px]">
+                    <div className="flex justify-between font-bold text-primary mb-1">
+                      <span>Control No:</span>
+                      <span className="font-mono">{eodReportData.controlNumber}</span>
+                    </div>
+                    <div className="flex justify-between"><span>Shift Open Time:</span><span>{eodReportData.shiftOpenTime}</span></div>
+                    <div className="flex justify-between"><span>Shift Close Time:</span><span>{eodReportData.shiftCloseTime}</span></div>
+                    <div className="flex justify-between"><span>Register:</span><span>{eodReportData.register}</span></div>
+                    <div className="flex justify-between"><span>Report Date:</span><span>{eodReportData.reportDate}</span></div>
+                    <div className="flex justify-between"><span>Manager:</span><span>{eodReportData.managerName}</span></div>
+                  </div>
+
+                  <div className="border-t border-dashed my-2"></div>
+
+                  {/* Cash Summary Table */}
+                  <div className="space-y-1">
+                    <div className="font-bold text-[9px] uppercase">Cash Summary</div>
+                    <div className="border-t border-dashed my-1"></div>
+                    <div className="grid grid-cols-4 font-bold border-b border-dashed pb-0.5 mb-1 text-[8px]">
+                      <span>Category</span><span className="text-center">Sign</span><span className="text-center">Qty</span><span className="text-right">Amount</span>
+                    </div>
+                    <div className="grid grid-cols-4"><span>Sales</span><span className="text-center">(+)</span><span className="text-center">{eodReportData.cashSummary.salesQty}</span><span className="text-right">{eodReportData.cashSummary.salesAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4"><span>Refunds</span><span className="text-center">(-)</span><span className="text-center">{eodReportData.cashSummary.refundsQty}</span><span className="text-right">{eodReportData.cashSummary.refundsAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4 font-bold border-t border-dashed mt-0.5 pt-0.5"><span>Net</span><span className="text-center">(=)</span><span className="text-center">{eodReportData.cashSummary.netQty}</span><span className="text-right">{eodReportData.cashSummary.netAmt.toFixed(2)}</span></div>
+                  </div>
+
+                  {/* CreditCard Summary Table */}
+                  <div className="space-y-1 mt-3">
+                    <div className="font-bold text-[9px] uppercase">CreditCard Summary</div>
+                    <div className="border-t border-dashed my-1"></div>
+                    <div className="grid grid-cols-4 font-bold border-b border-dashed pb-0.5 mb-1 text-[8px]">
+                      <span>Category</span><span className="text-center">Sign</span><span className="text-center">Qty</span><span className="text-right">Amount</span>
+                    </div>
+                    <div className="grid grid-cols-4"><span>Sales</span><span className="text-center">(+)</span><span className="text-center">{eodReportData.cardSummary.salesQty}</span><span className="text-right">{eodReportData.cardSummary.salesAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4"><span>Refunds</span><span className="text-center">(-)</span><span className="text-center">{eodReportData.cardSummary.refundsQty}</span><span className="text-right">{eodReportData.cardSummary.refundsAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4 font-bold border-t border-dashed mt-0.5 pt-0.5"><span>Net</span><span className="text-center">(=)</span><span className="text-center">{eodReportData.cardSummary.netQty}</span><span className="text-right">{eodReportData.cardSummary.netAmt.toFixed(2)}</span></div>
+                  </div>
+
+                  {/* GCash Summary Table */}
+                  <div className="space-y-1 mt-3">
+                    <div className="font-bold text-[9px] uppercase">GCASH Summary</div>
+                    <div className="border-t border-dashed my-1"></div>
+                    <div className="grid grid-cols-4 font-bold border-b border-dashed pb-0.5 mb-1 text-[8px]">
+                      <span>Category</span><span className="text-center">Sign</span><span className="text-center">Qty</span><span className="text-right">Amount</span>
+                    </div>
+                    <div className="grid grid-cols-4"><span>Sales</span><span className="text-center">(+)</span><span className="text-center">{eodReportData.gcashSummary.salesQty}</span><span className="text-right">{eodReportData.gcashSummary.salesAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4"><span>Refunds</span><span className="text-center">(-)</span><span className="text-center">{eodReportData.gcashSummary.refundsQty}</span><span className="text-right">{eodReportData.gcashSummary.refundsAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4 font-bold border-t border-dashed mt-0.5 pt-0.5"><span>Net</span><span className="text-center">(=)</span><span className="text-center">{eodReportData.gcashSummary.netQty}</span><span className="text-right">{eodReportData.gcashSummary.netAmt.toFixed(2)}</span></div>
+                  </div>
+
+                  {/* Maya Summary Table */}
+                  <div className="space-y-1 mt-3">
+                    <div className="font-bold text-[9px] uppercase">Maya Summary</div>
+                    <div className="border-t border-dashed my-1"></div>
+                    <div className="grid grid-cols-4 font-bold border-b border-dashed pb-0.5 mb-1 text-[8px]">
+                      <span>Category</span><span className="text-center">Sign</span><span className="text-center">Qty</span><span className="text-right">Amount</span>
+                    </div>
+                    <div className="grid grid-cols-4"><span>Sales</span><span className="text-center">(+)</span><span className="text-center">{eodReportData.mayaSummary.salesQty}</span><span className="text-right">{eodReportData.mayaSummary.salesAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4"><span>Refunds</span><span className="text-center">(-)</span><span className="text-center">{eodReportData.mayaSummary.refundsQty}</span><span className="text-right">{eodReportData.mayaSummary.refundsAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4 font-bold border-t border-dashed mt-0.5 pt-0.5"><span>Net</span><span className="text-center">(=)</span><span className="text-center">{eodReportData.mayaSummary.netQty}</span><span className="text-right">{eodReportData.mayaSummary.netAmt.toFixed(2)}</span></div>
+                  </div>
+
+                  {/* Other Summary Table */}
+                  <div className="space-y-1 mt-3">
+                    <div className="font-bold text-[9px] uppercase">Other Summary</div>
+                    <div className="border-t border-dashed my-1"></div>
+                    <div className="grid grid-cols-4 font-bold border-b border-dashed pb-0.5 mb-1 text-[8px]">
+                      <span>Category</span><span className="text-center">Sign</span><span className="text-center">Qty</span><span className="text-right">Amount</span>
+                    </div>
+                    <div className="grid grid-cols-4"><span>Sales</span><span className="text-center">(+)</span><span className="text-center">{eodReportData.otherSummary.salesQty}</span><span className="text-right">{eodReportData.otherSummary.salesAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4"><span>Refunds</span><span className="text-center">(-)</span><span className="text-center">{eodReportData.otherSummary.refundsQty}</span><span className="text-right">{eodReportData.otherSummary.refundsAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4 font-bold border-t border-dashed mt-0.5 pt-0.5"><span>Net</span><span className="text-center">(=)</span><span className="text-center">{eodReportData.otherSummary.netQty}</span><span className="text-right">{eodReportData.otherSummary.netAmt.toFixed(2)}</span></div>
+                  </div>
+
+                  {/* Sales Summary Table */}
+                  <div className="space-y-1 mt-3">
+                    <div className="font-bold text-[9px] uppercase">Sales Summary</div>
+                    <div className="border-t border-dashed my-1"></div>
+                    <div className="grid grid-cols-4 font-bold border-b border-dashed pb-0.5 mb-1 text-[8px]">
+                      <span>Category</span><span className="text-center">Sign</span><span className="text-center">Qty</span><span className="text-right">Amount</span>
+                    </div>
+                    <div className="grid grid-cols-4"><span>Total Sales</span><span className="text-center">(+)</span><span className="text-center">{eodReportData.salesSummary.salesQty}</span><span className="text-right">{eodReportData.salesSummary.salesAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4"><span>Total Refunds</span><span className="text-center">(-)</span><span className="text-center">{eodReportData.salesSummary.refundsQty}</span><span className="text-right">{eodReportData.salesSummary.refundsAmt.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-4 font-bold border-t border-dashed mt-0.5 pt-0.5"><span>Total Net</span><span className="text-center">(=)</span><span className="text-center">{eodReportData.salesSummary.netQty}</span><span className="text-right">{eodReportData.salesSummary.netAmt.toFixed(2)}</span></div>
+                  </div>
+
+                  {/* Cash Drawer Summary Table */}
+                  <div className="space-y-1 mt-3">
+                    <div className="font-bold text-[9px] uppercase">Cash Drawer Summary</div>
+                    <div className="border-t border-dashed my-1"></div>
+                    <div className="flex justify-between"><span>Opening Amount</span><span>{eodReportData.openingCash.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span>Cash Sales (+)</span><span>{eodReportData.cashSales.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span>Cash Refunds (-)</span><span>{eodReportData.cashRefunds.toFixed(2)}</span></div>
+                    <div className="flex justify-between font-bold border-t border-dashed mt-0.5 pt-0.5"><span>Expected Drawer</span><span>{eodReportData.expectedDrawer.toFixed(2)}</span></div>
+                    <div className="flex justify-between font-bold"><span>Actual Drawer</span><span>{eodReportData.actualDrawer.toFixed(2)}</span></div>
+                    <div className="flex justify-between font-bold border-t border-dashed border-b border-dashed py-0.5 mt-0.5">
+                      <span>Over/Short</span>
+                      <span className={eodReportData.overShort < 0 ? 'text-destructive' : 'text-emerald-600'}>
+                        {eodReportData.overShort.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center border border-dashed rounded-lg bg-muted/20 p-8 h-full text-xs text-muted-foreground">
+                  Select a branch and date to generate a Z-Report preview.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowEODModal(false)} className="sm:flex-1">
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handlePrintEODPDF}
+              disabled={!eodReportData}
+              className="sm:flex-1 font-bold"
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Print PDF
+            </Button>
+            <Button
+              onClick={handlePrintEOD}
+              disabled={!eodReportData}
+              className="sm:flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Print Thermal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

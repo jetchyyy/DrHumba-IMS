@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { PlusIcon as Plus, Pencil2Icon as Edit2, ReaderIcon as BookOpen, ReloadIcon as RefreshCw, TrashIcon as Trash2, MagicWandIcon as ChefHat } from '@radix-ui/react-icons';
@@ -65,6 +65,17 @@ export const Recipes: React.FC = () => {
   const [price, setPrice] = useState(9.99);
   const [itemStatus, setItemStatus] = useState<'active' | 'inactive'>('active');
   const [isAvailable, setIsAvailable] = useState(true);
+
+  // Custom Category States
+  const [sessionCategories, setSessionCategories] = useState<string[]>([]);
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
+
+  // Dynamic category list combining defaults, database menu items, and session-defined ones
+  const categoriesList = useMemo(() => {
+    const defaults = ['Burgers', 'Sides', 'Beverages', 'Desserts'];
+    const fromItems = menuItems.map(item => item.category).filter(Boolean);
+    return Array.from(new Set([...defaults, ...fromItems, ...sessionCategories]));
+  }, [menuItems, sessionCategories]);
 
   // Recipe Form state
   const [instructions, setInstructions] = useState('');
@@ -141,6 +152,7 @@ export const Recipes: React.FC = () => {
     setItemName('');
     setSku(`MEN-${Math.random().toString(36).substring(2, 7).toUpperCase()}`);
     setCategory('Burgers');
+    setIsCustomCategory(false);
     setPrice(9.99);
     setItemStatus('active');
     setIsAvailable(true);
@@ -161,6 +173,7 @@ export const Recipes: React.FC = () => {
     setItemName(item.name);
     setSku(item.sku);
     setCategory(item.category);
+    setIsCustomCategory(false);
     setPrice(item.price);
     setItemStatus(item.status);
     setIsAvailable(item.is_available);
@@ -222,12 +235,18 @@ export const Recipes: React.FC = () => {
       return;
     }
 
+    const trimmedCategory = category.trim();
+    if (!trimmedCategory) {
+      showError("Category is required");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const payload = {
         name: itemName.trim(),
         sku: sku.trim(),
-        category,
+        category: trimmedCategory,
         price: Number(price),
         status: itemStatus,
         is_available: isAvailable
@@ -301,6 +320,12 @@ export const Recipes: React.FC = () => {
       }
 
       showSuccess(selectedItem ? 'Menu item and recipe updated!' : 'Menu item and recipe created!');
+
+      // Save category to session Categories if it is not already in the main list
+      if (!categoriesList.includes(trimmedCategory)) {
+        setSessionCategories(prev => [...prev, trimmedCategory]);
+      }
+
       await loadData();
       setShowItemModal(false);
     } catch (err: any) {
@@ -493,15 +518,49 @@ export const Recipes: React.FC = () => {
                     </div>
                     <div className="space-y-2">
                       <Label>Category *</Label>
-                      <Select value={category} onValueChange={setCategory}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Burgers">Burgers</SelectItem>
-                          <SelectItem value="Sides">Sides</SelectItem>
-                          <SelectItem value="Beverages">Beverages</SelectItem>
-                          <SelectItem value="Desserts">Desserts</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      {isCustomCategory ? (
+                        <div className="flex space-x-2">
+                          <Input
+                            required
+                            value={category}
+                            onChange={(e) => setCategory(e.target.value)}
+                            placeholder="Enter custom category"
+                            className="flex-1"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              setIsCustomCategory(false);
+                              setCategory('Burgers');
+                            }}
+                          >
+                            Existing
+                          </Button>
+                        </div>
+                      ) : (
+                        <Select 
+                          value={category} 
+                          onValueChange={(val) => {
+                            if (val === 'ADD_CUSTOM') {
+                              setIsCustomCategory(true);
+                              setCategory('');
+                            } else {
+                              setCategory(val);
+                            }
+                          }}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {categoriesList.map(cat => (
+                              <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                            ))}
+                            <SelectItem value="ADD_CUSTOM" className="text-primary font-semibold">
+                              + Add Custom Category...
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
                   </div>
 
