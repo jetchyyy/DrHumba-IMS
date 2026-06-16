@@ -44,6 +44,8 @@ interface SaleRecord {
   total_amount: number;
   status: 'completed' | 'refunded';
   payment_method: string | null;
+  sale_category: string | null;
+  reference_number: string | null;
   amount_tendered: number | null;
   change_given: number | null;
   void_reason: string | null;
@@ -78,6 +80,7 @@ export const SalesHistory: React.FC = () => {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
+  const [saleCategoryFilter, setSaleCategoryFilter] = useState<string>('all');
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -85,7 +88,21 @@ export const SalesHistory: React.FC = () => {
   
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedBranchId, dateFilter, startDate, endDate]);
+  }, [searchTerm, selectedBranchId, dateFilter, startDate, endDate, saleCategoryFilter]);
+
+  const getCategoryBadge = (category: string | null) => {
+    const cat = (category || 'Dine in').toLowerCase();
+    switch (cat) {
+      case 'dine in':
+        return <Badge className="bg-blue-500/10 text-blue-500 border border-blue-500/20 hover:bg-blue-500/20 text-[10px] font-bold uppercase">Dine in</Badge>;
+      case 'grab':
+        return <Badge className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20 text-[10px] font-bold uppercase">Grab</Badge>;
+      case 'foodpanda':
+        return <Badge className="bg-pink-500/10 text-pink-500 border border-pink-500/20 hover:bg-pink-500/20 text-[10px] font-bold uppercase">Foodpanda</Badge>;
+      default:
+        return <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500/20 text-[10px] font-bold uppercase capitalize">{category || 'Other'}</Badge>;
+    }
+  };
   
   // UI States
   const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null);
@@ -340,6 +357,8 @@ export const SalesHistory: React.FC = () => {
           total_amount,
           status,
           payment_method,
+          sale_category,
+          reference_number,
           amount_tendered,
           change_given,
           void_reason,
@@ -378,6 +397,8 @@ export const SalesHistory: React.FC = () => {
           total_amount: Number(sale.total_amount),
           status: sale.status,
           payment_method: sale.payment_method || null,
+          sale_category: sale.sale_category || null,
+          reference_number: sale.reference_number || null,
           amount_tendered: sale.amount_tendered != null ? Number(sale.amount_tendered) : null,
           change_given: sale.change_given != null ? Number(sale.change_given) : null,
           void_reason: sale.void_reason || null,
@@ -449,6 +470,17 @@ export const SalesHistory: React.FC = () => {
 
     const matchesBranch = selectedBranchId === 'All' || sale.branch_id === selectedBranchId;
 
+    const normalizedCategory = (sale.sale_category || 'Dine in').toLowerCase();
+    const defaultCategories = ['dine in', 'grab', 'foodpanda'];
+    let matchesSaleCategory = false;
+    if (saleCategoryFilter === 'all') {
+      matchesSaleCategory = true;
+    } else if (saleCategoryFilter === 'other') {
+      matchesSaleCategory = !defaultCategories.includes(normalizedCategory);
+    } else {
+      matchesSaleCategory = normalizedCategory === saleCategoryFilter;
+    }
+
     let matchesDate = true;
     const saleDate = new Date(sale.created_at);
     const now = new Date();
@@ -475,7 +507,7 @@ export const SalesHistory: React.FC = () => {
       }
     }
 
-    return matchesSearch && matchesBranch && matchesDate;
+    return matchesSearch && matchesBranch && matchesDate && matchesSaleCategory;
   });
 
   const totalPages = Math.ceil(filteredSales.length / itemsPerPage);
@@ -538,9 +570,10 @@ export const SalesHistory: React.FC = () => {
               <div class="info-block"><h3>Control Number</h3><p>${sale.control_number || 'PENDING'}</p></div>
               <div class="info-block" style="text-align: right;"><h3>Issue Date</h3><p>${new Date(sale.created_at).toLocaleString()}</p></div>
             </div>
-            <div class="branches-box" style="display: grid; grid-template-cols: 1fr 1fr; gap: 20px;">
+            <div class="branches-box" style="display: grid; grid-template-cols: 1fr 1fr 1fr; gap: 20px;">
               <div><h3>Branch Context</h3><p>${sale.branch_name}</p></div>
               <div><h3>Cashier Register</h3><p>${sale.cashier_email}</p></div>
+              <div><h3>Sale Type</h3><p style="text-transform: capitalize;">${sale.sale_category || 'Dine in'}</p></div>
             </div>
             <table class="items-table">
               <thead>
@@ -713,6 +746,22 @@ export const SalesHistory: React.FC = () => {
             )}
 
             <div className="flex items-center space-x-2">
+              <span className="text-xs text-muted-foreground font-medium">Sale Type:</span>
+              <Select value={saleCategoryFilter} onValueChange={setSaleCategoryFilter}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="All Sale Types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="dine in">Dine in</SelectItem>
+                  <SelectItem value="grab">Grab</SelectItem>
+                  <SelectItem value="foodpanda">Foodpanda</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center space-x-2">
               <span className="text-xs text-muted-foreground font-medium">Date Scope:</span>
               <Select value={dateFilter} onValueChange={(v: any) => setDateFilter(v)}>
                 <SelectTrigger className="w-[140px]">
@@ -800,6 +849,7 @@ export const SalesHistory: React.FC = () => {
                 <TableHead>Timestamp</TableHead>
                 <TableHead>Control No / ID</TableHead>
                 <TableHead>Branch</TableHead>
+                <TableHead>Sale Type</TableHead>
                 <TableHead>Cashier Register</TableHead>
                 <TableHead className="text-right">Revenue Value</TableHead>
                 <TableHead className="text-center">Status</TableHead>
@@ -809,14 +859,14 @@ export const SalesHistory: React.FC = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center">
+                  <TableCell colSpan={8} className="h-24 text-center">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto text-primary mb-2" />
                     Fetching sales transaction ledger...
                   </TableCell>
                 </TableRow>
               ) : filteredSales.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                     No sales history transactions found matching filter criteria.
                   </TableCell>
                 </TableRow>
@@ -835,6 +885,9 @@ export const SalesHistory: React.FC = () => {
                           <div className="text-[10px] text-muted-foreground">{sale.id.slice(0, 8)}...</div>
                         </TableCell>
                         <TableCell className="font-bold">{sale.branch_name}</TableCell>
+                        <TableCell>
+                          {getCategoryBadge(sale.sale_category)}
+                        </TableCell>
                         <TableCell className="text-muted-foreground font-mono">{sale.cashier_email}</TableCell>
                         <TableCell className="text-right font-black text-emerald-500">
                           {formatPHP(sale.total_amount)}
@@ -1014,6 +1067,20 @@ export const SalesHistory: React.FC = () => {
                   <Printer className="mr-2 h-4 w-4 text-emerald-600" />
                   Print Thermal
                 </Button>
+              </div>
+
+              {/* Sale Context Summary */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-muted/50 rounded-lg px-3 py-2 border">
+                  <p className="text-muted-foreground uppercase tracking-wider text-[10px] mb-0.5">Sale Category</p>
+                  <p className="font-bold capitalize">{selectedSale.sale_category || 'Dine in'}</p>
+                </div>
+                {selectedSale.reference_number && (
+                  <div className="bg-muted/50 rounded-lg px-3 py-2 border">
+                    <p className="text-muted-foreground uppercase tracking-wider text-[10px] mb-0.5">Reference No</p>
+                    <p className="font-bold font-mono">{selectedSale.reference_number}</p>
+                  </div>
+                )}
               </div>
 
               {/* Payment Summary */}

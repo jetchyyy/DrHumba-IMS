@@ -409,6 +409,10 @@ export const printThermalInvoice = (sale: any, template: SalesInvoiceTemplate) =
                 ${sale.cashier_email?.split('@')[0] || 'Staff'}
               </span>
             </div>
+            <div class="flex-between">
+              <span>Sale Type:</span>
+              <span style="text-transform: capitalize;">${sale.sale_category || 'Dine in'}</span>
+            </div>
           </div>
 
           <div class="separator"></div>
