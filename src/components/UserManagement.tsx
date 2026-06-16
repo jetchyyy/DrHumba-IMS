@@ -35,14 +35,14 @@ interface ProfileRecord {
 export const UserManagement: React.FC = () => {
   const { profile, branches } = useAuth();
   const { confirm, showSuccess, showError } = useModal();
-  
+
   const [staff, setStaff] = useState<ProfileRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  
+
   // Modals Open State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  
+
   // Edit State
   const [editingStaff, setEditingStaff] = useState<ProfileRecord | null>(null);
   const [editRole, setEditRole] = useState<string>('cashier');
@@ -59,19 +59,20 @@ export const UserManagement: React.FC = () => {
   const [allowedTabs, setAllowedTabs] = useState<string[]>(['pos', 'sales-history', 'inventory', 'global-inventory']);
   const [allowTransfers, setAllowTransfers] = useState(false);
   const [customRole, setCustomRole] = useState('');
-  
+
   // Transaction processing states
   const [submitting, setSubmitting] = useState(false);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-  
+
   useEffect(() => {
     setCurrentPage(1);
   }, [staff.length]);
 
   const ROLE_DEFAULTS: Record<string, string[]> = {
+    super_admin: ['pos', 'sales-history', 'inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'users'],
     inventory_manager: ['inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'analytics'],
     branch_manager: ['pos', 'sales-history', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'analytics'],
     cashier: ['pos', 'sales-history', 'inventory', 'global-inventory'],
@@ -132,7 +133,7 @@ export const UserManagement: React.FC = () => {
           branches (name)
         `)
         .order('role_name');
-      
+
       if (staffError) throw staffError;
       setStaff(data as any[] || []);
     } catch (err) {
@@ -179,7 +180,7 @@ export const UserManagement: React.FC = () => {
       finalAllowedTabs.push('transfers');
     }
 
-    const isGlobal = ['inventory_manager', 'auditor'].includes(finalRole);
+    const isGlobal = ['inventory_manager', 'auditor', 'super_admin'].includes(finalRole);
 
     setSubmitting(true);
     try {
@@ -230,7 +231,7 @@ export const UserManagement: React.FC = () => {
       finalAllowedTabs.push('transfers');
     }
 
-    const isGlobal = ['inventory_manager', 'auditor'].includes(finalRole);
+    const isGlobal = ['inventory_manager', 'auditor', 'super_admin'].includes(finalRole);
 
     setSubmitting(true);
     try {
@@ -260,7 +261,7 @@ export const UserManagement: React.FC = () => {
     const confirmMessage = nextStatus === 'suspended'
       ? `Are you sure you want to suspend access for ${member.email}? They will be blocked from logging in.`
       : `Are you sure you want to restore access for ${member.email}?`;
-      
+
     if (!await confirm(nextStatus === 'suspended' ? 'Suspend Staff' : 'Restore Staff', confirmMessage)) return;
 
     try {
@@ -301,7 +302,7 @@ export const UserManagement: React.FC = () => {
   const openEditModal = (member: ProfileRecord) => {
     const tabs = member.allowed_tabs || ROLE_DEFAULTS[member.role_name] || [];
     setEditingStaff(member);
-    
+
     const isCustom = !['inventory_manager', 'branch_manager', 'cashier', 'auditor', 'super_admin'].includes(member.role_name);
     if (isCustom) {
       setEditRole('custom');
@@ -319,16 +320,19 @@ export const UserManagement: React.FC = () => {
 
   const isSuperAdmin = profile?.role_name === 'super_admin';
 
-  const defaultRoles = ['inventory_manager', 'branch_manager', 'cashier', 'auditor'];
+  const defaultRoles = isSuperAdmin
+    ? ['super_admin', 'inventory_manager', 'branch_manager', 'cashier', 'auditor']
+    : ['inventory_manager', 'branch_manager', 'cashier', 'auditor'];
   const uniqueRoles = Array.from(
     new Set([
       ...defaultRoles,
       ...staff.map(s => s.role_name)
     ])
-  ).filter(r => r !== 'super_admin');
+  ).filter(r => isSuperAdmin || r !== 'super_admin');
 
   const getRoleFriendlyName = (r: string) => {
     switch (r) {
+      case 'super_admin': return 'Admin';
       case 'inventory_manager': return 'Inventory Manager';
       case 'branch_manager': return 'Branch Manager';
       case 'cashier': return 'Cashier';
@@ -400,13 +404,12 @@ export const UserManagement: React.FC = () => {
                       <TableCell className="pl-6 font-semibold">{member.email}</TableCell>
                       <TableCell>
                         <div className="flex flex-col space-y-1">
-                          <Badge variant="outline" className={`w-fit uppercase text-[9px] ${
-                            member.role_name === 'super_admin' ? 'border-red-500/50 text-red-500 bg-red-500/10' :
-                            member.role_name === 'inventory_manager' ? 'border-purple-500/50 text-purple-500 bg-purple-500/10' :
-                            member.role_name === 'branch_manager' ? 'border-blue-500/50 text-blue-500 bg-blue-500/10' :
-                            member.role_name === 'auditor' ? 'border-muted text-muted-foreground bg-muted/10' :
-                            'border-emerald-500/50 text-emerald-500 bg-emerald-500/10'
-                          }`}>
+                          <Badge variant="outline" className={`w-fit uppercase text-[9px] ${member.role_name === 'super_admin' ? 'border-red-500/50 text-red-500 bg-red-500/10' :
+                              member.role_name === 'inventory_manager' ? 'border-purple-500/50 text-purple-500 bg-purple-500/10' :
+                                member.role_name === 'branch_manager' ? 'border-blue-500/50 text-blue-500 bg-blue-500/10' :
+                                  member.role_name === 'auditor' ? 'border-muted text-muted-foreground bg-muted/10' :
+                                    'border-emerald-500/50 text-emerald-500 bg-emerald-500/10'
+                            }`}>
                             {member.role_name.replace('_', ' ')}
                           </Badge>
                           {member.role_name === 'super_admin' ? (
@@ -437,7 +440,7 @@ export const UserManagement: React.FC = () => {
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10" onClick={() => openEditModal(member)} title="Edit user role & allowed tabs">
                               <Edit className="h-4 w-4" />
                             </Button>
-                            
+
                             {!isSelf && (
                               <Button
                                 variant="ghost"
@@ -469,14 +472,14 @@ export const UserManagement: React.FC = () => {
               <Pagination>
                 <PaginationContent>
                   <PaginationItem>
-                    <PaginationPrevious 
+                    <PaginationPrevious
                       onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                       className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
                     />
                   </PaginationItem>
                   {Array.from({ length: totalPages }).map((_, i) => (
                     <PaginationItem key={i}>
-                      <PaginationLink 
+                      <PaginationLink
                         onClick={() => setCurrentPage(i + 1)}
                         isActive={currentPage === i + 1}
                         className="cursor-pointer"
@@ -486,7 +489,7 @@ export const UserManagement: React.FC = () => {
                     </PaginationItem>
                   ))}
                   <PaginationItem>
-                    <PaginationNext 
+                    <PaginationNext
                       onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                       className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
                     />
@@ -538,7 +541,7 @@ export const UserManagement: React.FC = () => {
                 </Select>
               </div>
 
-              {!['inventory_manager', 'auditor'].includes(role === 'custom' ? customRole : role) ? (
+              {!['inventory_manager', 'auditor', 'super_admin'].includes(role === 'custom' ? customRole : role) ? (
                 <div className="space-y-2">
                   <Label>Assigned Branch Context *</Label>
                   <Select value={branchId} onValueChange={setBranchId}>
@@ -652,7 +655,7 @@ export const UserManagement: React.FC = () => {
                 </Select>
               </div>
 
-              {!['inventory_manager', 'auditor'].includes(editRole === 'custom' ? editCustomRole : editRole) ? (
+              {!['inventory_manager', 'auditor', 'super_admin'].includes(editRole === 'custom' ? editCustomRole : editRole) ? (
                 <div className="space-y-2">
                   <Label>Assigned Branch Context *</Label>
                   <Select value={editBranchId} onValueChange={setEditBranchId}>
