@@ -55,7 +55,7 @@ interface CatalogItem {
 }
 
 export const StockReceiving: React.FC = () => {
-  const { selectedBranch } = useAuth();
+  const { profile, selectedBranch } = useAuth();
   const { confirm, showSuccess, showError } = useModal();
   
   const [receipts, setReceipts] = useState<Receipt[]>([]);
@@ -269,6 +269,37 @@ export const StockReceiving: React.FC = () => {
     }
   };
 
+  const hasActionPermission = profile && (
+    profile.role_name === 'super_admin' || 
+    (profile.allowed_tabs && profile.allowed_tabs.includes('action_buttons'))
+  );
+
+  const handleDeleteReceipt = async (receipt: Receipt) => {
+    const isCompleted = receipt.status === 'completed';
+    const message = isCompleted 
+      ? `Are you sure you want to delete receipt ${receipt.control_number || receipt.id}? WARNING: This receipt is COMPLETED. Deleting it will not automatically reverse the inventory balances that were added.`
+      : `Are you sure you want to delete receipt draft ${receipt.invoice_no || receipt.id}?`;
+      
+    if (!await confirm('Delete Stock Receipt', message)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('stock_receipts')
+        .delete()
+        .eq('id', receipt.id);
+
+      if (error) throw error;
+
+      showSuccess("Receipt deleted successfully");
+      loadData();
+    } catch (err: any) {
+      console.error('Error deleting receipt:', err);
+      showError(err.message || 'Error deleting receipt');
+    }
+  };
+
   const filteredReceipts = receipts.filter(receipt => {
     let matchesDate = true;
     const recDate = new Date(receipt.date_received);
@@ -428,10 +459,23 @@ export const StockReceiving: React.FC = () => {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right pr-6">
-                    <Button variant="ghost" size="sm" onClick={() => handleViewReceipt(rec)}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      View & Manage
-                    </Button>
+                    <div className="flex justify-end space-x-1">
+                      <Button variant="ghost" size="sm" onClick={() => handleViewReceipt(rec)}>
+                        <Eye className="mr-2 h-4 w-4" />
+                        View & Manage
+                      </Button>
+                      {hasActionPermission && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteReceipt(rec)}
+                          title="Delete Receipt"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               )))}

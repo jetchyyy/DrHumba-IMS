@@ -49,6 +49,7 @@ export const UserManagement: React.FC = () => {
   const [editBranchId, setEditBranchId] = useState('');
   const [editAllowedTabs, setEditAllowedTabs] = useState<string[]>([]);
   const [editAllowTransfers, setEditAllowTransfers] = useState(false);
+  const [editAllowActionButtons, setEditAllowActionButtons] = useState(false);
   const [editCustomRole, setEditCustomRole] = useState('');
 
   // Creation Form State
@@ -58,6 +59,7 @@ export const UserManagement: React.FC = () => {
   const [branchId, setBranchId] = useState('');
   const [allowedTabs, setAllowedTabs] = useState<string[]>(['pos', 'sales-history', 'inventory', 'global-inventory']);
   const [allowTransfers, setAllowTransfers] = useState(false);
+  const [allowActionButtons, setAllowActionButtons] = useState(false);
   const [customRole, setCustomRole] = useState('');
 
   // Transaction processing states
@@ -72,8 +74,8 @@ export const UserManagement: React.FC = () => {
   }, [staff.length]);
 
   const ROLE_DEFAULTS: Record<string, string[]> = {
-    super_admin: ['pos', 'sales-history', 'inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'users'],
-    inventory_manager: ['inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'analytics'],
+    super_admin: ['pos', 'sales-history', 'inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'users', 'action_buttons'],
+    inventory_manager: ['inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'analytics', 'action_buttons'],
     branch_manager: ['pos', 'sales-history', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'analytics'],
     cashier: ['pos', 'sales-history', 'inventory', 'global-inventory'],
     auditor: ['inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs'],
@@ -98,10 +100,12 @@ export const UserManagement: React.FC = () => {
     if (v === 'custom') {
       setAllowedTabs(['pos', 'sales-history', 'inventory', 'global-inventory']);
       setAllowTransfers(false);
+      setAllowActionButtons(false);
     } else {
       const defaults = ROLE_DEFAULTS[v] || ['pos', 'sales-history', 'inventory', 'global-inventory'];
-      setAllowedTabs(defaults.filter(t => t !== 'transfers'));
+      setAllowedTabs(defaults.filter(t => t !== 'transfers' && t !== 'action_buttons'));
       setAllowTransfers(defaults.includes('transfers'));
+      setAllowActionButtons(defaults.includes('action_buttons'));
     }
   };
 
@@ -110,10 +114,12 @@ export const UserManagement: React.FC = () => {
     if (v === 'custom') {
       setEditAllowedTabs(['pos', 'sales-history', 'inventory', 'global-inventory']);
       setEditAllowTransfers(false);
+      setEditAllowActionButtons(false);
     } else {
       const defaults = ROLE_DEFAULTS[v] || ['pos', 'sales-history', 'inventory', 'global-inventory'];
-      setEditAllowedTabs(defaults.filter(t => t !== 'transfers'));
+      setEditAllowedTabs(defaults.filter(t => t !== 'transfers' && t !== 'action_buttons'));
       setEditAllowTransfers(defaults.includes('transfers'));
+      setEditAllowActionButtons(defaults.includes('action_buttons'));
     }
   };
 
@@ -179,6 +185,9 @@ export const UserManagement: React.FC = () => {
     if (allowTransfers) {
       finalAllowedTabs.push('transfers');
     }
+    if (allowActionButtons) {
+      finalAllowedTabs.push('action_buttons');
+    }
 
     const isGlobal = ['inventory_manager', 'auditor', 'super_admin'].includes(finalRole);
 
@@ -200,7 +209,8 @@ export const UserManagement: React.FC = () => {
       setRole('cashier');
       setCustomRole('');
       setAllowTransfers(false);
-      setAllowedTabs(ROLE_DEFAULTS['cashier'].filter(t => t !== 'transfers'));
+      setAllowActionButtons(false);
+      setAllowedTabs(ROLE_DEFAULTS['cashier'].filter(t => t !== 'transfers' && t !== 'action_buttons'));
       setIsCreateModalOpen(false);
       loadStaff();
     } catch (err: any) {
@@ -229,6 +239,9 @@ export const UserManagement: React.FC = () => {
     const finalAllowedTabs = [...editAllowedTabs];
     if (editAllowTransfers) {
       finalAllowedTabs.push('transfers');
+    }
+    if (editAllowActionButtons) {
+      finalAllowedTabs.push('action_buttons');
     }
 
     const isGlobal = ['inventory_manager', 'auditor', 'super_admin'].includes(finalRole);
@@ -313,8 +326,9 @@ export const UserManagement: React.FC = () => {
     }
 
     setEditBranchId(member.branch_id || (branches.length > 0 ? branches[0].id : ''));
-    setEditAllowedTabs(tabs.filter(t => t !== 'transfers'));
+    setEditAllowedTabs(tabs.filter(t => t !== 'transfers' && t !== 'action_buttons'));
     setEditAllowTransfers(tabs.includes('transfers'));
+    setEditAllowActionButtons(tabs.includes('action_buttons'));
     setIsEditModalOpen(true);
   };
 
@@ -503,125 +517,143 @@ export const UserManagement: React.FC = () => {
 
       {/* CREATE MODAL */}
       <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-6 border-b shrink-0">
             <DialogTitle className="flex items-center">
               <Plus className="w-5 h-5 mr-2 text-primary" />
               Provision Staff Account
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleCreateStaff} className="space-y-4 pt-4">
-            <div className="space-y-2">
-              <Label>Email Address</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="staff@restaurant.com" className="pl-9" />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Initial Password</Label>
-              <div className="relative">
-                <Key className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="pl-9" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <form onSubmit={handleCreateStaff} className="flex-1 min-h-0 flex flex-col">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
               <div className="space-y-2">
-                <Label>System Role</Label>
-                <Select value={role} onValueChange={handleRoleChange}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {uniqueRoles.map(r => (
-                      <SelectItem key={r} value={r}>{getRoleFriendlyName(r)}</SelectItem>
-                    ))}
-                    <SelectItem value="custom">+ Create Custom Role...</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Email Address</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="staff@restaurant.com" className="pl-9" />
+                </div>
               </div>
 
-              {!['inventory_manager', 'auditor', 'super_admin'].includes(role === 'custom' ? customRole : role) ? (
+              <div className="space-y-2">
+                <Label>Initial Password</Label>
+                <div className="relative">
+                  <Key className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="pl-9" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Assigned Branch Context *</Label>
-                  <Select value={branchId} onValueChange={setBranchId}>
+                  <Label>System Role</Label>
+                  <Select value={role} onValueChange={handleRoleChange}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {branches.map(b => (
-                        <SelectItem key={b.id} value={b.id}>
-                          {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
-                        </SelectItem>
+                      {uniqueRoles.map(r => (
+                        <SelectItem key={r} value={r}>{getRoleFriendlyName(r)}</SelectItem>
                       ))}
+                      <SelectItem value="custom">+ Create Custom Role...</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-              ) : (
-                <div className="space-y-2 opacity-50">
-                  <Label>Assigned Branch Context</Label>
-                  <div className="h-10 flex items-center px-3 border rounded-md bg-muted text-sm text-muted-foreground">
-                    Corporate (Global Scope)
+
+                {!['inventory_manager', 'auditor', 'super_admin'].includes(role === 'custom' ? customRole : role) ? (
+                  <div className="space-y-2">
+                    <Label>Assigned Branch Context *</Label>
+                    <Select value={branchId} onValueChange={setBranchId}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {branches.map(b => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
+                ) : (
+                  <div className="space-y-2 opacity-50">
+                    <Label>Assigned Branch Context</Label>
+                    <div className="h-10 flex items-center px-3 border rounded-md bg-muted text-sm text-muted-foreground">
+                      Corporate (Global Scope)
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {role === 'custom' && (
+                <div className="space-y-2">
+                  <Label>Custom Role Name *</Label>
+                  <Input
+                    type="text"
+                    required
+                    value={customRole}
+                    onChange={(e) => setCustomRole(e.target.value)}
+                    placeholder="e.g. Kitchen Staff"
+                  />
                 </div>
               )}
-            </div>
 
-            {role === 'custom' && (
-              <div className="space-y-2">
-                <Label>Custom Role Name *</Label>
-                <Input
-                  type="text"
-                  required
-                  value={customRole}
-                  onChange={(e) => setCustomRole(e.target.value)}
-                  placeholder="e.g. Kitchen Staff"
+              <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
+                <Checkbox
+                  id="allow-transfers"
+                  checked={allowTransfers}
+                  onCheckedChange={(checked) => setAllowTransfers(!!checked)}
                 />
+                <div className="grid gap-1 leading-none">
+                  <Label htmlFor="allow-transfers" className="text-sm font-semibold cursor-pointer">
+                    Allow Requesting Transfers (Subject to Admin Approval)
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Allow this staff member to create stock transfer requests.
+                  </p>
+                </div>
               </div>
-            )}
 
-            <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
-              <Checkbox
-                id="allow-transfers"
-                checked={allowTransfers}
-                onCheckedChange={(checked) => setAllowTransfers(!!checked)}
-              />
-              <div className="grid gap-1 leading-none">
-                <Label htmlFor="allow-transfers" className="text-sm font-semibold cursor-pointer">
-                  Allow Requesting Transfers (Subject to Admin Approval)
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Allow this staff member to create stock transfer requests.
-                </p>
+              <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
+                <Checkbox
+                  id="allow-action-buttons"
+                  checked={allowActionButtons}
+                  onCheckedChange={(checked) => setAllowActionButtons(!!checked)}
+                />
+                <div className="grid gap-1 leading-none">
+                  <Label htmlFor="allow-action-buttons" className="text-sm font-semibold cursor-pointer">
+                    Allow Direct Stock Actions (Edit Balances, Delete Logs)
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Allow editing stock balances directly, and deleting stock receiving, transfer, or adjustment logs.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Allowed Features (Permissions Override)</Label>
+                <div className="grid grid-cols-2 gap-2 p-4 border rounded-md max-h-40 overflow-y-auto bg-muted/30">
+                  {ALL_AVAILABLE_TABS.map((tab) => {
+                    const isChecked = allowedTabs.includes(tab.id);
+                    return (
+                      <div key={tab.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`tab-${tab.id}`}
+                          checked={isChecked}
+                          onCheckedChange={(checked) => {
+                            if (!checked) {
+                              setAllowedTabs(allowedTabs.filter(t => t !== tab.id));
+                            } else {
+                              setAllowedTabs([...allowedTabs, tab.id]);
+                            }
+                          }}
+                        />
+                        <Label htmlFor={`tab-${tab.id}`} className="text-xs font-normal cursor-pointer">
+                          {tab.name}
+                        </Label>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Allowed Features (Permissions Override)</Label>
-              <div className="grid grid-cols-2 gap-2 p-4 border rounded-md max-h-40 overflow-y-auto bg-muted/30">
-                {ALL_AVAILABLE_TABS.map((tab) => {
-                  const isChecked = allowedTabs.includes(tab.id);
-                  return (
-                    <div key={tab.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`tab-${tab.id}`}
-                        checked={isChecked}
-                        onCheckedChange={(checked) => {
-                          if (!checked) {
-                            setAllowedTabs(allowedTabs.filter(t => t !== tab.id));
-                          } else {
-                            setAllowedTabs([...allowedTabs, tab.id]);
-                          }
-                        }}
-                      />
-                      <Label htmlFor={`tab-${tab.id}`} className="text-xs font-normal cursor-pointer">
-                        {tab.name}
-                      </Label>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <DialogFooter className="pt-4">
+            <DialogFooter className="p-6 border-t shrink-0">
               <Button type="button" variant="outline" onClick={() => setIsCreateModalOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={submitting}>
                 {submitting ? 'Provisioning...' : 'Provision Account'}
@@ -633,109 +665,127 @@ export const UserManagement: React.FC = () => {
 
       {/* EDIT MODAL */}
       <Dialog open={isEditModalOpen} onOpenChange={(open) => { if (!open) { setIsEditModalOpen(false); setEditingStaff(null); } }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-6 border-b shrink-0">
             <DialogTitle className="flex items-center">
               <Edit className="w-5 h-5 mr-2 text-primary" />
               Edit Staff Config: {editingStaff?.email}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleEditStaffSubmit} className="space-y-4 pt-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>System Role</Label>
-                <Select value={editRole} onValueChange={handleEditRoleChange}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {uniqueRoles.map(r => (
-                      <SelectItem key={r} value={r}>{getRoleFriendlyName(r)}</SelectItem>
-                    ))}
-                    <SelectItem value="custom">+ Create Custom Role...</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {!['inventory_manager', 'auditor', 'super_admin'].includes(editRole === 'custom' ? editCustomRole : editRole) ? (
+          <form onSubmit={handleEditStaffSubmit} className="flex-1 min-h-0 flex flex-col">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Assigned Branch Context *</Label>
-                  <Select value={editBranchId} onValueChange={setEditBranchId}>
+                  <Label>System Role</Label>
+                  <Select value={editRole} onValueChange={handleEditRoleChange}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {branches.map(b => (
-                        <SelectItem key={b.id} value={b.id}>
-                          {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
-                        </SelectItem>
+                      {uniqueRoles.map(r => (
+                        <SelectItem key={r} value={r}>{getRoleFriendlyName(r)}</SelectItem>
                       ))}
+                      <SelectItem value="custom">+ Create Custom Role...</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-              ) : (
-                <div className="space-y-2 opacity-50">
-                  <Label>Assigned Branch Context</Label>
-                  <div className="h-10 flex items-center px-3 border rounded-md bg-muted text-sm text-muted-foreground">
-                    Corporate (Global Scope)
+
+                {!['inventory_manager', 'auditor', 'super_admin'].includes(editRole === 'custom' ? editCustomRole : editRole) ? (
+                  <div className="space-y-2">
+                    <Label>Assigned Branch Context *</Label>
+                    <Select value={editBranchId} onValueChange={setEditBranchId}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {branches.map(b => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
+                ) : (
+                  <div className="space-y-2 opacity-50">
+                    <Label>Assigned Branch Context</Label>
+                    <div className="h-10 flex items-center px-3 border rounded-md bg-muted text-sm text-muted-foreground">
+                      Corporate (Global Scope)
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {editRole === 'custom' && (
+                <div className="space-y-2">
+                  <Label>Custom Role Name *</Label>
+                  <Input
+                    type="text"
+                    required
+                    value={editCustomRole}
+                    onChange={(e) => setEditCustomRole(e.target.value)}
+                    placeholder="e.g. Kitchen Staff"
+                  />
                 </div>
               )}
-            </div>
 
-            {editRole === 'custom' && (
-              <div className="space-y-2">
-                <Label>Custom Role Name *</Label>
-                <Input
-                  type="text"
-                  required
-                  value={editCustomRole}
-                  onChange={(e) => setEditCustomRole(e.target.value)}
-                  placeholder="e.g. Kitchen Staff"
+              <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
+                <Checkbox
+                  id="edit-allow-transfers"
+                  checked={editAllowTransfers}
+                  onCheckedChange={(checked) => setEditAllowTransfers(!!checked)}
                 />
+                <div className="grid gap-1 leading-none">
+                  <Label htmlFor="edit-allow-transfers" className="text-sm font-semibold cursor-pointer">
+                    Allow Requesting Transfers (Subject to Admin Approval)
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Allow this staff member to create stock transfer requests.
+                  </p>
+                </div>
               </div>
-            )}
 
-            <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
-              <Checkbox
-                id="edit-allow-transfers"
-                checked={editAllowTransfers}
-                onCheckedChange={(checked) => setEditAllowTransfers(!!checked)}
-              />
-              <div className="grid gap-1 leading-none">
-                <Label htmlFor="edit-allow-transfers" className="text-sm font-semibold cursor-pointer">
-                  Allow Requesting Transfers (Subject to Admin Approval)
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Allow this staff member to create stock transfer requests.
-                </p>
+              <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
+                <Checkbox
+                  id="edit-allow-action-buttons"
+                  checked={editAllowActionButtons}
+                  onCheckedChange={(checked) => setEditAllowActionButtons(!!checked)}
+                />
+                <div className="grid gap-1 leading-none">
+                  <Label htmlFor="edit-allow-action-buttons" className="text-sm font-semibold cursor-pointer">
+                    Allow Direct Stock Actions (Edit Balances, Delete Logs)
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Allow editing stock balances directly, and deleting stock receiving, transfer, or adjustment logs.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Allowed Features (Permissions Override)</Label>
+                <div className="grid grid-cols-2 gap-2 p-4 border rounded-md max-h-40 overflow-y-auto bg-muted/30">
+                  {ALL_AVAILABLE_TABS.map((tab) => {
+                    const isChecked = editAllowedTabs.includes(tab.id);
+                    return (
+                      <div key={tab.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`edit-tab-${tab.id}`}
+                          checked={isChecked}
+                          onCheckedChange={(checked) => {
+                            if (!checked) {
+                              setEditAllowedTabs(editAllowedTabs.filter(t => t !== tab.id));
+                            } else {
+                              setEditAllowedTabs([...editAllowedTabs, tab.id]);
+                            }
+                          }}
+                        />
+                        <Label htmlFor={`edit-tab-${tab.id}`} className="text-xs font-normal cursor-pointer">
+                          {tab.name}
+                        </Label>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Allowed Features (Permissions Override)</Label>
-              <div className="grid grid-cols-2 gap-2 p-4 border rounded-md max-h-40 overflow-y-auto bg-muted/30">
-                {ALL_AVAILABLE_TABS.map((tab) => {
-                  const isChecked = editAllowedTabs.includes(tab.id);
-                  return (
-                    <div key={tab.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`edit-tab-${tab.id}`}
-                        checked={isChecked}
-                        onCheckedChange={(checked) => {
-                          if (!checked) {
-                            setEditAllowedTabs(editAllowedTabs.filter(t => t !== tab.id));
-                          } else {
-                            setEditAllowedTabs([...editAllowedTabs, tab.id]);
-                          }
-                        }}
-                      />
-                      <Label htmlFor={`edit-tab-${tab.id}`} className="text-xs font-normal cursor-pointer">
-                        {tab.name}
-                      </Label>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <DialogFooter className="pt-4">
+            <DialogFooter className="p-6 border-t shrink-0">
               <Button type="button" variant="outline" onClick={() => { setIsEditModalOpen(false); setEditingStaff(null); }}>Cancel</Button>
               <Button type="submit" disabled={submitting}>
                 {submitting ? 'Saving Changes...' : 'Save Configuration'}

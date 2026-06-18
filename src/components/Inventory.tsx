@@ -78,6 +78,11 @@ export const Inventory: React.FC = () => {
   const [stockInQty, setStockInQty] = useState<number>(0);
   const [stockInSubmitting, setStockInSubmitting] = useState(false);
 
+  // Edit Stock Balance state
+  const [editStockItem, setEditStockItem] = useState<InventoryItem | null>(null);
+  const [editStockQty, setEditStockQty] = useState<number>(0);
+  const [editStockSubmitting, setEditStockSubmitting] = useState(false);
+
   const loadInventoryData = async () => {
     try {
       const { data: itemsData, error: itemsError } = await supabase
@@ -251,7 +256,45 @@ export const Inventory: React.FC = () => {
     }
   };
 
+  const handleOpenEditStock = (item: InventoryItem) => {
+    setEditStockItem(item);
+    const currentBal = balances.find(b => b.item_id === item.id)?.quantity || 0;
+    setEditStockQty(currentBal);
+  };
+
+  const handleEditStockSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editStockItem || !selectedBranch || !profile) return;
+    
+    setEditStockSubmitting(true);
+    
+    try {
+      const { error } = await supabase.rpc('fn_update_stock_balance', {
+        p_branch_id: selectedBranch.id,
+        p_item_id: editStockItem.id,
+        p_quantity: Number(editStockQty),
+        p_created_by: profile.id
+      });
+      
+      if (error) throw error;
+      
+      showSuccess("Stock balance updated successfully!");
+      await loadInventoryData();
+      setTimeout(() => setEditStockItem(null), 800);
+    } catch (err: any) {
+      console.error('Error in edit stock balance:', err);
+      showError(err.message || 'Error updating stock balance');
+    } finally {
+      setEditStockSubmitting(false);
+    }
+  };
+
   const isEditor = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
+
+  const hasActionPermission = profile && (
+    profile.role_name === 'super_admin' || 
+    (profile.allowed_tabs && profile.allowed_tabs.includes('action_buttons'))
+  );
 
   const filteredItems = items.filter(item => {
     const matchesSearch = item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -353,7 +396,7 @@ export const Inventory: React.FC = () => {
                     <TableHead className="text-right">Stock Quantity</TableHead>
                     <TableHead className="text-right">Unit Value</TableHead>
                     <TableHead className="text-right pr-6">Total Value</TableHead>
-                    {isEditor && <TableHead className="text-right pr-6">Actions</TableHead>}
+                    {(isEditor || hasActionPermission) && <TableHead className="text-right pr-6">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -387,19 +430,33 @@ export const Inventory: React.FC = () => {
                         <TableCell className="text-right text-muted-foreground">
                           ₱{item.cost_per_base_unit.toFixed(2)}
                         </TableCell>
-                        <TableCell className={`text-right font-semibold ${!isEditor ? 'pr-6' : ''}`}>
+                        <TableCell className={`text-right font-semibold ${!(isEditor || hasActionPermission) ? 'pr-6' : ''}`}>
                           ₱{value.toFixed(2)}
                         </TableCell>
-                        {isEditor && (
+                        {(isEditor || hasActionPermission) && (
                           <TableCell className="text-right pr-6">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-emerald-500 border-emerald-500 hover:bg-emerald-500 hover:text-white transition-all h-7 text-xs"
-                              onClick={() => handleOpenStockIn(item)}
-                            >
-                              Stock In
-                            </Button>
+                            <div className="flex justify-end space-x-2">
+                              {isEditor && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-emerald-500 border-emerald-500 hover:bg-emerald-500 hover:text-white transition-all h-7 text-xs"
+                                  onClick={() => handleOpenStockIn(item)}
+                                >
+                                  Stock In
+                                </Button>
+                              )}
+                              {hasActionPermission && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-blue-500 border-blue-500 hover:bg-blue-500 hover:text-white transition-all h-7 text-xs"
+                                  onClick={() => handleOpenEditStock(item)}
+                                >
+                                  Edit
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         )}
                       </TableRow>
@@ -678,6 +735,60 @@ export const Inventory: React.FC = () => {
                 <Button type="button" variant="outline" onClick={() => setStockInItem(null)}>Cancel</Button>
                 <Button type="submit" disabled={stockInSubmitting} className="bg-emerald-600 hover:bg-emerald-700 text-white">
                   {stockInSubmitting ? 'Stocking In...' : 'Stock In'}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Stock Balance Modal */}
+      <Dialog open={!!editStockItem} onOpenChange={(open) => !open && setEditStockItem(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Stock Balance</DialogTitle>
+          </DialogHeader>
+          {editStockItem && (
+            <form onSubmit={handleEditStockSubmit} className="space-y-4 pt-4">
+              <div className="space-y-2">
+                <Label>Item Name</Label>
+                <div className="text-sm font-bold bg-muted border rounded-md px-3 py-2">
+                  {editStockItem.item_name}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>SKU</Label>
+                  <div className="text-xs font-mono text-muted-foreground bg-muted border rounded-md px-3 py-2">
+                    {editStockItem.sku}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Current Stock</Label>
+                  <div className="text-xs bg-muted border rounded-md px-3 py-2">
+                    {(balances.find(b => b.item_id === editStockItem.id)?.quantity || 0).toLocaleString()} {editStockItem.base_unit}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>New Stock Balance Quantity ({editStockItem.base_unit}) *</Label>
+                <Input
+                  type="number"
+                  required
+                  min="0"
+                  step="any"
+                  value={editStockQty === 0 ? '' : editStockQty}
+                  onChange={(e) => setEditStockQty(e.target.value === '' ? 0 : Number(e.target.value))}
+                  placeholder="Enter new balance"
+                />
+              </div>
+
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setEditStockItem(null)}>Cancel</Button>
+                <Button type="submit" disabled={editStockSubmitting} className="bg-blue-600 hover:bg-blue-700 text-white">
+                  {editStockSubmitting ? 'Saving...' : 'Save Balance'}
                 </Button>
               </DialogFooter>
             </form>

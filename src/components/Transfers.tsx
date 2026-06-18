@@ -374,6 +374,37 @@ export const Transfers: React.FC = () => {
     }
   };
 
+  const hasActionPermission = profile && (
+    profile.role_name === 'super_admin' || 
+    (profile.allowed_tabs && profile.allowed_tabs.includes('action_buttons'))
+  );
+
+  const handleDeleteTransfer = async (transfer: TransferRequest) => {
+    const isCompletedOrApproved = ['completed', 'approved'].includes(transfer.status);
+    const message = isCompletedOrApproved
+      ? `Are you sure you want to delete transfer request ${transfer.control_number || transfer.id}? WARNING: This transfer is already ${transfer.status.toUpperCase()}. Deleting it will not reverse the stock movements that occurred.`
+      : `Are you sure you want to delete transfer request ${transfer.control_number || transfer.id}?`;
+
+    if (!await confirm('Delete Transfer Request', message)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('transfer_requests')
+        .delete()
+        .eq('id', transfer.id);
+
+      if (error) throw error;
+
+      showSuccess("Transfer request deleted successfully");
+      loadData();
+    } catch (err: any) {
+      console.error('Error deleting transfer request:', err);
+      showError(err.message || 'Error deleting transfer request');
+    }
+  };
+
   const canApprove = profile && ['super_admin', 'inventory_manager', 'branch_manager'].includes(profile.role_name);
 
   const filteredTransfers = transfers.filter(transfer => {
@@ -548,10 +579,23 @@ export const Transfers: React.FC = () => {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right pr-6">
-                    <Button variant="ghost" size="sm" onClick={() => handleViewTransfer(t)}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      View
-                    </Button>
+                    <div className="flex justify-end space-x-1">
+                      <Button variant="ghost" size="sm" onClick={() => handleViewTransfer(t)}>
+                        <Eye className="mr-2 h-4 w-4" />
+                        View
+                      </Button>
+                      {hasActionPermission && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteTransfer(t)}
+                          title="Delete Transfer Request"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               )))}

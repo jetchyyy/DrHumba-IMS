@@ -417,6 +417,37 @@ export const Adjustments: React.FC = () => {
     }
   };
 
+  const hasActionPermission = profile && (
+    profile.role_name === 'super_admin' || 
+    (profile.allowed_tabs && profile.allowed_tabs.includes('action_buttons'))
+  );
+
+  const handleDeleteAdjustment = async (adj: Adjustment) => {
+    const isApproved = adj.status === 'approved';
+    const message = isApproved
+      ? `Are you sure you want to delete adjustment request ${adj.control_number || adj.id}? WARNING: This adjustment is already APPROVED. Deleting it will not reverse the inventory changes that occurred.`
+      : `Are you sure you want to delete adjustment request ${adj.control_number || adj.id}?`;
+
+    if (!await confirm('Delete Adjustment Request', message)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('stock_adjustments')
+        .delete()
+        .eq('id', adj.id);
+
+      if (error) throw error;
+
+      showSuccess("Adjustment log deleted successfully");
+      loadData();
+    } catch (err: any) {
+      console.error('Error deleting adjustment request:', err);
+      showError(err.message || 'Error deleting adjustment request');
+    }
+  };
+
   const filteredAdjustments = adjustments.filter(adj => {
     let matchesDate = true;
     const aDate = new Date(adj.created_at);
@@ -583,10 +614,23 @@ export const Adjustments: React.FC = () => {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right pr-6">
-                    <Button variant="ghost" size="sm" onClick={() => handleViewAdjustment(adj)}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      View
-                    </Button>
+                    <div className="flex justify-end space-x-1">
+                      <Button variant="ghost" size="sm" onClick={() => handleViewAdjustment(adj)}>
+                        <Eye className="mr-2 h-4 w-4" />
+                        View
+                      </Button>
+                      {hasActionPermission && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteAdjustment(adj)}
+                          title="Delete Adjustment Log"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               )))}
