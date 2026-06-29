@@ -32,7 +32,7 @@ export const OnboardingPage: React.FC = () => {
   const [isService, setIsService] = useState(false);
 
   // Step 2: Plan Selection
-  const [selectedPlan, setSelectedPlan] = useState<'starter' | 'professional' | 'enterprise'>('starter');
+  const [selectedPlan, setSelectedPlan] = useState<'free' | 'starter' | 'professional' | 'enterprise'>('free');
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [plans, setPlans] = useState<any[]>([]);
 
@@ -50,6 +50,8 @@ export const OnboardingPage: React.FC = () => {
       return cycle === 'monthly' ? Number(dbPlan.monthly_price) : Number(dbPlan.yearly_price);
     }
     const fallbacks: Record<string, number> = {
+      free_monthly: 0,
+      free_yearly: 0,
       starter_monthly: 999,
       starter_yearly: 9990,
       professional_monthly: 2499,
@@ -152,16 +154,21 @@ export const OnboardingPage: React.FC = () => {
   const handleSubmitApplication = async () => {
     setErrorMsg('');
     
-    // Strict Reference Verification: Last 5 digits required
-    const cleanRef = paymentReference.trim();
-    if (!cleanRef || cleanRef.length !== 5 || !/^\d+$/.test(cleanRef)) {
-      setErrorMsg('Please input exactly the last 5 digits of your payment reference number.');
-      return;
-    }
+    let cleanRef = 'FREE';
+    let cleanReceipt = 'FREE';
 
-    if (!receiptBase64) {
-      setErrorMsg('Please upload a copy/screenshot of your proof of payment.');
-      return;
+    if (selectedPlan !== 'free') {
+      cleanRef = paymentReference.trim();
+      if (!cleanRef || cleanRef.length !== 5 || !/^\d+$/.test(cleanRef)) {
+        setErrorMsg('Please input exactly the last 5 digits of your payment reference number.');
+        return;
+      }
+
+      if (!receiptBase64) {
+        setErrorMsg('Please upload a copy/screenshot of your proof of payment.');
+        return;
+      }
+      cleanReceipt = receiptBase64;
     }
 
     setLoading(true);
@@ -174,7 +181,7 @@ export const OnboardingPage: React.FC = () => {
         plan_type: selectedPlan,
         billing_cycle: billingCycle,
         payment_reference: cleanRef,
-        payment_receipt_url: receiptBase64,
+        payment_receipt_url: cleanReceipt,
         status: 'pending',
         is_restaurant: isRestaurant,
         is_retail: isRetail,
@@ -401,9 +408,10 @@ export const OnboardingPage: React.FC = () => {
               {/* Pricing Cards */}
               <div className="grid grid-cols-1 gap-4">
                 {[
-                  { id: 'starter', name: 'Starter Plan', limit: '1 Branch • 3 Users • POS & Inventory' },
-                  { id: 'professional', name: 'Professional Plan', limit: '3 Branches • 10 Users • Full Recipes & Transfers' },
-                  { id: 'enterprise', name: 'Enterprise Plan', limit: '10 Branches • 30 Users • Analytics & Audits' },
+                  { id: 'free', name: 'Free Trial', limit: '1 Branch • 2 Users • Online POS (100 Sales/mo limit)' },
+                  { id: 'starter', name: 'Starter Plan', limit: '1 Branch • 3 Users • Offline POS & Terminal Binding' },
+                  { id: 'professional', name: 'Professional Plan', limit: '3 Branches • 10 Users • Recipes, Transfers & Compliance Audits' },
+                  { id: 'enterprise', name: 'Enterprise Plan', limit: '10 Branches • 30 Users • Advanced Analytics & Premium Support' },
                 ].map((plan) => {
                   const price = getPlanPrice(plan.id, billingCycle);
                   return (
@@ -434,91 +442,102 @@ export const OnboardingPage: React.FC = () => {
           {/* STEP 3: PAYMENT & SUBMISSION */}
           {step === 3 && (
             <div className="space-y-6">
-              <div className="bg-slate-950 p-4 border border-slate-800 rounded-xl space-y-4">
-                <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-                  <span className="text-xs text-slate-400 font-semibold">Total Invoice Amount:</span>
-                  <span className="text-lg font-black text-pink-400">
-                    {getPlanPrice(selectedPlan, billingCycle).toLocaleString()} PHP
-                  </span>
+              {selectedPlan === 'free' ? (
+                <div className="bg-slate-950 p-6 border border-slate-800 rounded-xl text-center space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center mx-auto text-xl font-bold">✓</div>
+                  <h3 className="font-bold text-sm text-slate-200">No Payment Required</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    You have selected the **Free Trial Plan**. Your portal will be created immediately upon superadmin validation.
+                  </p>
                 </div>
+              ) : (
+                <>
+                  <div className="bg-slate-950 p-4 border border-slate-800 rounded-xl space-y-4">
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                      <span className="text-xs text-slate-400 font-semibold">Total Invoice Amount:</span>
+                      <span className="text-lg font-black text-pink-400">
+                        {getPlanPrice(selectedPlan, billingCycle).toLocaleString()} PHP
+                      </span>
+                    </div>
 
-                {qrCodes.length === 0 ? (
-                  <p className="text-xs text-slate-500 text-center py-4">No active payment channels loaded. Please upload receipt and enter transaction ID.</p>
-                ) : (
+                    {qrCodes.length === 0 ? (
+                      <p className="text-xs text-slate-500 text-center py-4">No active payment channels loaded. Please upload receipt and enter transaction ID.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* Method Tabs */}
+                        <div className="flex gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
+                          {qrCodes.map((qc, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => setActiveQrIndex(idx)}
+                              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                activeQrIndex === idx ? 'bg-pink-500/10 text-pink-400 border border-pink-500/20' : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              {qc.payment_method}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* QR Code details */}
+                        <div className="flex flex-col sm:flex-row items-center gap-6 py-2">
+                          <div className="w-32 h-32 bg-white rounded-lg p-2 flex-shrink-0 flex items-center justify-center shadow-lg">
+                            <img 
+                              src={qrCodes[activeQrIndex].qr_code_url} 
+                              alt="QR Code" 
+                              className="w-full h-full object-contain" 
+                              onError={(e) => {
+                                e.currentTarget.src = "https://placehold.co/150?text=Scan+To+Pay";
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-2 text-center sm:text-left">
+                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Account Details</h4>
+                            <p className="text-sm font-semibold">{qrCodes[activeQrIndex].payment_method}</p>
+                            <p className="text-xs text-slate-300">Name: <span className="font-semibold">{qrCodes[activeQrIndex].account_name}</span></p>
+                            <p className="text-xs text-slate-300">Number: <span className="font-mono font-semibold bg-slate-900 border px-1.5 py-0.5 rounded">{qrCodes[activeQrIndex].account_number}</span></p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Reference and Proof Upload */}
                   <div className="space-y-4">
-                    {/* Method Tabs */}
-                    <div className="flex gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
-                      {qrCodes.map((qc, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => setActiveQrIndex(idx)}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                            activeQrIndex === idx ? 'bg-pink-500/10 text-pink-400 border border-pink-500/20' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          {qc.payment_method}
-                        </button>
-                      ))}
+                    <div className="space-y-1.5">
+                      <Label htmlFor="payment-ref" className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Last 5 Digits of Reference Number *
+                      </Label>
+                      <Input
+                        id="payment-ref"
+                        type="text"
+                        maxLength={5}
+                        value={paymentReference}
+                        onChange={(e) => setPaymentReference(e.target.value.replace(/\D/g, ''))}
+                        placeholder="e.g. 54321"
+                        className="bg-slate-950 border-slate-800 text-white h-11 focus-visible:ring-pink-500 focus-visible:border-pink-500 rounded-xl font-mono text-center text-lg tracking-widest"
+                      />
                     </div>
 
-                    {/* QR Code details */}
-                    <div className="flex flex-col sm:flex-row items-center gap-6 py-2">
-                      <div className="w-32 h-32 bg-white rounded-lg p-2 flex-shrink-0 flex items-center justify-center shadow-lg">
-                        <img 
-                          src={qrCodes[activeQrIndex].qr_code_url} 
-                          alt="QR Code" 
-                          className="w-full h-full object-contain" 
-                          onError={(e) => {
-                            // Fallback if image fails to load
-                            e.currentTarget.src = "https://placehold.co/150?text=Scan+To+Pay";
-                          }}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Upload Receipt Screenshot *</Label>
+                      <div className="relative h-24 border-2 border-dashed border-slate-800 rounded-xl hover:border-pink-500/50 hover:bg-pink-500/5 transition-all flex flex-col items-center justify-center cursor-pointer group">
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          onChange={handleReceiptUpload} 
+                          className="absolute inset-0 opacity-0 cursor-pointer" 
                         />
-                      </div>
-                      <div className="space-y-2 text-center sm:text-left">
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Account Details</h4>
-                        <p className="text-sm font-semibold">{qrCodes[activeQrIndex].payment_method}</p>
-                        <p className="text-xs text-slate-300">Name: <span className="font-semibold">{qrCodes[activeQrIndex].account_name}</span></p>
-                        <p className="text-xs text-slate-300">Number: <span className="font-mono font-semibold bg-slate-900 border px-1.5 py-0.5 rounded">{qrCodes[activeQrIndex].account_number}</span></p>
+                        <Upload className="w-5 h-5 text-slate-500 group-hover:text-pink-400 transition-colors" />
+                        <span className="text-xs text-slate-400 group-hover:text-slate-300 mt-2 font-medium">
+                          {receiptFileName || "Click to browse files (PNG, JPG)"}
+                        </span>
                       </div>
                     </div>
                   </div>
-                )}
-              </div>
-
-              {/* Reference and Proof Upload */}
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="payment-ref" className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Last 5 Digits of Reference Number *
-                  </Label>
-                  <Input
-                    id="payment-ref"
-                    type="text"
-                    maxLength={5}
-                    value={paymentReference}
-                    onChange={(e) => setPaymentReference(e.target.value.replace(/\D/g, ''))}
-                    placeholder="e.g. 54321"
-                    className="bg-slate-950 border-slate-800 text-white h-11 focus-visible:ring-pink-500 focus-visible:border-pink-500 rounded-xl font-mono text-center text-lg tracking-widest"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Upload Receipt Screenshot *</Label>
-                  <div className="relative h-24 border-2 border-dashed border-slate-800 rounded-xl hover:border-pink-500/50 hover:bg-pink-500/5 transition-all flex flex-col items-center justify-center cursor-pointer group">
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={handleReceiptUpload} 
-                      className="absolute inset-0 opacity-0 cursor-pointer" 
-                    />
-                    <Upload className="w-5 h-5 text-slate-500 group-hover:text-pink-400 transition-colors" />
-                    <span className="text-xs text-slate-400 group-hover:text-slate-300 mt-2 font-medium">
-                      {receiptFileName || "Click to browse files (PNG, JPG)"}
-                    </span>
-                  </div>
-                </div>
-              </div>
+                </>
+              )}
             </div>
           )}
 
@@ -528,20 +547,49 @@ export const OnboardingPage: React.FC = () => {
               <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
                 <CheckIcon className="w-8 h-8" />
               </div>
-              <div className="space-y-2">
-                <h3 className="text-lg font-bold text-white">Application Successfully Queued</h3>
-                <p className="text-sm text-slate-400 leading-relaxed max-w-md mx-auto">
-                  Our systems have received your registration under subdomain <strong>{subdomain.toLowerCase()}.odcph.com</strong>.
-                  We are currently verifying reference <strong>{paymentReference}</strong>. Once approved, you can access your portal immediately.
-                </p>
-              </div>
-              <Button 
-                variant="outline" 
-                onClick={() => { window.location.pathname = '/'; }}
-                className="border-slate-800 bg-slate-900/50 hover:bg-slate-950 font-bold rounded-xl"
-              >
-                Back to Homepage
-              </Button>
+              
+              {selectedPlan === 'free' ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-bold text-white font-black">Portal Activated Instantly!</h3>
+                    <p className="text-sm text-slate-400 leading-relaxed max-w-md mx-auto">
+                      Your free trial workspace is ready! You can access your store portal at:
+                    </p>
+                  </div>
+                  <div className="bg-slate-950 p-4 border border-slate-800 rounded-2xl font-mono text-xs select-all text-pink-400 font-bold max-w-sm mx-auto">
+                    {`http://${subdomain.toLowerCase()}.${import.meta.env.VITE_MAIN_DOMAIN || 'localhost:5173'}`}
+                  </div>
+                  <div className="space-y-2 pt-2">
+                    <p className="text-[11px] text-slate-500">
+                      Login using admin email: <strong className="text-slate-300 font-semibold">{adminEmail}</strong>
+                    </p>
+                    <a
+                      href={`http://${subdomain.toLowerCase()}.${import.meta.env.VITE_MAIN_DOMAIN || 'localhost:5173'}/login`}
+                      className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs tracking-wider shadow-lg shadow-pink-500/20 transition-all"
+                    >
+                      Login to Workspace
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-white">Application Successfully Queued</h3>
+                  <p className="text-sm text-slate-400 leading-relaxed max-w-md mx-auto">
+                    Our systems have received your registration under subdomain <strong>{subdomain.toLowerCase()}.odcph.com</strong>.
+                    We are currently verifying reference <strong>{paymentReference}</strong>. Once approved, you can access your portal immediately.
+                  </p>
+                </div>
+              )}
+
+              {selectedPlan !== 'free' && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => { window.location.pathname = '/'; }}
+                  className="border-slate-800 bg-slate-900/50 hover:bg-slate-950 font-bold rounded-xl"
+                >
+                  Back to Homepage
+                </Button>
+              )}
             </div>
           )}
         </CardContent>

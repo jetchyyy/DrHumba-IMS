@@ -140,11 +140,9 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   useEffect(() => {
-    // Dynamic brand colors injection based on active tenant
     const root = document.documentElement;
-    const isDrHumba = isSingleTenantMode || !tenant || tenant.subdomain === null;
+    const isDrHumba = isSingleTenantMode;
     
-    // Select head link elements for icons
     const favicon = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
     const appleIcon = document.querySelector("link[rel='apple-touch-icon']") as HTMLLinkElement;
 
@@ -153,7 +151,6 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       root.style.setProperty('--primary', '336 80% 57%');
       root.style.setProperty('--primary-foreground', '0 0% 100%');
       
-      // Reset browser tab metadata for Dr. Humba
       document.title = "Dr. Humba Management System";
       if (favicon) favicon.href = "/drhumbalogo.jpg";
       if (appleIcon) appleIcon.href = "/drhumbalogo-192.png";
@@ -162,13 +159,19 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       root.style.setProperty('--primary', '250 84% 54%');
       root.style.setProperty('--primary-foreground', '0 0% 100%');
       
-      // Update browser tab metadata based on resolved tenant / environment default
-      const appName = tenant?.name || import.meta.env.VITE_DEFAULT_APP_NAME || "ERPSaaS";
-      document.title = `${appName} Management System`;
-      
-      const logoUrl = tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png";
-      if (favicon) favicon.href = logoUrl;
-      if (appleIcon) appleIcon.href = logoUrl;
+      if (tenant) {
+        document.title = `${tenant.name} - Inventory System`;
+        const logoUrl = tenant.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png";
+        if (favicon) favicon.href = logoUrl;
+        if (appleIcon) appleIcon.href = logoUrl;
+      } else {
+        // SaaS Landing Page / Root Domain
+        const appName = import.meta.env.VITE_DEFAULT_APP_NAME || "ERPSaaS";
+        document.title = `${appName} - Smart Operations ERP`;
+        const defaultLogo = import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png";
+        if (favicon) favicon.href = defaultLogo;
+        if (appleIcon) appleIcon.href = defaultLogo;
+      }
     }
   }, [tenant, isSingleTenantMode]);
 

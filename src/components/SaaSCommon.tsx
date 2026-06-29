@@ -106,58 +106,72 @@ export const SaaSLandingPage: React.FC = () => {
 
   const displayPlans = dbPlans.length > 0 ? dbPlans.map(p => {
     let featuresList: string[] = [];
-    if (p.id === 'starter') {
+    if (p.id === 'free') {
       featuresList = [
-        `${p.max_branches} Branch Location`,
+        '1 Branch Location',
+        'Up to 2 Staff Accounts',
+        'Online POS Checkout Only',
+        'Basic Inventory (30 Items Max)',
+        '30-Day Data Retention'
+      ];
+    } else if (p.id === 'starter') {
+      featuresList = [
+        '1 Branch Location',
         `Up to ${p.max_users} Staff Accounts`,
-        'Real-time Sales & POS',
-        'Basic Inventory Sync',
-        'Direct Stock Receiving'
+        'Offline Store-and-Forward POS',
+        'Device Terminal Binding',
+        'Direct Stock Receiving',
+        '10-Year Data Retention (BIR Compliant)'
       ];
     } else if (p.id === 'professional') {
       featuresList = [
         `Up to ${p.max_branches} Branch Locations`,
         `Up to ${p.max_users} Staff Accounts`,
-        'Advanced Stock Transfers',
-        'Direct Stock Adjustments',
-        'Menu Recipes & Deductions',
-        'Analytics Dashboard',
-        'Audit Logs Access'
+        'Offline POS & Device Binding',
+        'Compliance Audit Logs (Immutable)',
+        'Consecutive Invoice Series',
+        'Shift Control (X & Z-Read Reports)',
+        'Menu Recipes & Deductions'
       ];
     } else {
       featuresList = [
         `Up to ${p.max_branches} Branch Locations`,
         `Up to ${p.max_users} Staff Accounts`,
-        'Unlimited Stock Ledgers',
-        'Formula Ingredient Recipes',
-        'Custom Allowed Tabs Per User',
-        'Advanced Sales Analytics',
-        'Dedicated Support channel'
+        'Everything in Professional Plan',
+        'Custom Roles & Permission Tabs',
+        'Advanced Sales Analytics Dashboard',
+        'Priority Technical Integration Support'
       ];
     }
     return {
       name: p.name,
-      price: `₱${Number(p.monthly_price).toLocaleString()}`,
+      price: p.monthly_price === 0 || p.monthly_price === '0' ? 'Free' : `₱${Number(p.monthly_price).toLocaleString()}`,
       features: featuresList,
       popular: p.id === 'professional',
     };
   }) : [
     {
+      name: 'Free Trial',
+      price: 'Free',
+      features: ['1 Branch Location', 'Up to 2 Staff Accounts', 'Online POS Checkout Only', 'Basic Inventory (30 Items Max)', '30-Day Data Retention'],
+      popular: false,
+    },
+    {
       name: 'Starter',
       price: '₱999',
-      features: ['1 Branch Location', 'Up to 3 Staff Accounts', 'Real-time Sales & POS', 'Basic Inventory Sync', 'Direct Stock Receiving'],
+      features: ['1 Branch Location', 'Up to 3 Staff Accounts', 'Offline Store-and-Forward POS', 'Device Terminal Binding', 'Direct Stock Receiving', '10-Year Data Retention (BIR Compliant)'],
       popular: false,
     },
     {
       name: 'Professional',
       price: '₱2,499',
-      features: ['Up to 3 Branch Locations', 'Up to 10 Staff Accounts', 'Advanced Stock Transfers', 'Direct Stock Adjustments', 'Menu Recipes & Deductions', 'Analytics Dashboard', 'Audit Logs Access'],
+      features: ['Up to 3 Branch Locations', 'Up to 10 Staff Accounts', 'Offline POS & Device Binding', 'Compliance Audit Logs (Immutable)', 'Consecutive Invoice Series', 'Shift Control (X & Z-Read Reports)', 'Menu Recipes & Deductions'],
       popular: true,
     },
     {
       name: 'Enterprise',
       price: '₱7,499',
-      features: ['Up to 10 Branch Locations', 'Up to 30 Staff Accounts', 'Unlimited Stock Ledgers', 'Formula Ingredient Recipes', 'Custom Allowed Tabs Per User', 'Advanced Sales Analytics', 'Dedicated Support channel'],
+      features: ['Up to 10 Branch Locations', 'Up to 30 Staff Accounts', 'Everything in Professional Plan', 'Custom Roles & Permission Tabs', 'Advanced Sales Analytics Dashboard', 'Priority Technical Integration Support'],
       popular: false,
     },
   ];
@@ -214,7 +228,7 @@ export const SaaSLandingPage: React.FC = () => {
             className="w-full sm:w-auto h-13 px-8 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-bold text-base shadow-lg shadow-pink-500/20 rounded-xl"
             onClick={() => { window.location.pathname = '/apply'; }}
           >
-            Start Onboarding
+            Start Free Trial
           </Button>
           <Button 
             size="lg" 
@@ -308,7 +322,7 @@ export const SaaSLandingPage: React.FC = () => {
                   }`}
                   onClick={() => { window.location.pathname = '/apply'; }}
                 >
-                  Onboard Tenant
+                  Choose Plan
                 </Button>
               </div>
             </Card>
