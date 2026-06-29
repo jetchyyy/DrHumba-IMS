@@ -1,0 +1,1815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dr. Humba RESTOChain - Foodpanda & Grab Integration Roadmap</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <style>
+    /* -----------------------------------------
+       DESIGN SYSTEM & VARIABLES
+       ----------------------------------------- */
+    :root {
+      /* Theme - Dark (Default) */
+      --bg-gradient: radial-gradient(circle at 50% 50%, #0f172a, #020617);
+      --panel-bg: rgba(30, 41, 59, 0.4);
+      --panel-border: rgba(255, 255, 255, 0.08);
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      
+      /* Accent Colors */
+      --color-primary: #6366f1; /* Indigo */
+      --color-primary-glow: rgba(99, 102, 241, 0.15);
+      --color-secondary: #06b6d4; /* Cyan */
+      --color-accent: #f43f5e; /* Rose (Foodpanda) */
+      --color-grab: #10b981; /* Emerald (Grab) */
+      --color-success: #10b981;
+      --color-warning: #f59e0b;
+      
+      /* Gradients */
+      --text-gradient: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #94a3b8 100%);
+      --accent-gradient: linear-gradient(135deg, #818cf8 0%, #6366f1 50%, #4f46e5 100%);
+      --grab-gradient: linear-gradient(135deg, #34d399 0%, #10b981 50%, #059669 100%);
+      --foodpanda-gradient: linear-gradient(135deg, #fb7185 0%, #f43f5e 50%, #e11d48 100%);
+      --cyan-gradient: linear-gradient(135deg, #22d3ee 0%, #06b6d4 50%, #0891b2 100%);
+      
+      --font-display: 'Outfit', sans-serif;
+      --font-body: 'Plus Jakarta Sans', sans-serif;
+      
+      --slide-transition: 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* Theme - Light (Toggled/Print) */
+    [data-theme="light"] {
+      --bg-gradient: radial-gradient(circle at 50% 50%, #f8fafc, #f1f5f9);
+      --panel-bg: rgba(255, 255, 255, 0.7);
+      --panel-border: rgba(0, 0, 0, 0.08);
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      
+      --color-primary: #4f46e5;
+      --color-primary-glow: rgba(79, 70, 229, 0.08);
+      --color-secondary: #0891b2;
+      
+      --text-gradient: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+      --panel-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
+    }
+
+    /* -----------------------------------------
+       RESET & BASE STYLES
+       ----------------------------------------- */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      transition: background-color 0.3s, border-color 0.3s;
+    }
+
+    body {
+      font-family: var(--font-body);
+      color: var(--text-primary);
+      background: var(--bg-gradient);
+      background-attachment: fixed;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+    }
+
+    h1, h2, h3, h4 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+    }
+
+    p {
+      line-height: 1.6;
+      color: var(--text-secondary);
+    }
+
+    /* -----------------------------------------
+       APP HEADER / NAVBAR
+       ----------------------------------------- */
+    .app-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.5rem 3rem;
+      z-index: 100;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+    }
+
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      background: var(--accent-gradient);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.25rem;
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+    }
+
+    .brand-name {
+      font-size: 1.25rem;
+      font-weight: 800;
+      background: var(--text-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.03em;
+    }
+
+    .brand-tag {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      padding: 0.15rem 0.5rem;
+      border-radius: 6px;
+      color: var(--color-secondary);
+      letter-spacing: 0.05em;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .control-btn {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      color: var(--text-secondary);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--font-body);
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+
+    .control-btn:hover {
+      background: var(--color-primary-glow);
+      border-color: var(--color-primary);
+      color: var(--text-primary);
+      transform: translateY(-1px);
+    }
+
+    .control-btn:active {
+      transform: translateY(1px);
+    }
+
+    /* -----------------------------------------
+       PRESENTATION SLIDES CONTAINER
+       ----------------------------------------- */
+    .slides-viewport {
+      flex: 1;
+      position: relative;
+      margin: 6.5rem 3rem 5.5rem 3rem;
+      overflow: hidden;
+      border-radius: 24px;
+    }
+
+    .slide {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      visibility: hidden;
+      transform: scale(0.96) translateX(40px);
+      transition: opacity var(--slide-transition), transform var(--slide-transition), visibility var(--slide-transition);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 2rem;
+      z-index: 1;
+    }
+
+    .slide.active {
+      opacity: 1;
+      visibility: visible;
+      transform: scale(1) translateX(0);
+      z-index: 2;
+    }
+
+    .slide.prev-slide {
+      transform: scale(0.96) translateX(-40px);
+    }
+
+    /* -----------------------------------------
+       COMMON SLIDE COMPONENTS
+       ----------------------------------------- */
+    .slide-layout-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 3.5rem;
+      align-items: center;
+      height: 100%;
+    }
+
+    .slide-layout-hero {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      height: 100%;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .slide-tag {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--color-primary);
+      margin-bottom: 0.75rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .slide-title {
+      font-size: 2.75rem;
+      font-weight: 800;
+      background: var(--text-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 1.25rem;
+      line-height: 1.1;
+    }
+
+    .slide-description {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      margin-bottom: 2rem;
+      max-width: 650px;
+    }
+
+    /* -----------------------------------------
+       VISUAL PANELS & CARDS
+       ----------------------------------------- */
+    .glass-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 20px;
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--panel-shadow);
+    }
+
+    .glass-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--accent-gradient);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .glass-card:hover::before {
+      opacity: 1;
+    }
+
+    .card-icon {
+      font-size: 2rem;
+      color: var(--color-primary);
+      margin-bottom: 1.25rem;
+    }
+
+    /* -----------------------------------------
+       SLIDE-SPECIFIC DESIGNS
+       ----------------------------------------- */
+
+    /* Slide 0: Title Slide */
+    .title-banner {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    
+    .platform-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 1rem;
+      border-radius: 99px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: white;
+    }
+    .platform-badge.foodpanda {
+      background: var(--foodpanda-gradient);
+      box-shadow: 0 4px 12px rgba(244, 63, 94, 0.3);
+    }
+    .platform-badge.grab {
+      background: var(--grab-gradient);
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    }
+
+    .title-presentation-label {
+      background: var(--color-primary-glow);
+      border: 1px solid var(--color-primary);
+      color: var(--color-primary);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.35rem 0.85rem;
+      border-radius: 6px;
+      margin-bottom: 1.5rem;
+    }
+
+    /* Slide 1: Current Architecture */
+    .arch-feature {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .arch-feature-icon {
+      width: 36px;
+      height: 36px;
+      background: rgba(99, 102, 241, 0.1);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--color-primary);
+      font-size: 1rem;
+      flex-shrink: 0;
+      margin-top: 0.2rem;
+    }
+    .arch-feature-title {
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 0.25rem;
+    }
+    .arch-feature-desc {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    /* Slide 2: Why Backend / Receptionist */
+    .receptionist-visual {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+    
+    .comparison-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    
+    .comp-card {
+      padding: 1.5rem;
+      border-radius: 16px;
+      border: 1px solid var(--panel-border);
+      position: relative;
+    }
+    
+    .comp-card.negative {
+      background: rgba(244, 63, 94, 0.03);
+      border-color: rgba(244, 63, 94, 0.15);
+    }
+    .comp-card.positive {
+      background: rgba(16, 185, 129, 0.03);
+      border-color: rgba(16, 185, 129, 0.15);
+    }
+    
+    .comp-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      font-family: var(--font-display);
+    }
+    .comp-header.negative { color: var(--color-accent); }
+    .comp-header.positive { color: var(--color-grab); }
+
+    /* Slide 3: Webhook Architecture Diagram (Live Animated!) */
+    .diagram-container {
+      width: 100%;
+      height: 380px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--panel-border);
+      border-radius: 24px;
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 3rem;
+      overflow: hidden;
+    }
+    
+    .diagram-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      z-index: 10;
+      width: 120px;
+      text-align: center;
+    }
+    
+    .node-icon {
+      width: 70px;
+      height: 70px;
+      border-radius: 20px;
+      background: var(--panel-bg);
+      border: 2px solid var(--panel-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.75rem;
+      margin-bottom: 0.75rem;
+      position: relative;
+      transition: all 0.3s ease;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+    }
+    
+    .node-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      font-family: var(--font-display);
+      color: var(--text-primary);
+    }
+    
+    .node-subtitle {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 0.15rem;
+    }
+    
+    /* Specific Node Styling */
+    .node-foodpanda .node-icon {
+      border-color: var(--color-accent);
+      color: var(--color-accent);
+      background: rgba(244, 63, 94, 0.05);
+    }
+    .node-foodpanda:hover .node-icon {
+      box-shadow: 0 0 20px rgba(244, 63, 94, 0.4);
+    }
+
+    .node-grab .node-icon {
+      border-color: var(--color-grab);
+      color: var(--color-grab);
+      background: rgba(16, 185, 129, 0.05);
+    }
+    .node-grab:hover .node-icon {
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+    }
+
+    .node-backend {
+      width: 150px;
+    }
+    .node-backend .node-icon {
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+      background: rgba(99, 102, 241, 0.1);
+      width: 85px;
+      height: 85px;
+      border-radius: 24px;
+      font-size: 2.25rem;
+    }
+    .node-backend:hover .node-icon {
+      box-shadow: 0 0 25px rgba(99, 102, 241, 0.5);
+    }
+    
+    .node-database .node-icon {
+      border-color: var(--color-secondary);
+      color: var(--color-secondary);
+      background: rgba(6, 182, 212, 0.05);
+    }
+    .node-database:hover .node-icon {
+      box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+    }
+
+    .node-pos .node-icon {
+      border-color: #f59e0b;
+      color: #f59e0b;
+      background: rgba(245, 158, 11, 0.05);
+    }
+    .node-pos:hover .node-icon {
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+    }
+    
+    /* Interactive signal connections */
+    .connection-line {
+      position: absolute;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.15);
+      z-index: 5;
+    }
+    
+    /* Pulse signals flowing */
+    .signal-pulse {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--color-primary);
+      top: -3px;
+      left: 0;
+      offset-path: path('M 0 0 L 200 0');
+      animation: flow 3s infinite linear;
+      box-shadow: 0 0 8px var(--color-primary);
+    }
+    
+    /* Dynamic connector vectors */
+    .svg-connectors {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 4;
+      pointer-events: none;
+    }
+
+    .svg-connectors path {
+      fill: none;
+      stroke: var(--panel-border);
+      stroke-width: 2;
+      stroke-linecap: round;
+    }
+
+    .svg-connectors .animated-path {
+      stroke: var(--color-primary);
+      stroke-dasharray: 8, 12;
+      animation: dash 20s linear infinite;
+    }
+    .svg-connectors .animated-path-grab {
+      stroke: var(--color-grab);
+      stroke-dasharray: 8, 12;
+      animation: dash 20s linear infinite;
+    }
+    .svg-connectors .animated-path-fp {
+      stroke: var(--color-accent);
+      stroke-dasharray: 8, 12;
+      animation: dash 20s linear infinite;
+    }
+
+    @keyframes dash {
+      to {
+        stroke-dashoffset: -1000;
+      }
+    }
+    
+    /* Legend / Console logger */
+    .diagram-console {
+      margin-top: 1rem;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 0.75rem 1.25rem;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: var(--color-secondary);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    
+    .console-cursor {
+      width: 8px;
+      height: 15px;
+      background: var(--color-secondary);
+      animation: blink 1s infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 0; }
+      50% { opacity: 1; }
+    }
+
+    /* Slide 4: Credential Requirements */
+    .requirements-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      background: rgba(0,0,0,0.15);
+      padding: 0.35rem;
+      border-radius: 10px;
+      border: 1px solid var(--panel-border);
+      width: max-content;
+    }
+    .req-tab {
+      padding: 0.5rem 1.25rem;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-weight: 700;
+      font-family: var(--font-display);
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+    .req-tab.active {
+      background: var(--panel-bg);
+      color: var(--text-primary);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    .req-tab.tab-fp.active {
+      color: var(--color-accent);
+      border-bottom: 2px solid var(--color-accent);
+      border-radius: 8px 8px 0 0;
+    }
+    .req-tab.tab-grab.active {
+      color: var(--color-grab);
+      border-bottom: 2px solid var(--color-grab);
+      border-radius: 8px 8px 0 0;
+    }
+    
+    .tab-content {
+      display: none;
+      animation: fadeIn 0.4s ease forwards;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .grid-table {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+    
+    .grid-row {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      padding: 1rem;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.015);
+      border: 1px solid var(--panel-border);
+      align-items: center;
+    }
+    
+    .grid-label {
+      font-weight: 700;
+      font-family: var(--font-display);
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .grid-val {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    /* Slide 5: Onboarding Roadmap */
+    .timeline-container {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 1.25rem;
+      position: relative;
+      margin-top: 1rem;
+    }
+    
+    .timeline-step {
+      display: flex;
+      flex-direction: column;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      padding: 1.25rem;
+      position: relative;
+      z-index: 10;
+      transition: all 0.3s ease;
+    }
+    
+    .timeline-step:hover {
+      transform: translateY(-5px);
+      border-color: var(--color-primary);
+      box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.15);
+    }
+    
+    .step-number {
+      width: 30px;
+      height: 30px;
+      background: var(--color-primary-glow);
+      border: 1px solid var(--color-primary);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 0.85rem;
+      color: var(--color-primary);
+      margin-bottom: 0.75rem;
+    }
+    
+    .step-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      color: var(--text-primary);
+    }
+    
+    .step-duration {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--color-secondary);
+      margin-bottom: 0.75rem;
+      display: inline-block;
+    }
+    
+    .step-desc {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      line-height: 1.4;
+    }
+
+    /* Slide 6: Server deployment options */
+    .deployment-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    
+    .deploy-option {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      padding: 1.5rem;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .deploy-option.recommended {
+      border-color: var(--color-primary);
+      background: rgba(99, 102, 241, 0.02);
+    }
+    
+    .recommend-badge {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      background: var(--accent-gradient);
+      color: white;
+      font-size: 0.65rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 0.25rem 0.6rem;
+      border-radius: 4px;
+      letter-spacing: 0.05em;
+    }
+    
+    .deploy-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .deploy-pros-cons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: auto;
+      padding-top: 1rem;
+      border-top: 1px solid var(--panel-border);
+      font-size: 0.85rem;
+    }
+    
+    .pros-list, .cons-list {
+      list-style: none;
+    }
+    .pros-list li::before {
+      content: "✓ ";
+      color: var(--color-success);
+      font-weight: bold;
+    }
+    .cons-list li::before {
+      content: "✗ ";
+      color: var(--color-accent);
+      font-weight: bold;
+    }
+    .pros-list li, .cons-list li {
+      margin-bottom: 0.25rem;
+      color: var(--text-secondary);
+    }
+
+    /* Slide 7: Client checklist */
+    .checklist-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    .todo-group-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-primary);
+    }
+    .fp-color { color: var(--color-accent); }
+    .grab-color { color: var(--color-grab); }
+    
+    .todo-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .todo-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+    .todo-list li input[type="checkbox"] {
+      margin-top: 0.25rem;
+      accent-color: var(--color-primary);
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    /* -----------------------------------------
+       PRESENTATION FOOTER
+       ----------------------------------------- */
+    .app-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.5rem 3rem;
+      z-index: 100;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+    }
+
+    .slide-progress-container {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      flex: 1;
+      max-width: 600px;
+    }
+
+    .progress-bar-bg {
+      height: 4px;
+      background: var(--panel-border);
+      border-radius: 99px;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--accent-gradient);
+      width: 0%;
+      border-radius: 99px;
+      transition: width 0.3s ease;
+    }
+
+    .slide-counter {
+      font-family: var(--font-display);
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      min-width: 45px;
+    }
+
+    .nav-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .nav-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      border: 1px solid var(--panel-border);
+      background: var(--panel-bg);
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: all 0.2s ease;
+    }
+
+    .nav-btn:hover {
+      background: var(--color-primary);
+      border-color: var(--color-primary);
+      color: white;
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+      transform: translateY(-2px);
+    }
+    
+    .nav-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      transform: none !important;
+      box-shadow: none !important;
+      background: var(--panel-bg);
+      border-color: var(--panel-border);
+      color: var(--text-muted);
+    }
+
+    .nav-btn:active {
+      transform: translateY(1px);
+    }
+
+    /* Presenter Notes Overlay */
+    .presenter-notes-panel {
+      position: absolute;
+      bottom: 6rem;
+      right: 3rem;
+      width: 320px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid var(--color-primary);
+      border-radius: 16px;
+      padding: 1.25rem;
+      box-shadow: 0 20px 40px -10px rgba(0,0,0,0.5);
+      z-index: 200;
+      transform: translateY(20px);
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .presenter-notes-panel.active {
+      transform: translateY(0);
+      opacity: 1;
+      visibility: visible;
+    }
+    
+    .notes-header {
+      font-weight: 700;
+      font-family: var(--font-display);
+      color: var(--color-primary);
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.9rem;
+    }
+    .notes-content {
+      font-size: 0.8rem;
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+
+    /* Print Document Styling (Triggered dynamically or via @media print) */
+    @media print {
+      body {
+        height: auto;
+        overflow: visible;
+        background: white;
+        color: black;
+      }
+      .app-header, .app-footer, .presenter-notes-panel {
+        display: none !important;
+      }
+      .slides-viewport {
+        margin: 0;
+        overflow: visible;
+        border-radius: 0;
+      }
+      .slide {
+        position: relative !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        transform: none !important;
+        page-break-after: always;
+        height: 100vh;
+        padding: 4rem 2rem;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      .glass-card, .timeline-step, .deploy-option, .diagram-container {
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+        box-shadow: none !important;
+      }
+      .slide-title {
+        background: none !important;
+        color: #0f172a !important;
+        -webkit-text-fill-color: initial !important;
+      }
+    }
+    
+    .print-mode body {
+      height: auto !important;
+      overflow-y: auto !important;
+      background: #f8fafc !important;
+    }
+    .print-mode .app-header, .print-mode .app-footer {
+      position: static !important;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--panel-border);
+      padding: 1rem 2rem !important;
+    }
+    .print-mode .app-footer {
+      border-top: 1px solid var(--panel-border);
+      border-bottom: none;
+      margin-top: 2rem;
+    }
+    .print-mode .slides-viewport {
+      margin: 2rem auto !important;
+      max-width: 1000px;
+      overflow: visible !important;
+      height: auto !important;
+      display: flex;
+      flex-direction: column;
+      gap: 3rem;
+    }
+    .print-mode .slide {
+      position: relative !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform: none !important;
+      height: auto !important;
+      min-height: 600px;
+      padding: 3rem !important;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 20px;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- -----------------------------------------
+       APP HEADER / BRANDING
+       ----------------------------------------- -->
+  <header class="app-header">
+    <a href="#" class="brand">
+      <div class="brand-logo">
+        <i class="fa-solid fa-square-poll-vertical"></i>
+      </div>
+      <div>
+        <div class="brand-name">RESTOChain</div>
+        <div style="font-size: 0.65rem; color: var(--text-secondary); font-weight: 600;">Dr. Humba Systems</div>
+      </div>
+      <span class="brand-tag">Integration Proposal</span>
+    </a>
+    <div class="header-controls">
+      <button class="control-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle Dark/Light Mode">
+        <i class="fa-solid fa-moon"></i> <span>Dark Mode</span>
+      </button>
+      <button class="control-btn" id="layout-toggle" onclick="toggleLayout()" title="Switch View Mode">
+        <i class="fa-solid fa-scroll"></i> <span>Document View</span>
+      </button>
+      <button class="control-btn" id="notes-toggle" onclick="toggleNotes()" title="Presenter Notes">
+        <i class="fa-solid fa-comment-dots"></i> <span>Notes</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- -----------------------------------------
+       SLIDES VIEWPORT
+       ----------------------------------------- -->
+  <main class="slides-viewport" id="slides-container">
+
+    <!-- Slide 0: Title/Intro -->
+    <section class="slide active" data-slide="0">
+      <div class="slide-layout-hero">
+        <div class="title-presentation-label">Strategic Growth Project</div>
+        <h1 class="slide-title" style="font-size: 3.5rem;">Foodpanda & GrabFood<br>Integration Strategy</h1>
+        <p class="slide-description" style="font-size: 1.25rem;">
+          Connecting Dr. Humba's Restaurant Inventory Management System directly with major delivery platforms to automate sales tracking, eliminate duplicate order entries, and secure real-time ingredient sync.
+        </p>
+        <div class="title-banner">
+          <div class="platform-badge foodpanda">
+            <i class="fa-solid fa-bowl-food"></i> Foodpanda Integrated
+          </div>
+          <div class="platform-badge grab">
+            <i class="fa-solid fa-motorcycle"></i> GrabFood Integrated
+          </div>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">
+          Prepared for Dr. Humba Client Management &bull; Technical Architecture Proposal
+        </p>
+      </div>
+    </section>
+
+    <!-- Slide 1: Current System Architecture -->
+    <section class="slide" data-slide="1">
+      <div class="slide-layout-grid">
+        <div>
+          <span class="slide-tag"><i class="fa-solid fa-circle-nodes"></i> Slide 1 of 8</span>
+          <h2 class="slide-title">Your Current System Setup</h2>
+          <p class="slide-description" style="margin-bottom: 1.5rem;">
+            The RESTOChain system is designed to prioritize <strong>transaction safety</strong> and <strong>data integrity</strong> by utilizing a zero-client-logic database architecture.
+          </p>
+          <div class="glass-card" style="padding: 1.5rem; background: rgba(99, 102, 241, 0.02);">
+            <div class="arch-feature">
+              <div class="arch-feature-icon"><i class="fa-brands fa-react"></i></div>
+              <div>
+                <div class="arch-feature-title">Vite + React Frontend</div>
+                <div class="arch-feature-desc">A fast, interactive browser-based panel where branch managers view reports and cashiers record in-store POS checkouts.</div>
+              </div>
+            </div>
+            <div class="arch-feature">
+              <div class="arch-feature-icon"><i class="fa-solid fa-database"></i></div>
+              <div>
+                <div class="arch-feature-title">Supabase Database</div>
+                <div class="arch-feature-desc">Houses raw tables, user roles (RBAC), and transaction logs in a cloud-hosted environment.</div>
+              </div>
+            </div>
+            <div class="arch-feature" style="margin-bottom: 0;">
+              <div class="arch-feature-icon"><i class="fa-solid fa-shield-halved"></i></div>
+              <div>
+                <div class="arch-feature-title">Secure Server Functions (RPC)</div>
+                <div class="arch-feature-desc">100% of business logic (like checking recipe ingredients and updating stock balances) is performed securely inside the database, preventing race conditions or inventory bugs.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="glass-card" style="text-align: center; padding: 2.5rem 2rem;">
+            <div class="card-icon" style="color: var(--color-secondary);"><i class="fa-solid fa-bolt"></i></div>
+            <h3 style="margin-bottom: 0.75rem; font-family: var(--font-display);">Safe & Relational</h3>
+            <p style="font-size: 0.9rem; margin-bottom: 1.5rem;">
+              Currently, when a cashier completes a sale inside the physical restaurant, the browser calls a secure DB function:
+            </p>
+            <code style="display: block; font-family: monospace; background: rgba(0,0,0,0.3); padding: 0.75rem; border-radius: 8px; font-size: 0.8rem; color: #a5b4fc; text-align: left; border: 1px solid var(--panel-border); margin-bottom: 1.5rem;">
+              fn_process_sale(<br>
+              &nbsp;&nbsp;p_branch_id =&gt; 'Branch A',<br>
+              &nbsp;&nbsp;p_items =&gt; [Classic Burger, Onion Rings]<br>
+              );
+            </code>
+            <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">
+              If ingredients are available, stock is deducted and the sale is recorded instantly. If not, it rolls back to prevent issues.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2: The Challenge & The "Receptionist" Analogy -->
+    <section class="slide" data-slide="2">
+      <div class="slide-layout-grid">
+        <div>
+          <span class="slide-tag"><i class="fa-solid fa-circle-question"></i> Slide 2 of 8</span>
+          <h2 class="slide-title">The Challenge: Webhooks</h2>
+          <p class="slide-description">
+            To connect Foodpanda & Grab, the delivery companies need to send order notifications (webhooks) to our system. But they cannot talk directly to a browser app.
+          </p>
+          
+          <div class="receptionist-visual">
+            <div class="comp-card negative">
+              <div class="comp-header negative">
+                <i class="fa-solid fa-ban"></i> The Limitation (Browser App Only)
+              </div>
+              <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                A React browser app is only active when a cashier has it open. If the browser tab is closed or a computer goes to sleep, incoming orders from Foodpanda or Grab have nowhere to go and will fail.
+              </p>
+            </div>
+            
+            <div class="comp-card positive">
+              <div class="comp-header positive">
+                <i class="fa-solid fa-server"></i> The Solution: A Webhook Server
+              </div>
+              <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                We need a lightweight backend server. Think of it as a <strong>Digital Receptionist</strong>. It is a simple server that sits in the cloud, stays awake 24/7, listens for incoming orders from Grab/Foodpanda, and immediately processes them.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="glass-card">
+            <h3 style="margin-bottom: 1rem; font-family: var(--font-display); color: var(--color-primary);"><i class="fa-solid fa-network-wired"></i> How the "Receptionist" Works:</h3>
+            <ul style="list-style: none; display: flex; flex-direction: column; gap: 1rem; font-size: 0.9rem;">
+              <li style="display: flex; gap: 0.75rem; align-items: flex-start;">
+                <span style="color: var(--color-secondary); font-weight: bold;">1.</span>
+                <span><strong>Listens 24/7:</strong> Stands ready to receive customer orders from Foodpanda/Grab webhooks at any second of the day.</span>
+              </li>
+              <li style="display: flex; gap: 0.75rem; align-items: flex-start;">
+                <span style="color: var(--color-secondary); font-weight: bold;">2.</span>
+                <span><strong>Verifies Stock:</strong> Instantly connects to the Supabase database, calling our RPC function to check if the kitchen has enough raw materials for the order.</span>
+              </li>
+              <li style="display: flex; gap: 0.75rem; align-items: flex-start;">
+                <span style="color: var(--color-secondary); font-weight: bold;">3.</span>
+                <span><strong>Confirms/Deducts:</strong> If ingredients are available, it tells the delivery platform "Order Accepted!", deducts inventory, and sends the ticket to the kitchen.</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3: Interactive System Flow Chart -->
+    <section class="slide" data-slide="3">
+      <div style="height: 100%; display: flex; flex-direction: column; justify-content: center;">
+        <span class="slide-tag"><i class="fa-solid fa-diagram-project"></i> Slide 3 of 8</span>
+        <h2 class="slide-title" style="margin-bottom: 0.5rem;">How Data Flows (Animated Blueprint)</h2>
+        <p class="slide-description" style="margin-bottom: 1.5rem;">
+          Hover or click on the nodes to highlight active data flows. Follow the pulse paths representing a real-time order.
+        </p>
+        
+        <div class="diagram-container">
+          <!-- SVG connections -->
+          <svg class="svg-connectors">
+            <!-- Foodpanda to Backend -->
+            <path id="fp-to-backend" d="M 120,130 C 180,130 180,180 250,180" />
+            <path class="animated-path-fp" d="M 120,130 C 180,130 180,180 250,180" />
+            
+            <!-- Grab to Backend -->
+            <path id="grab-to-backend" d="M 120,270 C 180,270 180,200 250,200" />
+            <path class="animated-path-grab" d="M 120,270 C 180,270 180,200 250,200" />
+            
+            <!-- Backend to Database -->
+            <path id="backend-to-db" d="M 390,190 L 520,190" />
+            <path class="animated-path" d="M 390,190 L 520,190" stroke-width="3" />
+            
+            <!-- Database to POS UI -->
+            <path id="db-to-pos" d="M 640,190 L 760,190" />
+            <path class="animated-path" d="M 640,190 L 760,190" />
+          </svg>
+          
+          <!-- Node 1: Foodpanda API -->
+          <div class="diagram-node node-foodpanda">
+            <div class="node-icon"><i class="fa-solid fa-bowl-food"></i></div>
+            <div class="node-title">Foodpanda</div>
+            <div class="node-subtitle">Delivery Hero</div>
+          </div>
+          
+          <!-- Node 2: GrabFood API -->
+          <div class="diagram-node node-grab">
+            <div class="node-icon"><i class="fa-solid fa-motorcycle"></i></div>
+            <div class="node-title">GrabFood</div>
+            <div class="node-subtitle">Grab API</div>
+          </div>
+          
+          <!-- Node 3: Webhook Backend Server (The New Serverless Piece) -->
+          <div class="diagram-node node-backend" style="transform: translateY(-10px);">
+            <div class="node-icon"><i class="fa-solid fa-server"></i></div>
+            <div class="node-title" style="color: var(--color-primary); font-size: 0.95rem;">Webhook Server</div>
+            <div class="node-subtitle" style="color: var(--text-primary); font-weight: bold;">The Digital Receptionist</div>
+          </div>
+          
+          <!-- Node 4: Supabase Relational Database -->
+          <div class="diagram-node node-database">
+            <div class="node-icon"><i class="fa-solid fa-database"></i></div>
+            <div class="node-title">Supabase DB</div>
+            <div class="node-subtitle">Stores Data & RPCs</div>
+          </div>
+          
+          <!-- Node 5: Branch POS Dashboard -->
+          <div class="diagram-node node-pos">
+            <div class="node-icon"><i class="fa-solid fa-laptop-code"></i></div>
+            <div class="node-title">RESTOChain UI</div>
+            <div class="node-subtitle">Kitchen & Manager View</div>
+          </div>
+        </div>
+        
+        <div class="diagram-console">
+          <i class="fa-solid fa-terminal"></i>
+          <span id="console-text">System Status: Active &amp; listening. Ready to simulate data movement.</span>
+          <div class="console-cursor"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4: Credential & Setup Requirements -->
+    <section class="slide" data-slide="4">
+      <div style="height: 100%; display: flex; flex-direction: column; justify-content: center;">
+        <span class="slide-tag"><i class="fa-solid fa-key"></i> Slide 4 of 8</span>
+        <h2 class="slide-title" style="margin-bottom: 0.5rem;">Required API Credentials &amp; Handshakes</h2>
+        <p class="slide-description" style="margin-bottom: 1.5rem;">
+          To allow secure communication, the client must request and provide specific credentials from Foodpanda and Grab.
+        </p>
+        
+        <div class="requirements-tabs">
+          <button class="req-tab tab-fp active" onclick="switchReqTab('fp')">Foodpanda Requirements</button>
+          <button class="req-tab tab-grab" onclick="switchReqTab('grab')">GrabFood Requirements</button>
+        </div>
+        
+        <!-- Foodpanda tab content -->
+        <div id="content-fp" class="tab-content active">
+          <div class="grid-table">
+            <div class="grid-row">
+              <div class="grid-label"><i class="fa-solid fa-link" style="color: var(--color-accent);"></i> Chain Code</div>
+              <div class="grid-val">Unique chain identifier assigned by Foodpanda to map all of Dr. Humba's branches.</div>
+            </div>
+            <div class="grid-row">
+              <div class="grid-label"><i class="fa-solid fa-store" style="color: var(--color-accent);"></i> POS Vendor IDs</div>
+              <div class="grid-val">Individual branch IDs. One unique code generated by Foodpanda for each location (e.g., Branch A, Branch B).</div>
+            </div>
+            <div class="grid-row">
+              <div class="grid-label"><i class="fa-solid fa-user-shield" style="color: var(--color-accent);"></i> OAuth Credentials</div>
+              <div class="grid-val">Client ID and Client Secret keys generated via the Delivery Hero Partner Portal to securely send catalog syncs and order status updates.</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Grab tab content -->
+        <div id="content-grab" class="tab-content">
+          <div class="grid-table">
+            <div class="grid-row">
+              <div class="grid-label"><i class="fa-solid fa-id-card" style="color: var(--color-grab);"></i> Merchant ID</div>
+              <div class="grid-val">Unique merchant identification strings representing each branch store registered on the GrabMerchant app.</div>
+            </div>
+            <div class="grid-row">
+              <div class="grid-label"><i class="fa-solid fa-passport" style="color: var(--color-grab);"></i> Partner API Keys</div>
+              <div class="grid-val">OAuth 2.0 credentials (client keys) requested from the Grab Developer Portal to allow integration communication.</div>
+            </div>
+            <div class="grid-row">
+              <div class="grid-label"><i class="fa-solid fa-vial" style="color: var(--color-grab);"></i> Sandbox Access</div>
+              <div class="grid-val">Test keys and test store access required so we can run orders safely in staging before going live.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: Project Onboarding Timeline -->
+    <section class="slide" data-slide="5">
+      <div style="height: 100%; display: flex; flex-direction: column; justify-content: center;">
+        <span class="slide-tag"><i class="fa-solid fa-calendar-days"></i> Slide 5 of 8</span>
+        <h2 class="slide-title" style="margin-bottom: 0.5rem;">Integration Roadmap &amp; Stages</h2>
+        <p class="slide-description" style="margin-bottom: 1.5rem;">
+          A detailed, 10-week implementation plan designed to ensure safety and prevent stock reconciliation discrepancies.
+        </p>
+        
+        <div class="timeline-container">
+          <div class="timeline-step">
+            <div class="step-number">1</div>
+            <div class="step-duration">Weeks 1-2</div>
+            <div class="step-title">Business Prep</div>
+            <p class="step-desc">Establish merchant accounts, sign integration agreements, and request Chain &amp; Merchant IDs from both portals.</p>
+          </div>
+          
+          <div class="timeline-step">
+            <div class="step-number">2</div>
+            <div class="step-duration">Weeks 3-4</div>
+            <div class="step-title">Technical Setup</div>
+            <p class="step-desc">Deploy the Webhook Backend Server. Map physical branch structures and store platform keys securely in Supabase.</p>
+          </div>
+          
+          <div class="timeline-step">
+            <div class="step-number">3</div>
+            <div class="step-duration">Weeks 5-6</div>
+            <div class="step-title">Order Flow</div>
+            <p class="step-desc">Connect the order dispatches. Write script logic to validate stock, trigger deductions, and print kitchen tickets.</p>
+          </div>
+          
+          <div class="timeline-step">
+            <div class="step-number">4</div>
+            <div class="step-duration">Weeks 7-8</div>
+            <div class="step-title">Menu &amp; Availability</div>
+            <p class="step-desc">Enable Menu Sync. Build automatic "86" toggles so when items sell out in-store, they disappear from Foodpanda/Grab immediately.</p>
+          </div>
+          
+          <div class="timeline-step">
+            <div class="step-number">5</div>
+            <div class="step-duration">Weeks 9-10</div>
+            <div class="step-title">Testing &amp; Go-Live</div>
+            <p class="step-desc">Run orders in sandbox, audit database logs, launch a single branch pilot, then roll out to all remaining locations.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: Server Hosting Options -->
+    <section class="slide" data-slide="6">
+      <div style="height: 100%; display: flex; flex-direction: column; justify-content: center;">
+        <span class="slide-tag"><i class="fa-solid fa-server"></i> Slide 6 of 8</span>
+        <h2 class="slide-title" style="margin-bottom: 0.5rem;">Where will the new server run?</h2>
+        <p class="slide-description" style="margin-bottom: 1.5rem;">
+          We have two primary, budget-friendly options to deploy this server, both ensuring maximum uptime and security.
+        </p>
+        
+        <div class="deployment-options">
+          <div class="deploy-option recommended">
+            <div class="recommend-badge">Recommended</div>
+            <div class="deploy-title">
+              <i class="fa-solid fa-bolt" style="color: var(--color-primary);"></i>
+              Supabase Edge Functions
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+              Deploying small, serverless scripts (handlers) directly within your existing Supabase project database environment.
+            </p>
+            <div class="deploy-pros-cons">
+              <div>
+                <strong style="color: var(--color-success);">Pros</strong>
+                <ul class="pros-list" style="margin-top: 0.25rem;">
+                  <li>Zero hosting cost overlap</li>
+                  <li>Direct connection to database</li>
+                  <li>Instant automatic scaling</li>
+                </ul>
+              </div>
+              <div>
+                <strong style="color: var(--color-accent);">Cons</strong>
+                <ul class="cons-list" style="margin-top: 0.25rem;">
+                  <li>150-second run timeout</li>
+                  <li>Initial delay on cold boot</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          
+          <div class="deploy-option">
+            <div class="deploy-title">
+              <i class="fa-brands fa-node-js" style="color: var(--color-grab);"></i>
+              Dedicated Node.js / Express Server
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+              A small dedicated server hosted on platforms like <strong>Render</strong> or <strong>DigitalOcean VPS</strong>, running constantly.
+            </p>
+            <div class="deploy-pros-cons">
+              <div>
+                <strong style="color: var(--color-success);">Pros</strong>
+                <ul class="pros-list" style="margin-top: 0.25rem;">
+                  <li>Always warm (0ms delay)</li>
+                  <li>Infinite control over tasks</li>
+                  <li>Allows persistent sockets</li>
+                </ul>
+              </div>
+              <div>
+                <strong style="color: var(--color-accent);">Cons</strong>
+                <ul class="cons-list" style="margin-top: 0.25rem;">
+                  <li>Small monthly cost ($5–$10)</li>
+                  <li>Requires separate account</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: Client Action Items -->
+    <section class="slide" data-slide="7">
+      <div style="height: 100%; display: flex; flex-direction: column; justify-content: center;">
+        <span class="slide-tag"><i class="fa-solid fa-list-check"></i> Slide 7 of 8</span>
+        <h2 class="slide-title" style="margin-bottom: 0.5rem;">Client Action Items Checklist</h2>
+        <p class="slide-description" style="margin-bottom: 1.5rem;">
+          To begin this process, the client team needs to perform the following business steps:
+        </p>
+        
+        <div class="checklist-grid">
+          <div class="glass-card">
+            <div class="todo-group-title fp-color">
+              <i class="fa-solid fa-bowl-food"></i> Foodpanda Actions
+            </div>
+            <ul class="todo-list">
+              <li>
+                <input type="checkbox" id="todo-fp-1">
+                <label for="todo-fp-1">Verify signed commercial agreement with Foodpanda.</label>
+              </li>
+              <li>
+                <input type="checkbox" id="todo-fp-2">
+                <label for="todo-fp-2">Request Chain ID / chainCode from Account Manager.</label>
+              </li>
+              <li>
+                <input type="checkbox" id="todo-fp-3">
+                <label for="todo-fp-3">Obtain unique posVendorId for each store branch.</label>
+              </li>
+              <li>
+                <input type="checkbox" id="todo-fp-4">
+                <label for="todo-fp-4">Request Client ID and Secret for Delivery Hero API integration.</label>
+              </li>
+            </ul>
+          </div>
+          
+          <div class="glass-card">
+            <div class="todo-group-title grab-color">
+              <i class="fa-solid fa-motorcycle"></i> GrabFood Actions
+            </div>
+            <ul class="todo-list">
+              <li>
+                <input type="checkbox" id="todo-grab-1">
+                <label for="todo-grab-1">Check active GrabMerchant status for all outlets.</label>
+              </li>
+              <li>
+                <input type="checkbox" id="todo-grab-2">
+                <label for="todo-grab-2">Obtain Grab Merchant IDs per branch location.</label>
+              </li>
+              <li>
+                <input type="checkbox" id="todo-grab-3">
+                <label for="todo-grab-3">Register on developer.grab.com and request partner keys.</label>
+              </li>
+              <li>
+                <input type="checkbox" id="todo-grab-4">
+                <label for="todo-grab-4">Sign Grab Business POS Integration agreement.</label>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8: Thank You / Next Steps -->
+    <section class="slide" data-slide="8">
+      <div class="slide-layout-hero">
+        <div class="title-presentation-label" style="background: var(--color-primary-glow);">Ready to Sync</div>
+        <h2 class="slide-title" style="font-size: 3.5rem;">Let's Build the Future of RESTOChain</h2>
+        <p class="slide-description">
+          Automating Foodpanda &amp; Grab integration protects your kitchen margins, guarantees stock levels, and prevents human errors.
+        </p>
+        <div style="display: flex; gap: 1.5rem; margin-top: 1.5rem;">
+          <button class="control-btn" onclick="goToSlide(0)" style="padding: 0.75rem 1.5rem; font-size: 1rem; border-color: var(--color-primary); background: var(--color-primary); color: white;">
+            <i class="fa-solid fa-rotate-left"></i> Restart Slide
+          </button>
+          <button class="control-btn" onclick="toggleLayout()" style="padding: 0.75rem 1.5rem; font-size: 1rem;">
+            <i class="fa-solid fa-file-pdf"></i> Read Document Mode
+          </button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- -----------------------------------------
+       PRESENTER NOTES PANEL
+       ----------------------------------------- -->
+  <aside class="presenter-notes-panel" id="presenter-notes">
+    <div class="notes-header">
+      <i class="fa-solid fa-comment-dots"></i> <span>Speaker Notes</span>
+    </div>
+    <div class="notes-content" id="notes-text">
+      Loading notes...
+    </div>
+  </aside>
+
+  <!-- -----------------------------------------
+       APP FOOTER / SLIDE CONTROL BAR
+       ----------------------------------------- -->
+  <footer class="app-footer">
+    <div class="slide-progress-container">
+      <span class="slide-counter" id="slide-num">01 / 09</span>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progress-bar"></div>
+      </div>
+    </div>
+    <div class="nav-controls">
+      <button class="nav-btn" id="prev-btn" onclick="prevSlide()" disabled title="Previous Slide (Left Arrow)">
+        <i class="fa-solid fa-chevron-left"></i>
+      </button>
+      <button class="nav-btn" id="next-btn" onclick="nextSlide()" title="Next Slide (Right Arrow/Space)">
+        <i class="fa-solid fa-chevron-right"></i>
+      </button>
+    </div>
+  </footer>
+
+  <!-- -----------------------------------------
+       INTERACTIVE SCRIPTS
+       ----------------------------------------- -->
+  <script>
+    // Speaker notes content matching slides
+    const speakerNotes = {
+      0: "Welcome the client. Present the integration project scope. Emphasize that the goal is complete inventory synchronization and automated order recording to minimize human cashier errors.",
+      1: "Briefly explain the current system architecture. Reassure the client that their existing system (RESTOChain React + Supabase) is solid and secure because all calculations (like ingredient checks) run directly in the database (RPC functions).",
+      2: "Introduce the core challenge: webhooks. Explain the digital receptionist analogy. The browser is like a computer inside the shop that goes to sleep at night. A cloud webhook server stays awake 24/7 to catch orders instantly from Foodpanda/Grab.",
+      3: "Walk through the diagram. Hovering or clicking on elements will showcase the order flow: Foodpanda/Grab sends a request -> Webhook Server catches it -> checks Supabase to run stock math -> updates database -> pushes notification to POS screen.",
+      4: "Describe the keys required. Explain that we need unique vendor and client credentials to authenticate our server with Foodpanda's Delivery Hero Middleware API and Grab's partner API.",
+      5: "Show the onboarding roadmap. Detail the phases over 10 weeks. Emphasize the importance of testing in the staging sandbox (Phases 3-4) to prevent stock calculations from being incorrect at live launch.",
+      6: "Discuss hosting. Suggest Supabase Edge Functions as the primary option since it integrates cleanly with their existing project without extra hosting fees. Present Node.js on Render as a backup if they need an active warm socket server.",
+      7: "Give the client their action plan. These are the immediate steps they need to contact their Grab and Foodpanda managers for. Offer to help draft the request emails if needed.",
+      8: "Conclude. Open the floor for client questions, and explain that once they authorize Phase 1, we can begin requesting portal credentials."
+    };
+
+    // Console text simulator matching slides
+    const consoleTexts = {
+      0: "Ready to launch proposal deck...",
+      1: "Current system: RESTOChain client connected to database endpoint via RPC triggers.",
+      2: "Simulating HTTP Webhook request: Waiting for a server to handle delivery calls...",
+      3: "HOVER NODES: Foodpanda/Grab -> Webhook Server (receives post request) -> runs DB trigger -> alerts POS UI.",
+      4: "Secure credentials: Oauth2 Bearer Token generated for handshake protocol verification.",
+      5: "Roadmap: 10-week cycle. Week 1-2 starts immediately on account verification.",
+      6: "Infra option 1: Supabase Edge (Deno). Option 2: Render/DigitalOcean (Express.js node server).",
+      7: "Action Checklist: Waiting on client request forms to obtain Chain IDs and Partner Keys.",
+      8: "End of presentation. System logs saved. Press 'Document View' to print."
+    };
+
+    let currentSlide = 0;
+    const totalSlides = 9; // 0 to 8
+    
+    const slidesContainer = document.getElementById('slides-container');
+    const slideCounter = document.getElementById('slide-num');
+    const progressBar = document.getElementById('progress-bar');
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const notesText = document.getElementById('notes-text');
+    const consoleText = document.getElementById('console-text');
+
+    // Initialize keyboard controls
+    document.addEventListener('keydown', (e) => {
+      if (document.body.classList.contains('print-mode')) return; // Ignore on scrollable layout
+      if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        nextSlide();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        prevSlide();
+      }
+    });
+
+    // Go to specific slide
+    function goToSlide(index) {
+      if (index < 0 || index >= totalSlides) return;
+      
+      const slides = document.querySelectorAll('.slide');
+      slides.forEach((slide) => {
+        slide.classList.remove('active', 'prev-slide');
+        const slideIdx = parseInt(slide.getAttribute('data-slide'));
+        if (slideIdx < index) {
+          slide.classList.add('prev-slide');
+        }
+      });
+      
+      currentSlide = index;
+      const targetSlide = document.querySelector(`.slide[data-slide="${index}"]`);
+      if (targetSlide) {
+        targetSlide.classList.add('active');
+      }
+      
+      updateControls();
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides - 1) {
+        goToSlide(currentSlide + 1);
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 0) {
+        goToSlide(currentSlide - 1);
+      }
+    }
+
+    // Update navigation controls, counter and progress bar
+    function updateControls() {
+      slideCounter.innerText = `${String(currentSlide + 1).padStart(2, '0')} / ${String(totalSlides).padStart(2, '0')}`;
+      progressBar.style.width = `${(currentSlide / (totalSlides - 1)) * 100}%`;
+      
+      prevBtn.disabled = currentSlide === 0;
+      nextBtn.disabled = currentSlide === totalSlides - 1;
+
+      // Update speaker notes and console text
+      notesText.innerHTML = speakerNotes[currentSlide] || "No notes available for this slide.";
+      consoleText.innerText = `Console status: ${consoleTexts[currentSlide] || "Listening..."}`;
+      
+      // Clear active flow classes in diagram
+      if (currentSlide !== 3) {
+        resetDiagram();
+      }
+    }
+
+    // Tab switcher in Slide 4
+    function switchReqTab(platform) {
+      const tabs = document.querySelectorAll('.req-tab');
+      const contents = document.querySelectorAll('.tab-content');
+      
+      tabs.forEach(t => t.classList.remove('active'));
+      contents.forEach(c => c.classList.remove('active'));
+      
+      if (platform === 'fp') {
+        document.querySelector('.tab-fp').classList.add('active');
+        document.getElementById('content-fp').classList.add('active');
+      } else {
+        document.querySelector('.tab-grab').classList.add('active');
+        document.getElementById('content-grab').classList.add('active');
+      }
+    }
+
+    // Layout Toggle: Presentation Slides vs Document/Print View
+    function toggleLayout() {
+      const btn = document.getElementById('layout-toggle');
+      const body = document.body;
+      
+      if (body.classList.contains('print-mode')) {
+        body.classList.remove('print-mode');
+        btn.innerHTML = '<i class="fa-solid fa-scroll"></i> <span>Document View</span>';
+        goToSlide(currentSlide);
+      } else {
+        body.classList.add('print-mode');
+        btn.innerHTML = '<i class="fa-solid fa-expand"></i> <span>Slides View</span>';
+      }
+    }
+
+    // Theme Toggle: Dark vs Light
+    function toggleTheme() {
+      const btn = document.getElementById('theme-toggle');
+      const root = document.documentElement;
+      
+      if (root.getAttribute('data-theme') === 'light') {
+        root.removeAttribute('data-theme');
+        btn.innerHTML = '<i class="fa-solid fa-moon"></i> <span>Dark Mode</span>';
+      } else {
+        root.setAttribute('data-theme', 'light');
+        btn.innerHTML = '<i class="fa-solid fa-sun"></i> <span>Light Mode</span>';
+      }
+    }
+
+    // Toggle Speaker Notes panel
+    function toggleNotes() {
+      const panel = document.getElementById('presenter-notes');
+      panel.classList.toggle('active');
+    }
+
+    // Interactive Diagram hover effects
+    function resetDiagram() {
+      const nodes = document.querySelectorAll('.diagram-node');
+      nodes.forEach(n => n.style.opacity = '1');
+      document.querySelector('.animated-path-fp').style.strokeWidth = '2';
+      document.querySelector('.animated-path-grab').style.strokeWidth = '2';
+      document.querySelector('.animated-path').style.strokeWidth = '2';
+    }
+
+    // Add diagram hover behaviors
+    document.querySelectorAll('.diagram-node').forEach(node => {
+      node.addEventListener('mouseenter', () => {
+        if (currentSlide !== 3) return;
+        const isFP = node.classList.contains('node-foodpanda');
+        const isGrab = node.classList.contains('node-grab');
+        const isBackend = node.classList.contains('node-backend');
+        const isDB = node.classList.contains('node-database');
+        const isPOS = node.classList.contains('node-pos');
+
+        // Highlight specific data paths
+        if (isFP) {
+          consoleText.innerText = "Simulating: Customer buys burger on Foodpanda -> dispatching order webhook to URL...";
+          document.querySelector('.animated-path-fp').style.strokeWidth = '5';
+          document.querySelector('.animated-path-fp').style.stroke = 'var(--color-accent)';
+        } else if (isGrab) {
+          consoleText.innerText = "Simulating: Customer orders beef burger on Grab -> dispatching Grab webhook to URL...";
+          document.querySelector('.animated-path-grab').style.strokeWidth = '5';
+          document.querySelector('.animated-path-grab').style.stroke = 'var(--color-grab)';
+        } else if (isBackend) {
+          consoleText.innerText = "Simulating: Digital Receptionist (Backend Server) receives post request, auth verify, checking DB rules...";
+          document.querySelector('.animated-path-fp').style.strokeWidth = '4';
+          document.querySelector('.animated-path-grab').style.strokeWidth = '4';
+        } else if (isDB) {
+          consoleText.innerText = "Simulating: Supabase runs transaction-safe recipe RPC, updating inventory ledger columns...";
+          document.querySelector('.animated-path').style.strokeWidth = '5';
+        } else if (isPOS) {
+          consoleText.innerText = "Simulating: Broadcast channels update RESTOChain Dashboard, ticket auto-printing in kitchen...";
+        }
+      });
+
+      node.addEventListener('mouseleave', () => {
+        if (currentSlide !== 3) return;
+        consoleText.innerText = "System Status: Active & listening. Hover nodes to view flow behaviors.";
+        resetDiagram();
+      });
+    });
+
+    // Initialize presentation notes on boot
+    updateControls();
+  </script>
+</body>
+</html>

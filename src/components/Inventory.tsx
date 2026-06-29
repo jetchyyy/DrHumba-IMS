@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useTenant } from '../contexts/TenantContext';
 import { PlusIcon as Plus, Pencil2Icon as Edit2, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, ExclamationTriangleIcon as AlertTriangle, TrashIcon as Trash2, CubeIcon as Package } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -33,6 +34,7 @@ interface InventoryItem {
   reorder_level: number;
   cost_per_base_unit: number;
   status: 'active' | 'inactive';
+  selling_price?: number | null;
 }
 
 interface Balance {
@@ -43,6 +45,9 @@ interface Balance {
 export const Inventory: React.FC = () => {
   const { profile, selectedBranch } = useAuth();
   const { confirm, showSuccess, showError } = useModal();
+  const { tenant } = useTenant();
+  const isRetail = tenant?.is_retail ?? false;
+  const isService = tenant?.is_service ?? false;
   
   // Navigation Tabs: 'catalog' or 'balances'
   const [activeSubTab, setActiveSubTab] = useState<'balances' | 'catalog'>('balances');
@@ -72,6 +77,20 @@ export const Inventory: React.FC = () => {
   const [costPerBaseUnit, setCostPerBaseUnit] = useState(0.01);
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [initialQty, setInitialQty] = useState<number>(0);
+  const [sellingPrice, setSellingPrice] = useState<number | ''>('');
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
+
+  const isRestaurant = tenant?.is_restaurant ?? true;
+
+  const categoriesList = useMemo(() => {
+    const defaults = isRestaurant 
+      ? ['Vegetables', 'Meat', 'Dairy', 'Bakery', 'Liquid', 'Dry Goods', 'Packaging']
+      : ['Parts', 'Accessories', 'Services', 'Lubricants', 'Apparel', 'Tools', 'General'];
+    
+    const dbCategories = items.map(i => i.category);
+    const merged = Array.from(new Set([...defaults, ...dbCategories]));
+    return merged.filter(c => c && c.trim().length > 0);
+  }, [items, isRestaurant]);
 
   // Stock In state
   const [stockInItem, setStockInItem] = useState<InventoryItem | null>(null);
@@ -113,14 +132,16 @@ export const Inventory: React.FC = () => {
     setEditingItem(null);
     setSku(`ING-${Math.random().toString(36).substring(2, 7).toUpperCase()}`);
     setItemName('');
-    setCategory('Vegetables');
-    setBaseUnit('g');
-    setPurchaseUnit('g');
+    setCategory(isRestaurant ? 'Vegetables' : 'Parts');
+    setIsCustomCategory(false);
+    setBaseUnit(isRestaurant ? 'g' : 'pc');
+    setPurchaseUnit(isRestaurant ? 'g' : 'pc');
     setConversionFactor(1);
-    setReorderLevel(500);
-    setCostPerBaseUnit(0.01);
+    setReorderLevel(isRestaurant ? 500 : 5);
+    setCostPerBaseUnit(10.00);
     setStatus('active');
     setInitialQty(0);
+    setSellingPrice('');
     setShowForm(true);
   };
 
@@ -129,12 +150,14 @@ export const Inventory: React.FC = () => {
     setSku(item.sku);
     setItemName(item.item_name);
     setCategory(item.category);
+    setIsCustomCategory(false);
     setBaseUnit(item.base_unit);
     setPurchaseUnit(item.purchase_unit);
     setConversionFactor(item.conversion_factor);
     setReorderLevel(item.reorder_level);
     setCostPerBaseUnit(item.cost_per_base_unit);
     setStatus(item.status);
+    setSellingPrice(item.selling_price || '');
     setShowForm(true);
   };
 
@@ -161,7 +184,8 @@ export const Inventory: React.FC = () => {
         conversion_factor: Number(conversionFactor),
         reorder_level: Number(reorderLevel),
         cost_per_base_unit: Number(costPerBaseUnit),
-        status
+        status,
+        selling_price: sellingPrice === '' ? null : Number(sellingPrice)
       };
 
       if (editingItem) {
@@ -183,7 +207,8 @@ export const Inventory: React.FC = () => {
           p_cost_per_base_unit: Number(costPerBaseUnit),
           p_initial_quantity: Number(initialQty),
           p_branch_id: selectedBranch ? selectedBranch.id : null,
-          p_created_by: profile ? profile.id : null
+          p_created_by: profile ? profile.id : null,
+          p_selling_price: sellingPrice === '' ? null : Number(sellingPrice)
         });
         if (error) throw error;
         showSuccess("Item created successfully!");
@@ -615,18 +640,51 @@ export const Inventory: React.FC = () => {
               </div>
               <div className="space-y-2">
                 <Label>Category *</Label>
-                <Select value={category} onValueChange={setCategory}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Vegetables">Vegetables</SelectItem>
-                    <SelectItem value="Meat">Meat</SelectItem>
-                    <SelectItem value="Dairy">Dairy</SelectItem>
-                    <SelectItem value="Bakery">Bakery</SelectItem>
-                    <SelectItem value="Liquid">Liquid</SelectItem>
-                    <SelectItem value="Dry Goods">Dry Goods</SelectItem>
-                    <SelectItem value="Packaging">Packaging</SelectItem>
-                  </SelectContent>
-                </Select>
+                {isCustomCategory ? (
+                  <div className="flex space-x-2">
+                    <Input
+                      required
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      placeholder="Custom category"
+                      className="flex-1 h-9"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-9"
+                      onClick={() => {
+                        setIsCustomCategory(false);
+                        setCategory(isRestaurant ? 'Vegetables' : 'Parts');
+                      }}
+                    >
+                      Existing
+                    </Button>
+                  </div>
+                ) : (
+                  <Select
+                    value={category}
+                    onValueChange={(val) => {
+                      if (val === 'ADD_CUSTOM') {
+                        setIsCustomCategory(true);
+                        setCategory('');
+                      } else {
+                        setCategory(val);
+                      }
+                    }}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {categoriesList.map(cat => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                      <SelectItem value="ADD_CUSTOM" className="text-primary font-semibold">
+                        + Add Custom Category...
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
             </div>
 
@@ -666,6 +724,23 @@ export const Inventory: React.FC = () => {
                 <Input type="number" step="0.0001" required value={costPerBaseUnit} onChange={(e) => setCostPerBaseUnit(Number(e.target.value))} />
               </div>
             </div>
+
+            {(isRetail || isService) && (
+              <div className="space-y-2">
+                <Label>Retail Selling Price (₱) - Optional</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={sellingPrice}
+                  onChange={(e) => setSellingPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                  placeholder="e.g. 150.00 (leave blank if not for POS sale)"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Setting a selling price automatically creates and updates a matching POS catalog product.
+                </p>
+              </div>
+            )}
 
             {editingItem && (
               <div className="space-y-2">

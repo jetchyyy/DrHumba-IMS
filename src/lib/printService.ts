@@ -1575,3 +1575,215 @@ export const printEndOfDayPDFReport = (report: any, template: TransferSlipTempla
   printWindow.document.write(html);
   printWindow.document.close();
 };
+
+export const printXZReport = (report: any, isZRead: boolean, merchantName: string = 'BIKETOPIA') => {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Please allow popups to generate the report.');
+    return;
+  }
+
+  const dateStr = new Date().toLocaleString();
+  const openedDateStr = new Date(report.openedAt).toLocaleString();
+  const closedDateStr = report.closedAt ? new Date(report.closedAt).toLocaleString() : 'N/A';
+
+  const html = `
+    <html>
+      <head>
+        <title>${isZRead ? 'Z-READ' : 'X-READ'} REPORT</title>
+        <style>
+          @page { margin: 0; }
+          body {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            line-height: 1.3;
+            color: #000000;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 8px;
+            width: 76mm;
+          }
+          .centered { text-align: center; }
+          .bold { font-weight: bold; }
+          .separator { border-top: 1px dashed #000000; margin: 8px 0; }
+          .flex-between { display: flex; justify-content: space-between; }
+          .print-btn {
+            display: block;
+            width: 100%;
+            background-color: #4f46e5;
+            color: #ffffff;
+            border: none;
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: bold;
+            text-align: center;
+            cursor: pointer;
+            margin-bottom: 15px;
+            border-radius: 4px;
+          }
+          @media print {
+            .print-btn { display: none; }
+            body { width: 100%; padding: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <button class="print-btn" onclick="window.print()">Print ${isZRead ? 'Z-Read' : 'X-Read'} Report</button>
+        <div style="width: 100%;">
+          <div class="centered bold" style="font-size: 1.2em; text-transform: uppercase;">
+            ${merchantName}
+          </div>
+          <div class="centered bold" style="margin-top: 4px;">
+            ${isZRead ? 'Z-READ END-OF-DAY' : 'X-READ STATUS REPORT'}
+          </div>
+          <div class="separator"></div>
+          
+          <div style="font-family: monospace;">
+            <div class="flex-between">
+              <span>Status:</span>
+              <span>${(report.status || '').toUpperCase()}</span>
+            </div>
+            ${report.controlNumber ? `
+            <div class="flex-between">
+              <span>Control No:</span>
+              <span>${report.controlNumber}</span>
+            </div>
+            ` : ''}
+            <div class="flex-between">
+              <span>Z-Counter:</span>
+              <span>#${String(report.zCounter || 0).padStart(5, '0')}</span>
+            </div>
+            <div class="flex-between">
+              <span>Opened At:</span>
+              <span>${openedDateStr}</span>
+            </div>
+            <div class="flex-between">
+              <span>Closed At:</span>
+              <span>${closedDateStr}</span>
+            </div>
+            <div class="flex-between">
+              <span>Printed At:</span>
+              <span>${dateStr}</span>
+            </div>
+          </div>
+
+          <div class="separator"></div>
+
+          <div style="font-family: monospace;">
+            <div class="flex-between bold">
+              <span>LIFETIME GRAND TOTALS:</span>
+            </div>
+            <div class="flex-between">
+              <span>Start:</span>
+              <span>₱${Number(report.grandTotalStart || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>End:</span>
+              <span>₱${Number(report.grandTotalEnd || 0).toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div class="separator"></div>
+
+          <div style="font-family: monospace;">
+            <div class="flex-between bold">
+              <span>SALES TRANSACTION DATA:</span>
+            </div>
+            <div class="flex-between">
+              <span>Gross Sales:</span>
+              <span>₱${Number(report.grossSales || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>Net Sales (VAT-Ex):</span>
+              <span>₱${Number(report.netSales || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>VAT Amount (12%):</span>
+              <span>₱${Number(report.vatAmount || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>Transaction Count:</span>
+              <span>${report.transactionCount || 0}</span>
+            </div>
+          </div>
+
+          <div class="separator"></div>
+
+          <div style="font-family: monospace;">
+            <div class="flex-between bold">
+              <span>PAYMENT MODE SUMMARY:</span>
+            </div>
+            <div class="flex-between">
+              <span>Cash Sales:</span>
+              <span>₱${Number(report.cashSales || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>GCash Sales:</span>
+              <span>₱${Number(report.gcashSales || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>Maya Sales:</span>
+              <span>₱${Number(report.mayaSales || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>Card Sales:</span>
+              <span>₱${Number(report.cardSales || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>Other Sales:</span>
+              <span>₱${Number(report.otherSales || 0).toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div class="separator"></div>
+
+          <div style="font-family: monospace;">
+            <div class="flex-between bold">
+              <span>REFUNDS & VOIDS:</span>
+            </div>
+            <div class="flex-between">
+              <span>Void Count:</span>
+              <span>${report.voidCount || 0}</span>
+            </div>
+            <div class="flex-between">
+              <span>Void Amount:</span>
+              <span>₱${Number(report.voidAmount || 0).toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div class="separator"></div>
+
+          <div style="font-family: monospace;">
+            <div class="flex-between bold">
+              <span>DRAWER ACCOUNTABILITY:</span>
+            </div>
+            <div class="flex-between">
+              <span>Opening Cash:</span>
+              <span>₱${Number(report.openingBalance || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>Expected Cash:</span>
+              <span>₱${Number(report.expectedCash || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>Actual Drawer:</span>
+              <span>₱${Number(report.actualCash || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between bold">
+              <span>Discrepancy:</span>
+              <span>₱${Number(report.discrepancy || 0).toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div class="separator"></div>
+          <div class="centered footer-text">
+            *** END OF REPORT ***
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  printWindow.document.write(html);
+  printWindow.document.close();
+};

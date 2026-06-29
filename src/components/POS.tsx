@@ -10,9 +10,17 @@ import {
   CheckCircledIcon as CheckCircle,
   ExclamationTriangleIcon as WifiOff,
   FileTextIcon as Printer,
+  ReloadIcon as Spinner,
 } from '@radix-ui/react-icons';
+import {
+  getTerminalConfig,
+  enqueueOfflineSale,
+  getOfflineSalesQueue,
+  dequeueOfflineSale,
+} from '../lib/offlineService';
+import type { TerminalConfig } from '../lib/offlineService';
 import { settingsService } from '../lib/settingsService';
-import { printThermalInvoice, printKitchenReceipt } from '../lib/printService';
+import { printThermalInvoice, printKitchenReceipt, printXZReport } from '../lib/printService';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
@@ -26,6 +34,8 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Separator } from './ui/separator';
 import { useNetworkStatus } from '../hooks/use-network-status';
+import { useBusinessVocab } from '../hooks/useBusinessVocab';
+import { useTenant } from '../contexts/TenantContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,12 +86,14 @@ interface PaymentDialogProps {
   onConfirm: (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string) => Promise<void>;
   processing: boolean;
   onStateChange?: (state: { method: PaymentMethod; tendered: number; refNumber: string } | null) => void;
+  saleCategories: Array<{ value: string; label: string }>;
+  defaultSaleCategory: string;
 }
 
-const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal, onConfirm, processing, onStateChange }) => {
+const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal, onConfirm, processing, onStateChange, saleCategories, defaultSaleCategory }) => {
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [tenderedStr, setTenderedStr] = useState('');
-  const [saleCategory, setSaleCategory] = useState<string>('Dine in');
+  const [saleCategory, setSaleCategory] = useState<string>(defaultSaleCategory);
   const [customCategory, setCustomCategory] = useState<string>('');
   const [refNumber, setRefNumber] = useState<string>('');
 
@@ -110,11 +122,11 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
     if (open) {
       setMethod('cash');
       setTenderedStr('');
-      setSaleCategory('Dine in');
+      setSaleCategory(defaultSaleCategory);
       setCustomCategory('');
       setRefNumber('');
     }
-  }, [open]);
+  }, [open, defaultSaleCategory]);
 
   const handleConfirm = async () => {
     const tValue = method === 'cash' ? (tendered || null) : null;
@@ -185,10 +197,9 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Dine in">Dine in</SelectItem>
-                <SelectItem value="Grab">Grab</SelectItem>
-                <SelectItem value="Foodpanda">Foodpanda</SelectItem>
-                <SelectItem value="other">Other specify:</SelectItem>
+                {saleCategories.map(cat => (
+                  <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -308,6 +319,9 @@ export const POS: React.FC<POSProps> = ({
   const { selectedBranch, profile } = useAuth();
   const { showSuccess, showError } = useModal();
   const { isOnline } = useNetworkStatus();
+  const vocab = useBusinessVocab();
+  const { tenant } = useTenant();
+  const isRestaurant = tenant?.is_restaurant ?? true;
 
   const [items, setItems] = useState<MenuItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -321,11 +335,96 @@ export const POS: React.FC<POSProps> = ({
   // Payment dialog
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
-  const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string } | null>(null);
+  const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string; control_number?: string } | null>(null);
+
+  // Offline and Terminal Sync states
+  const [terminalConfig, setTerminalConfig] = useState<TerminalConfig | null>(null);
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const loadOfflineData = async () => {
+    try {
+      const config = await getTerminalConfig();
+      setTerminalConfig(config);
+      const queue = await getOfflineSalesQueue();
+      setPendingSyncCount(queue.length);
+    } catch (e) {
+      console.error('Failed to load offline data:', e);
+    }
+  };
+
+  const syncOfflineSales = async () => {
+    if (isSyncing || !isOnline) return;
+    try {
+      const queue = await getOfflineSalesQueue();
+      if (queue.length === 0) return;
+
+      setIsSyncing(true);
+      let successCount = 0;
+
+      for (const sale of queue) {
+        try {
+          const { error } = await supabase.rpc('fn_process_offline_sale', {
+            p_branch_id:        sale.branch_id,
+            p_items:            sale.items,
+            p_payment_method:   sale.payment_method,
+            p_amount_tendered:  sale.amount_tendered,
+            p_sale_category:    sale.sale_category,
+            p_reference_number: sale.reference_number,
+            p_control_number:   sale.control_number,
+            p_created_at:       sale.created_at,
+            p_cashier_id:       sale.cashier_id,
+          });
+
+          if (error) throw error;
+
+          await dequeueOfflineSale(sale.id);
+          successCount++;
+        } catch (err) {
+          console.error('Failed to sync offline sale', sale.control_number, err);
+          break; // Stop syncing remainder to protect sequence order
+        }
+      }
+
+      const remaining = await getOfflineSalesQueue();
+      setPendingSyncCount(remaining.length);
+      setIsSyncing(false);
+
+      if (successCount > 0) {
+        showSuccess(`Successfully synchronized ${successCount} offline transaction(s) to the cloud.`);
+      }
+    } catch (e) {
+      console.error('Sync failure:', e);
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadOfflineData();
+  }, []);
+
+  useEffect(() => {
+    if (isOnline) {
+      syncOfflineSales();
+    }
+  }, [isOnline]);
 
   // Customer Display Sync state
   const [supabaseChannel, setSupabaseChannel] = useState<any>(null);
   const [paymentState, setPaymentState] = useState<{ method: PaymentMethod; tendered: number; refNumber: string } | null>(null);
+
+  // Cashier Drawer Session & shift control states
+  const [activeSession, setActiveSession] = useState<any>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [openSessionOpen, setOpenSessionOpen] = useState(false);
+  const [openingBalance, setOpeningBalance] = useState('1000');
+
+  // X/Z Read report state
+  const [xReadOpen, setXReadOpen] = useState(false);
+  const [zReadOpen, setZReadOpen] = useState(false);
+  const [actualCashStr, setActualCashStr] = useState('');
+  const [sessionSummary, setSessionSummary] = useState<any>(null);
+  const [viewingClosedSummary, setViewingClosedSummary] = useState<any>(null);
 
   const cartTotal = cart.reduce((s, ci) => s + ci.price * ci.quantity, 0);
   const cartCount = cart.reduce((s, ci) => s + ci.quantity, 0);
@@ -347,6 +446,89 @@ export const POS: React.FC<POSProps> = ({
       supabase.removeChannel(channel);
     };
   }, [selectedBranch?.id, profile?.id]);
+
+  const checkActiveSession = async () => {
+    if (!selectedBranch?.id || !profile?.id) return;
+    try {
+      setSessionLoading(true);
+      const { data, error } = await supabase
+        .from('cashier_sessions')
+        .select('*')
+        .eq('branch_id', selectedBranch.id)
+        .eq('cashier_id', profile.id)
+        .eq('status', 'open')
+        .maybeSingle();
+
+      if (error) throw error;
+      if (data) {
+        setActiveSession(data);
+        setOpenSessionOpen(false);
+      } else {
+        setActiveSession(null);
+      }
+    } catch (err: any) {
+      console.error('Error checking cashier session:', err);
+    } finally {
+      setSessionLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    checkActiveSession();
+  }, [selectedBranch?.id, profile?.id]);
+
+  const handleOpenSession = async () => {
+    if (!selectedBranch?.id) return;
+    try {
+      const { error } = await supabase.rpc('fn_open_cashier_session', {
+        p_branch_id: selectedBranch.id,
+        p_opening_balance: Number(openingBalance) || 0
+      });
+
+      if (error) throw error;
+
+      showSuccess('Cash register session opened successfully.');
+      setOpenSessionOpen(false);
+      await checkActiveSession();
+    } catch (err: any) {
+      console.error('Error opening session:', err);
+      showError(err.message || 'Error opening session');
+    }
+  };
+
+  const handleGenerateXRead = async () => {
+    if (!activeSession?.id) return;
+    try {
+      const { data, error } = await supabase.rpc('fn_get_session_summary', {
+        p_session_id: activeSession.id
+      });
+      if (error) throw error;
+      setSessionSummary(data);
+      setXReadOpen(true);
+    } catch (err: any) {
+      console.error('Error loading session summary:', err);
+      showError(err.message || 'Error loading session summary');
+    }
+  };
+
+  const handleCloseSession = async () => {
+    if (!activeSession?.id) return;
+    try {
+      const { data, error } = await supabase.rpc('fn_close_cashier_session', {
+        p_session_id: activeSession.id,
+        p_actual_cash: Number(actualCashStr) || 0
+      });
+      if (error) throw error;
+      
+      showSuccess('Register session closed & Z-Read complete.');
+      setZReadOpen(false);
+      setViewingClosedSummary(data);
+      await checkActiveSession();
+    } catch (err: any) {
+      console.error('Error closing session:', err);
+      showError(err.message || 'Error closing session');
+    }
+  };
 
   // Broadcast state helper
   const broadcastState = (
@@ -449,65 +631,120 @@ export const POS: React.FC<POSProps> = ({
 
   useEffect(() => { loadMenuItems(); }, []);
 
+  const getSaleForPrinting = async (saleId: string) => {
+    if (!isOnline || saleId.startsWith('OFF-') || (saleId && saleId.length < 36)) {
+      const queue = await getOfflineSalesQueue();
+      const offlineSale = queue.find(s => s.id === saleId || s.control_number === saleId);
+      if (offlineSale) {
+        return {
+          id: offlineSale.id,
+          control_number: offlineSale.control_number,
+          branch_id: offlineSale.branch_id,
+          cashier_id: offlineSale.cashier_id,
+          total_amount: Number(offlineSale.total_amount),
+          status: 'completed',
+          created_at: offlineSale.created_at,
+          sale_category: offlineSale.sale_category,
+          reference_number: offlineSale.reference_number,
+          branch_name: selectedBranch?.name || 'Main Branch',
+          cashier_email: offlineSale.cashier_email,
+          items: offlineSale.items.map((item, idx) => ({
+            id: String(idx),
+            quantity: item.quantity,
+            unit_price: item.price || 0,
+            subtotal: (item.price || 0) * item.quantity,
+            item_name: item.name || 'Unknown Item',
+            sku: ''
+          }))
+        };
+      }
+    }
+
+    const { data: saleData, error: saleError } = await supabase
+      .from('sales')
+      .select(`
+        id,
+        control_number,
+        branch_id,
+        cashier_id,
+        total_amount,
+        status,
+        created_at,
+        sale_category,
+        reference_number,
+        branches (name),
+        sale_items (
+          id,
+          quantity,
+          unit_price,
+          subtotal,
+          menu_items (name, sku)
+        )
+      `)
+      .eq('id', saleId)
+      .single();
+
+    if (saleError || !saleData) {
+      const queue = await getOfflineSalesQueue();
+      const offlineSale = queue.find(s => s.id === saleId || s.control_number === saleId);
+      if (offlineSale) {
+        return {
+          id: offlineSale.id,
+          control_number: offlineSale.control_number,
+          branch_id: offlineSale.branch_id,
+          cashier_id: offlineSale.cashier_id,
+          total_amount: Number(offlineSale.total_amount),
+          status: 'completed',
+          created_at: offlineSale.created_at,
+          sale_category: offlineSale.sale_category,
+          reference_number: offlineSale.reference_number,
+          branch_name: selectedBranch?.name || 'Main Branch',
+          cashier_email: offlineSale.cashier_email,
+          items: offlineSale.items.map((item, idx) => ({
+            id: String(idx),
+            quantity: item.quantity,
+            unit_price: item.price || 0,
+            subtotal: (item.price || 0) * item.quantity,
+            item_name: item.name || 'Unknown Item',
+            sku: ''
+          }))
+        };
+      }
+      throw saleError || new Error('Sale data not found');
+    }
+
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('id', saleData.cashier_id)
+      .single();
+
+    return {
+      id: saleData.id,
+      control_number: saleData.control_number || null,
+      branch_id: saleData.branch_id,
+      cashier_id: saleData.cashier_id,
+      total_amount: Number(saleData.total_amount),
+      status: saleData.status,
+      created_at: saleData.created_at,
+      sale_category: saleData.sale_category || 'Dine in',
+      reference_number: saleData.reference_number || '',
+      branch_name: (Array.isArray(saleData.branches) ? saleData.branches[0]?.name : (saleData.branches as any)?.name) || selectedBranch?.name || 'Main Branch',
+      cashier_email: profileData?.email || profile?.email || 'System',
+      items: (saleData.sale_items || []).map((si: any) => ({
+        id: si.id,
+        quantity: Number(si.quantity),
+        unit_price: Number(si.unit_price),
+        subtotal: Number(si.subtotal),
+        item_name: si.menu_items?.name || 'Unknown Dish',
+        sku: si.menu_items?.sku || ''
+      }))
+    };
+  };
+
   const handlePrintThermal = async (saleId: string) => {
     try {
-      // 1. Fetch newly processed sale details from Supabase
-      const { data: saleData, error: saleError } = await supabase
-        .from('sales')
-        .select(`
-          id,
-          control_number,
-          branch_id,
-          cashier_id,
-          total_amount,
-          status,
-          created_at,
-          sale_category,
-          reference_number,
-          branches (name),
-          sale_items (
-            id,
-            quantity,
-            unit_price,
-            subtotal,
-            menu_items (name, sku)
-          )
-        `)
-        .eq('id', saleId)
-        .single();
-
-      if (saleError) throw saleError;
-      if (!saleData) return;
-
-      // 2. Fetch cashier email details
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('id', saleData.cashier_id)
-        .single();
-
-      const mappedSale = {
-        id: saleData.id,
-        control_number: saleData.control_number || null,
-        branch_id: saleData.branch_id,
-        cashier_id: saleData.cashier_id,
-        total_amount: Number(saleData.total_amount),
-        status: saleData.status,
-        created_at: saleData.created_at,
-        sale_category: saleData.sale_category || 'Dine in',
-        reference_number: saleData.reference_number || '',
-        branch_name: (Array.isArray(saleData.branches) ? saleData.branches[0]?.name : (saleData.branches as any)?.name) || selectedBranch?.name || 'Main Branch',
-        cashier_email: profileData?.email || profile?.email || 'System',
-        items: (saleData.sale_items || []).map((si: any) => ({
-          id: si.id,
-          quantity: Number(si.quantity),
-          unit_price: Number(si.unit_price),
-          subtotal: Number(si.subtotal),
-          item_name: si.menu_items?.name || 'Unknown Dish',
-          sku: si.menu_items?.sku || ''
-        }))
-      };
-
+      const mappedSale = await getSaleForPrinting(saleId);
       const settings = await settingsService.getSettings();
       printThermalInvoice(mappedSale, settings.sales_invoice);
     } catch (err) {
@@ -518,47 +755,7 @@ export const POS: React.FC<POSProps> = ({
 
   const handlePrintKitchen = async (saleId: string) => {
     try {
-      // 1. Fetch newly processed sale details from Supabase
-      const { data: saleData, error: saleError } = await supabase
-        .from('sales')
-        .select(`
-          id,
-          control_number,
-          branch_id,
-          total_amount,
-          status,
-          created_at,
-          sale_category,
-          branches (name),
-          sale_items (
-            id,
-            quantity,
-            menu_items (name)
-          )
-        `)
-        .eq('id', saleId)
-        .single();
-
-      if (saleError) throw saleError;
-      if (!saleData) return;
-
-      // 2. Map details
-      const mappedSale = {
-        id: saleData.id,
-        control_number: saleData.control_number || null,
-        branch_id: saleData.branch_id,
-        total_amount: Number(saleData.total_amount),
-        status: saleData.status,
-        created_at: saleData.created_at,
-        sale_category: saleData.sale_category || 'Dine in',
-        branch_name: (Array.isArray(saleData.branches) ? saleData.branches[0]?.name : (saleData.branches as any)?.name) || selectedBranch?.name || 'Main Branch',
-        items: (saleData.sale_items || []).map((si: any) => ({
-          id: si.id,
-          quantity: Number(si.quantity),
-          item_name: si.menu_items?.name || 'Unknown Dish'
-        }))
-      };
-
+      const mappedSale = await getSaleForPrinting(saleId);
       const settings = await settingsService.getSettings();
       printKitchenReceipt(mappedSale, settings.sales_invoice);
     } catch (err) {
@@ -570,6 +767,11 @@ export const POS: React.FC<POSProps> = ({
   // ─── Cart Helpers ──────────────────────────────────────────
 
   const addToCart = (item: MenuItem, qty = 1) => {
+    if (!activeSession || activeSession.status !== 'open') {
+      showError('Please open your register session before processing sales.');
+      setOpenSessionOpen(true);
+      return;
+    }
     setCart(prev => {
       const exists = prev.find(ci => ci.menu_item_id === item.id);
       if (exists) {
@@ -583,6 +785,11 @@ export const POS: React.FC<POSProps> = ({
   };
 
   const updateCartQty = (menuItemId: string, amount: number) => {
+    if (!activeSession || activeSession.status !== 'open') {
+      showError('Please open your register session before processing sales.');
+      setOpenSessionOpen(true);
+      return;
+    }
     setCart(prev =>
       prev
         .map(ci => {
@@ -605,8 +812,13 @@ export const POS: React.FC<POSProps> = ({
       showError('Please select an active branch context from the sidebar.');
       return;
     }
-    if (!isOnline) {
-      showError('You are offline. Please restore your network connection before processing a transaction.');
+    if (!activeSession || activeSession.status !== 'open') {
+      showError('Please open your register session before processing sales.');
+      setOpenSessionOpen(true);
+      return;
+    }
+    if (!isOnline && !terminalConfig) {
+      showError('You are offline. To transact offline, this browser device must first be registered as a POS Terminal in Settings.');
       return;
     }
     setLastSaleResult(null);
@@ -618,37 +830,78 @@ export const POS: React.FC<POSProps> = ({
     setCheckingOut(true);
 
     try {
-      const payload = cart.map(ci => ({ menu_item_id: ci.menu_item_id, quantity: ci.quantity }));
+      const payload = cart.map(ci => ({ 
+        menu_item_id: ci.menu_item_id, 
+        quantity: ci.quantity,
+        name: ci.name,
+        price: ci.price
+      }));
 
-      const { data: saleId, error } = await supabase.rpc('fn_process_sale', {
-        p_branch_id:        selectedBranch.id,
-        p_items:            payload,
-        p_payment_method:   method,
-        p_amount_tendered:  tendered,
-        p_sale_category:    saleCategory,
-        p_reference_number: referenceNumber,
-      });
+      if (isOnline) {
+        const { data: saleId, error } = await supabase.rpc('fn_process_sale', {
+          p_branch_id:        selectedBranch.id,
+          p_items:            payload.map(p => ({ menu_item_id: p.menu_item_id, quantity: p.quantity })),
+          p_payment_method:   method,
+          p_amount_tendered:  tendered,
+          p_sale_category:    saleCategory,
+          p_reference_number: referenceNumber,
+        });
 
-      if (error) throw error;
+        if (error) throw error;
 
-      const change = method === 'cash' && tendered ? tendered - cartTotal : 0;
+        const change = method === 'cash' && tendered ? tendered - cartTotal : 0;
 
-      setLastSaleResult({
-        id: saleId as string,
-        change,
-        method,
-        sale_category: saleCategory,
-        reference_number: referenceNumber
-      });
-      setCart([]);
-      setPaymentOpen(false);
-      setIsCartSheetOpen(false);
+        setLastSaleResult({
+          id: saleId as string,
+          change,
+          method,
+          sale_category: saleCategory,
+          reference_number: referenceNumber
+        });
+        setCart([]);
+        setPaymentOpen(false);
+        setIsCartSheetOpen(false);
 
-      showSuccess(
-        method === 'cash' && change > 0
-          ? `Sale completed! Change due: ${formatPHP(change)}`
-          : 'Transaction recorded successfully.'
-      );
+        showSuccess(
+          method === 'cash' && change > 0
+            ? `Sale completed! Change due: ${formatPHP(change)}`
+            : 'Transaction recorded successfully.'
+        );
+      } else {
+        if (!terminalConfig) throw new Error('No terminal configuration found.');
+
+        const offlineSale = await enqueueOfflineSale({
+          branch_id: selectedBranch.id,
+          cashier_id: profile?.id || '',
+          cashier_email: profile?.email || '',
+          payment_method: method,
+          amount_tendered: tendered,
+          sale_category: saleCategory,
+          reference_number: referenceNumber,
+          items: payload,
+          total_amount: cartTotal
+        });
+
+        const change = method === 'cash' && tendered ? tendered - cartTotal : 0;
+
+        setLastSaleResult({
+          id: offlineSale.id,
+          change,
+          method,
+          sale_category: saleCategory,
+          reference_number: referenceNumber,
+          control_number: offlineSale.control_number
+        });
+
+        setCart([]);
+        setPaymentOpen(false);
+        setIsCartSheetOpen(false);
+
+        const queue = await getOfflineSalesQueue();
+        setPendingSyncCount(queue.length);
+
+        showSuccess(`Offline checkout recorded! Receipt Serial: ${offlineSale.control_number}`);
+      }
     } catch (err: any) {
       console.error('POS Checkout failed:', err);
       showError(err.message || 'Rolled back — insufficient ingredient stock.');
@@ -726,7 +979,7 @@ export const POS: React.FC<POSProps> = ({
                 <ShoppingCart className="w-5 h-5 opacity-50" />
               </div>
               <p className="text-sm font-medium">Your cart is empty</p>
-              <p className="text-xs mt-1">Tap dishes on the catalog to add them.</p>
+              <p className="text-xs mt-1">Tap {vocab.itemUnitPlural} on the catalog to add them.</p>
             </div>
           )}
 
@@ -762,9 +1015,15 @@ export const POS: React.FC<POSProps> = ({
         )}
 
         {!isOnline && (
-          <div className="flex items-center gap-2 text-[10px] text-destructive font-medium bg-destructive/10 p-2 rounded border border-destructive/20">
+          <div className={`flex items-center gap-2 text-[10px] font-medium p-2 rounded border ${
+            terminalConfig 
+              ? 'text-amber-500 bg-amber-500/10 border-amber-500/20' 
+              : 'text-destructive bg-destructive/10 border-destructive/20'
+          }`}>
             <WifiOff className="w-3.5 h-3.5 flex-shrink-0" />
-            Offline — transactions are blocked until connection is restored.
+            {terminalConfig 
+              ? `Offline Mode Active — Sales will queue locally under ${terminalConfig.terminal_code} and sync automatically.`
+              : 'Offline — Connection lost and device is not registered. Transactions are disabled.'}
           </div>
         )}
 
@@ -772,7 +1031,7 @@ export const POS: React.FC<POSProps> = ({
           size="lg"
           className="w-full font-bold shadow-md"
           onClick={openPayment}
-          disabled={checkingOut || cart.length === 0 || !selectedBranch || !isOnline}
+          disabled={checkingOut || cart.length === 0 || !selectedBranch || (!isOnline && !terminalConfig)}
         >
           {checkingOut ? 'Processing…' : 'Charge & Collect Payment'}
         </Button>
@@ -792,10 +1051,10 @@ export const POS: React.FC<POSProps> = ({
             <div>
               <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
                 <ShoppingCart className="w-8 h-8 text-primary" />
-                <span>Point of Sale</span>
+                <span>{vocab.posTitle}</span>
               </h2>
               <p className="text-muted-foreground">
-                Tap items to add to cart. Inventory deductions are validated at the database layer.
+                {vocab.posDescription}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -803,6 +1062,85 @@ export const POS: React.FC<POSProps> = ({
                 <Badge variant="outline" className="px-3.5 py-1.5 text-xs font-semibold bg-primary/10 text-primary border-primary/20">
                   Checkout: <span className="underline font-bold ml-1">{selectedBranch.name}</span>
                 </Badge>
+              )}
+
+              {/* Connection Status Badge */}
+              <Badge 
+                variant="outline" 
+                className={`px-3 py-1 text-xs font-bold flex items-center gap-1.5 ${
+                  isOnline 
+                    ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400' 
+                    : 'bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400 animate-pulse'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                {isOnline ? 'Online' : 'Offline Mode'}
+              </Badge>
+
+              {/* Offline Pending Sync Count Indicator */}
+              {pendingSyncCount > 0 && (
+                <Badge 
+                  variant="default" 
+                  className={`px-3 py-1 text-xs font-bold flex items-center gap-1.5 ${
+                    isSyncing ? 'bg-indigo-600 animate-pulse text-white' : 'bg-amber-500 text-white'
+                  }`}
+                  title={isSyncing ? 'Syncing transactions to cloud...' : 'Pending offline sales to sync'}
+                >
+                  {isSyncing ? (
+                    <>
+                      <Spinner className="w-3.5 h-3.5 animate-spin" />
+                      Syncing {pendingSyncCount}...
+                    </>
+                  ) : (
+                    <>
+                      <span>⚠️ {pendingSyncCount} Offline Queue</span>
+                    </>
+                  )}
+                </Badge>
+              )}
+
+              {/* Register / Shift Controls */}
+              {selectedBranch && (
+                sessionLoading ? (
+                  <Button variant="outline" size="sm" className="h-8 text-xs font-bold gap-1.5" disabled>
+                    Loading Session...
+                  </Button>
+                ) : activeSession ? (
+                  <div className="flex gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleGenerateXRead}
+                      className="h-8 text-xs font-bold gap-1.5 border-amber-500/30 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                      title="Generate X-Read (Mid-Shift Report)"
+                    >
+                      X-Read
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        setActualCashStr('');
+                        setZReadOpen(true);
+                      }}
+                      className="h-8 text-xs font-bold gap-1.5"
+                      title="Close Drawer & Z-Read"
+                    >
+                      Close Shift (Z)
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setOpenSessionOpen(true)}
+                    className="h-8 text-xs font-bold gap-1.5 bg-rose-600 hover:bg-rose-700 text-white shadow-sm"
+                    title="Open Cash Drawer to Start Checkout"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                    Open Shift
+                  </Button>
+                )
               )}
 
               {/* Customer Display Button */}
@@ -854,7 +1192,7 @@ export const POS: React.FC<POSProps> = ({
                 type="text"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                placeholder="Search dish name or SKU…"
+                placeholder={`Search ${vocab.itemUnit} name or SKU…`}
                 className="pl-9"
               />
             </div>
@@ -904,7 +1242,7 @@ export const POS: React.FC<POSProps> = ({
 
               {filteredItems.length === 0 && (
                 <div className="col-span-full text-center p-8 text-muted-foreground">
-                  No active dishes found matching criteria.
+                  No active {vocab.itemUnitPlural} found matching criteria.
                 </div>
               )}
             </div>
@@ -950,7 +1288,10 @@ export const POS: React.FC<POSProps> = ({
         onConfirm={handleConfirmPayment}
         processing={checkingOut}
         onStateChange={setPaymentState}
+        saleCategories={vocab.saleCategories}
+        defaultSaleCategory={vocab.defaultSaleCategory}
       />
+
 
       {/* Sale Success / Print Invoice Modal */}
       <Dialog open={!!lastSaleResult} onOpenChange={(open) => { if (!open) setLastSaleResult(null); }}>
@@ -968,9 +1309,15 @@ export const POS: React.FC<POSProps> = ({
           {lastSaleResult && (
             <div className="space-y-4 py-4">
               <div className="bg-muted/50 p-4 rounded-lg space-y-2 border">
+                {lastSaleResult.control_number && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Invoice Serial</span>
+                    <span className="font-mono font-bold text-foreground">{lastSaleResult.control_number}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>Transaction ID</span>
-                  <span className="font-mono">{lastSaleResult.id.slice(0, 8)}...</span>
+                  <span className="font-mono">{lastSaleResult.id.length === 36 ? `${lastSaleResult.id.slice(0, 8)}...` : lastSaleResult.id}</span>
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>Payment Method</span>
@@ -1007,19 +1354,21 @@ export const POS: React.FC<POSProps> = ({
           )}
 
           <DialogFooter className="flex flex-col gap-2 w-full sm:flex-col sm:space-x-0">
-            <div className="grid grid-cols-2 gap-2 w-full">
-              <Button
-                variant="secondary"
-                className="w-full font-bold"
-                onClick={() => {
-                  if (lastSaleResult) {
-                    handlePrintKitchen(lastSaleResult.id);
-                  }
-                }}
-              >
-                <Printer className="w-4 h-4 mr-2" />
-                Print Kitchen
-              </Button>
+            <div className={isRestaurant ? "grid grid-cols-2 gap-2 w-full" : "w-full"}>
+              {isRestaurant && (
+                <Button
+                  variant="secondary"
+                  className="w-full font-bold"
+                  onClick={() => {
+                    if (lastSaleResult) {
+                      handlePrintKitchen(lastSaleResult.id);
+                    }
+                  }}
+                >
+                  <Printer className="w-4 h-4 mr-2" />
+                  Print Kitchen
+                </Button>
+              )}
               <Button
                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
                 onClick={() => {
@@ -1034,6 +1383,227 @@ export const POS: React.FC<POSProps> = ({
             </div>
             <Button variant="outline" onClick={() => setLastSaleResult(null)} className="w-full">
               Close (New Sale)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Open Session Dialog ─── */}
+      <Dialog open={openSessionOpen} onOpenChange={setOpenSessionOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold tracking-tight">Open Cash Drawer Shift</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Input the opening cash float balance for your register drawer before starting sales.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label className="text-xs uppercase font-semibold">Opening Cash Float (₱) *</Label>
+              <Input
+                type="number"
+                step="0.01"
+                required
+                value={openingBalance}
+                onChange={(e) => setOpeningBalance(e.target.value)}
+                placeholder="e.g. 1000.00"
+                className="font-bold text-lg"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                This is the initial cash float used for cashier change at the start of your shift.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenSessionOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleOpenSession}
+              disabled={!openingBalance || Number(openingBalance) < 0}
+              className="font-bold"
+            >
+              Open Register Drawer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── X-Read Report Dialog ─── */}
+      <Dialog open={xReadOpen} onOpenChange={setXReadOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold tracking-tight">X-Read Report (Mid-Shift Status)</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Non-resetting audit report summarizing current transactions in this shift session.
+            </DialogDescription>
+          </DialogHeader>
+
+          {sessionSummary && (
+            <div className="space-y-4 py-2">
+              <div className="border rounded-md p-4 bg-muted/30 font-mono text-xs space-y-1.5 max-h-[50vh] overflow-y-auto">
+                <div className="text-center font-bold uppercase">{selectedBranch?.name || 'TERMINAL'}</div>
+                <div className="text-center text-[10px] text-muted-foreground">X-READ SUMMARY</div>
+                <div className="border-t border-dashed my-2" />
+                <div className="flex justify-between"><span>Status:</span><span>{sessionSummary.status?.toUpperCase()}</span></div>
+                <div className="flex justify-between"><span>Z-Counter:</span><span>#{String(sessionSummary.zCounter || 0).padStart(5, '0')}</span></div>
+                <div className="flex justify-between"><span>Opened At:</span><span>{new Date(sessionSummary.openedAt).toLocaleString()}</span></div>
+                <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">LIFETIME GRAND TOTALS</div>
+                <div className="flex justify-between"><span>Start:</span><span>{formatPHP(sessionSummary.grandTotalStart)}</span></div>
+                <div className="flex justify-between"><span>Current:</span><span>{formatPHP(sessionSummary.grandTotalEnd)}</span></div>
+                <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">SALES SUMMARY</div>
+                <div className="flex justify-between"><span>Gross Sales:</span><span>{formatPHP(sessionSummary.grossSales)}</span></div>
+                <div className="flex justify-between"><span>Net Sales (Ex-VAT):</span><span>{formatPHP(sessionSummary.netSales)}</span></div>
+                <div className="flex justify-between"><span>VAT Amount (12%):</span><span>{formatPHP(sessionSummary.vatAmount)}</span></div>
+                <div className="flex justify-between"><span>Transaction Count:</span><span>{sessionSummary.transactionCount}</span></div>
+                <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">PAYMENT BREAKDOWN</div>
+                <div className="flex justify-between"><span>Cash:</span><span>{formatPHP(sessionSummary.cashSales)}</span></div>
+                <div className="flex justify-between"><span>GCash:</span><span>{formatPHP(sessionSummary.gcashSales)}</span></div>
+                <div className="flex justify-between"><span>Maya:</span><span>{formatPHP(sessionSummary.mayaSales)}</span></div>
+                <div className="flex justify-between"><span>Card:</span><span>{formatPHP(sessionSummary.cardSales)}</span></div>
+                <div className="flex justify-between"><span>Other:</span><span>{formatPHP(sessionSummary.otherSales)}</span></div>
+                <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">VOIDS & REFUNDS</div>
+                <div className="flex justify-between"><span>Void Count:</span><span>{sessionSummary.voidCount}</span></div>
+                <div className="flex justify-between"><span>Void Amount:</span><span>{formatPHP(sessionSummary.voidAmount)}</span></div>
+                <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">DRAWER FLOW</div>
+                <div className="flex justify-between"><span>Opening Float:</span><span>{formatPHP(sessionSummary.openingBalance)}</span></div>
+                <div className="flex justify-between"><span>Expected Cash:</span><span>{formatPHP(sessionSummary.cashSales)}</span></div>
+                <div className="flex justify-between font-bold"><span>Expected Drawer:</span><span>{formatPHP(sessionSummary.openingBalance + sessionSummary.cashSales)}</span></div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setXReadOpen(false)}>
+              Close
+            </Button>
+            <Button
+              onClick={() => printXZReport(sessionSummary, false, selectedBranch?.name || 'TERMINAL')}
+              className="font-bold gap-1.5"
+            >
+              <Printer className="w-4 h-4" />
+              Print X-Read Receipt
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Z-Read Close Shift Dialog ─── */}
+      <Dialog open={zReadOpen} onOpenChange={setZReadOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold tracking-tight">Close Drawer & Run Z-Read</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              End cashier session. This locks the terminal, runs a Z-Read report, and resets session counters.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label className="text-xs uppercase font-semibold">Actual Cash Counted (₱) *</Label>
+              <Input
+                type="number"
+                step="0.01"
+                required
+                value={actualCashStr}
+                onChange={(e) => setActualCashStr(e.target.value)}
+                placeholder="Count all paper cash and coins in drawer..."
+                className="font-bold text-lg text-primary border-primary/30"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Enter the exact cash amount inside the physical drawer (including the initial cash float).
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setZReadOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCloseSession}
+              disabled={!actualCashStr || Number(actualCashStr) < 0}
+              className="font-bold font-mono"
+            >
+              Confirm Z-Read & Close Shift
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Closed Z-Report View Dialog ─── */}
+      <Dialog open={!!viewingClosedSummary} onOpenChange={(v) => { if (!v) setViewingClosedSummary(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold tracking-tight text-destructive">Z-Read Shift Closed Report</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Official shift summary. This terminal session is now locked.
+            </DialogDescription>
+          </DialogHeader>
+
+          {viewingClosedSummary && (
+            <div className="space-y-4 py-2">
+              <div className="border border-destructive/20 rounded-md p-4 bg-muted/30 font-mono text-xs space-y-1.5 max-h-[50vh] overflow-y-auto">
+                <div className="text-center font-bold uppercase">{selectedBranch?.name || 'TERMINAL'}</div>
+                <div className="text-center text-[10px] text-destructive font-bold">Z-READ CLOSED REPORT</div>
+                <div className="border-t border-dashed my-2" />
+                <div className="flex justify-between"><span>Status:</span><span className="font-bold text-destructive">{viewingClosedSummary.status?.toUpperCase()}</span></div>
+                <div className="flex justify-between"><span>Z-Counter:</span><span className="font-bold text-destructive">#{String(viewingClosedSummary.zCounter || 0).padStart(5, '0')}</span></div>
+                <div className="flex justify-between"><span>Opened At:</span><span>{new Date(viewingClosedSummary.openedAt).toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>Closed At:</span><span>{new Date(viewingClosedSummary.closedAt).toLocaleString()}</span></div>
+                <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">LIFETIME GRAND TOTALS</div>
+                <div className="flex justify-between"><span>Start:</span><span>{formatPHP(viewingClosedSummary.grandTotalStart)}</span></div>
+                <div className="flex justify-between"><span>End:</span><span>{formatPHP(viewingClosedSummary.grandTotalEnd)}</span></div>
+                <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">SALES SUMMARY</div>
+                <div className="flex justify-between"><span>Gross Sales:</span><span>{formatPHP(viewingClosedSummary.grossSales)}</span></div>
+                <div className="flex justify-between"><span>Net Sales (Ex-VAT):</span><span>{formatPHP(viewingClosedSummary.netSales)}</span></div>
+                <div className="flex justify-between"><span>VAT Amount (12%):</span><span>{formatPHP(viewingClosedSummary.vatAmount)}</span></div>
+                <div className="flex justify-between"><span>Transaction Count:</span><span>{viewingClosedSummary.transactionCount}</span></div>
+                <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">PAYMENT BREAKDOWN</div>
+                <div className="flex justify-between"><span>Cash:</span><span>{formatPHP(viewingClosedSummary.cashSales)}</span></div>
+                <div className="flex justify-between"><span>GCash:</span><span>{formatPHP(viewingClosedSummary.gcashSales)}</span></div>
+                <div className="flex justify-between"><span>Maya:</span><span>{formatPHP(viewingClosedSummary.mayaSales)}</span></div>
+                <div className="flex justify-between"><span>Card:</span><span>{formatPHP(viewingClosedSummary.cardSales)}</span></div>
+                <div className="flex justify-between"><span>Other:</span><span>{formatPHP(viewingClosedSummary.otherSales)}</span></div>
+                <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">VOIDS & REFUNDS</div>
+                <div className="flex justify-between"><span>Void Count:</span><span>{viewingClosedSummary.voidCount}</span></div>
+                <div className="flex justify-between"><span>Void Amount:</span><span>{formatPHP(viewingClosedSummary.voidAmount)}</span></div>
+                <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">DRAWER FLOW & BALANCING</div>
+                <div className="flex justify-between"><span>Opening Float:</span><span>{formatPHP(viewingClosedSummary.openingBalance)}</span></div>
+                <div className="flex justify-between"><span>Expected Cash:</span><span>{formatPHP(viewingClosedSummary.expectedCash)}</span></div>
+                <div className="flex justify-between font-bold"><span>Expected Drawer:</span><span>{formatPHP(viewingClosedSummary.openingBalance + viewingClosedSummary.expectedCash)}</span></div>
+                <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-bold"><span>Actual Drawer:</span><span>{formatPHP(viewingClosedSummary.actualCash)}</span></div>
+                <div className={`flex justify-between font-bold ${viewingClosedSummary.discrepancy < 0 ? 'text-destructive' : 'text-emerald-500'}`}>
+                  <span>Discrepancy:</span>
+                  <span>{formatPHP(viewingClosedSummary.discrepancy)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setViewingClosedSummary(null)}>
+              Close & Lock POS
+            </Button>
+            <Button
+              onClick={() => printXZReport(viewingClosedSummary, true, selectedBranch?.name || 'TERMINAL')}
+              className="font-bold gap-1.5"
+            >
+              <Printer className="w-4 h-4" />
+              Print Z-Report Receipt
             </Button>
           </DialogFooter>
         </DialogContent>

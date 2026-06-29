@@ -15,6 +15,8 @@ import {
   TrashIcon as Trash2,
   ReaderIcon as BookOpenIcon
 } from '@radix-ui/react-icons';
+import { supabase } from '../lib/supabase';
+import { getTerminalConfig, saveTerminalConfig, clearTerminalConfig } from '../lib/offlineService';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -37,7 +39,15 @@ export const Settings: React.FC = () => {
   const { confirm, showSuccess, showError } = useModal();
 
   // Navigation active tab
-  const [activeSubTab, setActiveSubTab] = useState<'guide' | 'templates' | 'promotions'>('templates');
+  const [activeSubTab, setActiveSubTab] = useState<'guide' | 'templates' | 'promotions' | 'terminals'>('templates');
+
+  // Terminal States
+  const [terminalConfig, setTerminalConfig] = useState<any>(null);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [regBranchId, setRegBranchId] = useState('');
+  const [regTerminalCode, setRegTerminalCode] = useState('T01');
+  const [regName, setRegName] = useState('');
+  const [registering, setRegistering] = useState(false);
 
   // Templates States
   const [transferSlip, setTransferSlip] = useState<TransferSlipTemplate>({ ...DEFAULT_TRANSFER_SLIP_TEMPLATE });
@@ -52,6 +62,36 @@ export const Settings: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  const loadTerminalData = async () => {
+    try {
+      const config = await getTerminalConfig();
+      setTerminalConfig(config);
+      if (config) {
+        setRegBranchId(config.branch_id);
+        setRegTerminalCode(config.terminal_code);
+        setRegName(config.name);
+      }
+    } catch (e) {
+      console.error('Failed to load terminal config:', e);
+    }
+  };
+
+  const loadBranches = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('branches')
+        .select('id, name')
+        .eq('status', 'active');
+      if (error) throw error;
+      setBranches(data || []);
+      if (data && data.length > 0 && !regBranchId) {
+        setRegBranchId(data[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to load branches:', err);
+    }
+  };
+
   const loadTemplates = async () => {
     setLoading(true);
     try {
@@ -59,6 +99,8 @@ export const Settings: React.FC = () => {
       setTransferSlip(settings.transfer_slip);
       setSalesInvoice(settings.sales_invoice);
       setPromotions(settings.customer_promotions || []);
+      await loadTerminalData();
+      await loadBranches();
     } catch (err) {
       console.error('Failed to load settings templates:', err);
     } finally {
@@ -69,6 +111,72 @@ export const Settings: React.FC = () => {
   useEffect(() => {
     loadTemplates();
   }, []);
+
+  const handleRegisterTerminal = async () => {
+    if (!regBranchId || !regTerminalCode || !regName) {
+      showError('Please fill out all fields to register the terminal.');
+      return;
+    }
+    setRegistering(true);
+    try {
+      const selectedBranch = branches.find(b => b.id === regBranchId);
+      const branchName = selectedBranch ? selectedBranch.name : 'Unknown Branch';
+
+      const hexKeyHash = await saveTerminalConfig({
+        branch_id: regBranchId,
+        branch_name: branchName,
+        terminal_code: regTerminalCode.trim().toUpperCase(),
+        name: regName.trim(),
+      });
+
+      const { error } = await supabase
+        .from('terminals')
+        .insert({
+          branch_id: regBranchId,
+          terminal_code: regTerminalCode.trim().toUpperCase(),
+          name: regName.trim(),
+          device_key_hash: hexKeyHash,
+          status: 'active'
+        });
+
+      if (error) {
+        await clearTerminalConfig();
+        throw error;
+      }
+
+      showSuccess('This device has been registered successfully as a POS Terminal!');
+      await loadTerminalData();
+    } catch (err: any) {
+      console.error('Registration failed:', err);
+      showError(err.message || 'Failed to register terminal. Check terminal code uniqueness.');
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const handleDeregisterTerminal = async () => {
+    if (await confirm('De-register Device', 'Are you sure you want to de-register this device? This will erase the local security keys and offline queue logs.')) {
+      setRegistering(true);
+      try {
+        if (terminalConfig && terminalConfig.branch_id) {
+          await supabase
+            .from('terminals')
+            .delete()
+            .eq('branch_id', terminalConfig.branch_id)
+            .eq('terminal_code', terminalConfig.terminal_code);
+        }
+        await clearTerminalConfig();
+        setTerminalConfig(null);
+        setRegName('');
+        showSuccess('Device has been successfully de-registered.');
+      } catch (err: any) {
+        console.error('De-registration failed:', err);
+        showError(err.message || 'Failed to de-register device.');
+      } finally {
+        setRegistering(false);
+      }
+    }
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'transfer' | 'sales') => {
     const file = e.target.files?.[0];
@@ -239,6 +347,17 @@ export const Settings: React.FC = () => {
             <ImageIcon className="w-3.5 h-3.5 mr-1.5" />
             Customer Screen Promos
           </Button>
+          {isEditorRole && (
+            <Button
+              variant={activeSubTab === 'terminals' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setActiveSubTab('terminals')}
+              className="text-xs font-bold"
+            >
+              <Terminal className="w-3.5 h-3.5 mr-1.5" />
+              Register Device
+            </Button>
+          )}
           <Button
             variant={activeSubTab === 'guide' ? 'default' : 'ghost'}
             size="sm"
@@ -1248,6 +1367,111 @@ WHERE email = 'your-email@example.com';`}</pre>
                       </div>
                     ))}
                   </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeSubTab === 'terminals' && (
+            <div className="max-w-xl mx-auto space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg font-bold flex items-center space-x-2">
+                    <Terminal className="w-5 h-5 text-primary" />
+                    <span>POS Terminal Registration</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Register this local web browser context as an authorized physical sales terminal and lock it to a branch.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {terminalConfig ? (
+                    <div className="space-y-4">
+                      <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-lg space-y-2 text-xs">
+                        <p className="font-bold text-emerald-600 dark:text-emerald-400">✓ Device Registered Successfully</p>
+                        <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-emerald-500/20 text-muted-foreground">
+                          <span>Terminal Name:</span>
+                          <span className="font-bold text-foreground">{terminalConfig.name}</span>
+                          <span>Branch Bound:</span>
+                          <span className="font-bold text-foreground">{terminalConfig.branch_name}</span>
+                          <span>Terminal Code:</span>
+                          <span className="font-bold text-foreground">{terminalConfig.terminal_code}</span>
+                          <span className="truncate" title="Device Signature Hash">Device Hash:</span>
+                          <span className="font-mono text-foreground truncate" title={terminalConfig.device_key_raw}>{terminalConfig.device_key_raw?.slice(0, 16)}...</span>
+                        </div>
+                      </div>
+
+                      <Button
+                        variant="destructive"
+                        onClick={handleDeregisterTerminal}
+                        disabled={registering}
+                        className="w-full font-bold"
+                      >
+                        De-register Terminal
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Select Branch */}
+                      <div className="space-y-2">
+                        <Label htmlFor="reg_branch" className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+                          Select Branch Binding
+                        </Label>
+                        <Select
+                          value={regBranchId}
+                          onValueChange={setRegBranchId}
+                        >
+                          <SelectTrigger id="reg_branch" className="w-full text-xs">
+                            <SelectValue placeholder="Select Branch" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {branches.map(b => (
+                              <SelectItem key={b.id} value={b.id} className="text-xs">
+                                {b.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Terminal Code */}
+                      <div className="space-y-2">
+                        <Label htmlFor="reg_code" className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+                          Terminal Code (e.g. T01, T02)
+                        </Label>
+                        <Input
+                          id="reg_code"
+                          type="text"
+                          maxLength={10}
+                          value={regTerminalCode}
+                          onChange={(e) => setRegTerminalCode(e.target.value)}
+                          placeholder="T01"
+                        />
+                      </div>
+
+                      {/* Terminal Name */}
+                      <div className="space-y-2">
+                        <Label htmlFor="reg_name" className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+                          Friendly Display Name
+                        </Label>
+                        <Input
+                          id="reg_name"
+                          type="text"
+                          value={regName}
+                          onChange={(e) => setRegName(e.target.value)}
+                          placeholder="e.g. Guadalupe Counter 1"
+                        />
+                      </div>
+
+                      <Button
+                        onClick={handleRegisterTerminal}
+                        disabled={registering}
+                        className="w-full font-bold shadow"
+                      >
+                        {registering ? 'Registering Device...' : 'Register Browser as Terminal'}
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>

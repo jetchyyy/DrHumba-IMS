@@ -9,6 +9,8 @@ export interface Profile {
   branch_id: string | null;
   allowed_tabs: string[] | null;
   status: 'active' | 'suspended';
+  is_platform_admin: boolean;
+  tenant_id: string | null;
   created_at: string;
 }
 
@@ -71,12 +73,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setProfile(profileData);
 
-      // Default selected branch to user's branch or the first warehouse/branch if admin
+      // Auto-select branch: prefer user's assigned branch, then warehouse, then first available.
+      // For single-branch tenants (e.g. Starter plan) this ensures POS always has context.
       if (profileData.branch_id) {
         const userBranch = currentBranches.find(b => b.id === profileData.branch_id);
-        setSelectedBranchState(userBranch || null);
+        setSelectedBranchState(userBranch || currentBranches[0] || null);
       } else if (currentBranches.length > 0) {
-        // For super admins/corporate roles, default to the warehouse or first branch
+        // For super admins / corporate roles with no fixed branch:
+        // pick warehouse first, otherwise fall back to first branch
         const warehouse = currentBranches.find(b => b.is_warehouse);
         setSelectedBranchState(warehouse || currentBranches[0]);
       }

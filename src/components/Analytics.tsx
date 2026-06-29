@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useBusinessVocab } from '../hooks/useBusinessVocab';
 import {
   BarChart,
   Bar,
@@ -31,6 +32,7 @@ interface BranchAnalyticsData {
 
 export const Analytics: React.FC = () => {
   const { branches, selectedBranch } = useAuth();
+  const vocab = useBusinessVocab();
   
   const [activeBranchId, setActiveBranchId] = useState('');
   const [startDate, setStartDate] = useState(() => {
@@ -89,7 +91,7 @@ export const Analytics: React.FC = () => {
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="text-muted-foreground flex items-center space-x-2 animate-pulse">
           <Clock className="w-5 h-5 animate-spin text-primary" />
-          <span>Loading restaurant analytics...</span>
+          <span>{vocab.loadingLabel}</span>
         </div>
       </div>
     );
@@ -130,7 +132,7 @@ export const Analytics: React.FC = () => {
             <BarChart3 className="w-8 h-8 text-primary" />
             <span>Branch Performance Analytics</span>
           </h2>
-          <p className="text-muted-foreground mt-1">Track and compare sales, food cost ratios, and wastage across branches.</p>
+          <p className="text-muted-foreground mt-1">{vocab.analyticsDescription}</p>
         </div>
 
         {/* Date Filter & Selector */}
@@ -179,27 +181,27 @@ export const Analytics: React.FC = () => {
             <CardContent className="p-5">
               <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Total Sales</span>
               <span className="text-2xl font-bold block mt-1">{formatCurrency(analyticsData.revenue)}</span>
-              <span className="text-[10px] text-muted-foreground block mt-1">{analyticsData.orders} orders processed</span>
+              <span className="text-[10px] text-muted-foreground block mt-1">{analyticsData.orders} {vocab.ordersUnit} processed</span>
             </CardContent>
           </Card>
           
           <Card className="glass-dark border-border/50">
             <CardContent className="p-5">
-              <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Food Cost (COGS)</span>
+              <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">{vocab.cogsLabel}</span>
               <span className="text-2xl font-bold text-primary block mt-1">{formatCurrency(analyticsData.foodCost)}</span>
               <span className="text-[10px] text-muted-foreground block mt-1">
-                {analyticsData.revenue > 0 
-                  ? `${((analyticsData.foodCost / analyticsData.revenue) * 100).toFixed(1)}% of revenue`
-                  : '0% food ratio'}
+                {analyticsData.revenue > 0
+                  ? vocab.cogsRatioNote(((analyticsData.foodCost / analyticsData.revenue) * 100).toFixed(1))
+                  : vocab.cogsRatioNote('0')}
               </span>
             </CardContent>
           </Card>
 
           <Card className="glass-dark border-border/50">
             <CardContent className="p-5">
-              <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Waste & Spoilage</span>
+              <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">{vocab.wasteLabel}</span>
               <span className="text-2xl font-bold text-amber-500 block mt-1">{formatCurrency(analyticsData.wasteCost)}</span>
-              <span className="text-[10px] text-muted-foreground block mt-1">From damages & spoilage logs</span>
+              <span className="text-[10px] text-muted-foreground block mt-1">{vocab.wasteNote}</span>
             </CardContent>
           </Card>
 
@@ -207,14 +209,14 @@ export const Analytics: React.FC = () => {
             <CardContent className="p-5">
               <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Profit Estimate</span>
               <span className="text-2xl font-bold text-emerald-500 block mt-1">{formatCurrency(analyticsData.profitEstimate)}</span>
-              <span className="text-[10px] text-muted-foreground block mt-1">Est. Revenue - COGS - Wastage</span>
+              <span className="text-[10px] text-muted-foreground block mt-1">{vocab.profitNote}</span>
             </CardContent>
           </Card>
 
           <Card className="glass-dark border-border/50">
             <CardContent className="p-5 flex items-center justify-between h-full">
               <div>
-                <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Food Cost Ratio</span>
+                <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">{vocab.cogsRatioLabel}</span>
                 <span className="text-3xl font-black text-primary block mt-1">
                   {analyticsData.revenue > 0 
                     ? `${((analyticsData.foodCost / analyticsData.revenue) * 100).toFixed(0)}%`
@@ -232,7 +234,7 @@ export const Analytics: React.FC = () => {
         {/* Top Selling Products */}
         <Card className="lg:col-span-2 glass-dark border-border/50">
           <CardHeader>
-            <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Top Selling Dishes</CardTitle>
+            <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">{vocab.topSellingLabel}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-80">
@@ -250,7 +252,7 @@ export const Analytics: React.FC = () => {
                 </ChartContainer>
               ) : (
                 <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
-                  No product sales logged in this date range.
+                  No {vocab.itemUnitPlural} sold in this date range.
                 </div>
               )}
             </div>
@@ -260,7 +262,7 @@ export const Analytics: React.FC = () => {
         {/* Wastage breakdown */}
         <Card className="glass-dark border-border/50">
           <CardHeader>
-            <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Wastage Breakdown (₱)</CardTitle>
+            <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">{vocab.wastageChartLabel}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-80 flex flex-col justify-between">
@@ -298,7 +300,7 @@ export const Analytics: React.FC = () => {
                 </>
               ) : (
                 <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
-                  No spoilage/damage adjustments recorded.
+                  {vocab.noWasteNote}
                 </div>
               )}
             </div>

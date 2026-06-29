@@ -12,6 +12,7 @@ import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
 import { Badge } from './ui/badge';
 import { useModal } from '../contexts/ModalContext';
+import { useTenant } from '../contexts/TenantContext';
 import {
   Pagination,
   PaginationContent,
@@ -34,10 +35,13 @@ interface ProfileRecord {
 
 export const UserManagement: React.FC = () => {
   const { profile, branches } = useAuth();
+  const { tenant } = useTenant();
   const { confirm, showSuccess, showError } = useModal();
 
   const [staff, setStaff] = useState<ProfileRecord[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const limitReached = !!(tenant && staff.length >= tenant.max_users);
 
   // Modals Open State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -81,6 +85,14 @@ export const UserManagement: React.FC = () => {
     auditor: ['inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs'],
   };
 
+  const TAB_FEATURE_KEYS: Record<string, string> = {
+    pos: 'pos', 'sales-history': 'sales_history', inventory: 'inventory',
+    'global-inventory': 'global_inventory', receiving: 'receiving',
+    adjustments: 'adjustments', recipes: 'recipes', branches: 'branches',
+    analytics: 'analytics', 'audit-logs': 'audit_logs', users: 'users',
+  };
+
+  const planFeatures = (tenant?.features ?? {}) as Record<string, boolean>;
   const ALL_AVAILABLE_TABS = [
     { id: 'pos', name: 'POS (Sales)' },
     { id: 'sales-history', name: 'Sales History' },
@@ -93,7 +105,12 @@ export const UserManagement: React.FC = () => {
     { id: 'analytics', name: 'Analytics' },
     { id: 'audit-logs', name: 'Audit Logs' },
     { id: 'users', name: 'Staff Management' },
-  ];
+  ].filter(tab => {
+    // Only show tabs that are enabled by the tenant plan
+    const key = TAB_FEATURE_KEYS[tab.id];
+    if (!key || !tenant?.features) return true;
+    return planFeatures[key] !== false;
+  });
 
   const handleRoleChange = (v: string) => {
     setRole(v);
@@ -159,6 +176,11 @@ export const UserManagement: React.FC = () => {
 
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (limitReached) {
+      showError(`Staff user limit reached. Your current plan "${tenant.plan_type}" allows up to ${tenant.max_users} staff users. Please upgrade your subscription.`);
+      return;
+    }
 
     if (!email.trim() || !password.trim()) {
       showError("Email and Password are required");
@@ -375,13 +397,19 @@ export const UserManagement: React.FC = () => {
             <RefreshCw className="w-4 h-4" />
           </Button>
           {isSuperAdmin && (
-            <Button onClick={() => setIsCreateModalOpen(true)}>
+            <Button onClick={() => setIsCreateModalOpen(true)} disabled={limitReached}>
               <Plus className="w-4 h-4 mr-2" />
               Provision Staff Account
             </Button>
           )}
         </div>
       </div>
+
+      {limitReached && (
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 p-4 rounded-xl text-xs font-semibold mb-6">
+          ⚠️ Your staff user quota ({tenant?.max_users}) has been reached for the current "{tenant?.plan_type}" plan. Please contact the platform superadmin to upgrade.
+        </div>
+      )}
 
       {/* Staff List Panel */}
       <Card>

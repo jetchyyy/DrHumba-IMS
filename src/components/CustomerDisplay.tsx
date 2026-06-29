@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { settingsService, DEFAULT_PROMOTIONS } from '../lib/settingsService';
 import type { CustomerPromotion } from '../lib/settingsService';
+import { useTenant } from '../contexts/TenantContext';
+import { useBusinessVocab } from '../hooks/useBusinessVocab';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,13 @@ const formatPHP = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n);
 
 export const CustomerDisplay: React.FC = () => {
+  const { tenant, isSingleTenantMode } = useTenant();
+  const vocab = useBusinessVocab();
+  const isDrHumba = isSingleTenantMode || !tenant || tenant.subdomain === null;
+  const appName = tenant?.name || (isDrHumba ? "Dr. Humba" : "ERPSaaS");
+  const logoUrl = tenant?.logo_url || (isDrHumba ? "/drhumbalogo.jpg" : "/saaslogo.png");
+  const isRestaurant = tenant?.is_restaurant ?? true;
+
   const [state, setState] = useState<POSState>({
     cart: [],
     cartTotal: 0,
@@ -69,9 +78,33 @@ export const CustomerDisplay: React.FC = () => {
   const loadPromotions = async () => {
     try {
       const settings = await settingsService.getSettings();
-      if (settings.customer_promotions && settings.customer_promotions.length > 0) {
-        setPromotions(settings.customer_promotions);
+      let promos = settings.customer_promotions && settings.customer_promotions.length > 0
+        ? settings.customer_promotions
+        : [...DEFAULT_PROMOTIONS];
+
+      // If we are not Dr. Humba, filter/map default promos to be generic
+      if (!isDrHumba) {
+        promos = promos.map(p => {
+          let title = p.title;
+          let desc = p.desc;
+          if (title.includes("Dr. Humba")) {
+            title = title.replace("Today's Special: Dr. Humba Platter", "Today's Special Combo Offer");
+          }
+          if (desc.includes("food rewards")) {
+            desc = desc.replace("food rewards", "rewards");
+          }
+          if (desc.includes("iced tea") && !isRestaurant) {
+            return {
+              title: "Special Bundle Discount",
+              desc: "Get an extra discount when purchasing any accessory or additional parts with your main item.",
+              image: "⚡ Special Deal",
+              color: p.color
+            };
+          }
+          return { ...p, title, desc };
+        });
       }
+      setPromotions(promos);
     } catch (err) {
       console.error('Failed to load promotions for customer screen:', err);
     }
@@ -194,10 +227,10 @@ export const CustomerDisplay: React.FC = () => {
       <header className="px-6 py-5 border-b border-zinc-100 flex justify-between items-center bg-white/85 backdrop-blur-md relative z-10 shrink-0">
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 rounded-xl bg-white overflow-hidden shadow-md border border-zinc-100 flex-shrink-0 flex items-center justify-center">
-            <img src="/drhumbalogo.jpg" alt="Dr. Humba Logo" className="w-full h-full object-cover" />
+            <img src={logoUrl} alt={`${appName} Logo`} className="w-full h-full object-cover" />
           </div>
           <div>
-            <h1 className="text-lg font-black tracking-wider text-zinc-800 uppercase">Dr. Humba</h1>
+            <h1 className="text-lg font-black tracking-wider text-zinc-800 uppercase">{appName}</h1>
             <p className="text-[10px] font-bold text-pink-600 uppercase tracking-widest">Customer Terminal</p>
           </div>
         </div>
@@ -207,7 +240,7 @@ export const CustomerDisplay: React.FC = () => {
           <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
             <span className="text-xs font-semibold text-zinc-500">
-              Branch: <span className="text-zinc-800 font-bold ml-0.5">{state.selectedBranch?.name || "Dr. Humba Branch"}</span>
+              Branch: <span className="text-zinc-800 font-bold ml-0.5">{state.selectedBranch?.name || `${appName} Branch`}</span>
             </span>
           </div>
         </div>
@@ -223,16 +256,16 @@ export const CustomerDisplay: React.FC = () => {
               {/* Spinning Logo Icon container */}
               <div className="w-32 h-32 rounded-full bg-gradient-to-tr from-pink-500 to-rose-600 p-1.5 shadow-[0_10px_30px_rgba(236,72,153,0.15)] mx-auto animate-bounce duration-3000">
                 <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden">
-                  <img src="/drhumbalogo.jpg" alt="Dr. Humba Logo" className="w-24 h-24 object-cover rounded-full" />
+                  <img src={logoUrl} alt={`${appName} Logo`} className="w-24 h-24 object-cover rounded-full" />
                 </div>
               </div>
 
               <div className="space-y-4">
                 <h2 className="text-5xl font-black tracking-tight leading-tight text-zinc-800">
-                  Welcome to <span className="text-transparent bg-clip-text bg-gradient-to-r from-pink-500 via-rose-500 to-amber-500">Dr. Humba!</span>
+                  Welcome to <span className="text-transparent bg-clip-text bg-gradient-to-r from-pink-500 via-rose-500 to-amber-500">{appName}!</span>
                 </h2>
                 <p className="text-zinc-500 text-lg md:text-xl font-medium max-w-lg mx-auto leading-relaxed">
-                  Please place your order at the counter. The cashier will assist you with menu selections and payments.
+                  Please place your order at the counter. The cashier will assist you with {isRestaurant ? "menu selections" : "catalog selections"} and payments.
                 </p>
               </div>
 
@@ -243,7 +276,7 @@ export const CustomerDisplay: React.FC = () => {
                   <span className="text-[10px] font-bold bg-pink-500/10 text-pink-600 border border-pink-500/20 px-2.5 py-1 rounded-full uppercase tracking-wider">
                     {currentPromo.image}
                   </span>
-                  <span className="text-[10px] text-zinc-400">Dr. Humba Perks</span>
+                  <span className="text-[10px] text-zinc-400">{appName} Perks</span>
                 </div>
                 <h4 className="text-lg font-bold text-zinc-800 mb-1.5">{currentPromo.title}</h4>
                 <p className="text-sm text-zinc-500 leading-relaxed">{currentPromo.desc}</p>
@@ -288,7 +321,9 @@ export const CustomerDisplay: React.FC = () => {
             <div className="w-full lg:w-[480px] bg-zinc-50/25 flex flex-col overflow-hidden h-full">
               {/* Cart Header */}
               <div className="p-6 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/50">
-                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Dish Name</span>
+                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                  {vocab.itemUnit.charAt(0).toUpperCase() + vocab.itemUnit.slice(1)} Name
+                </span>
                 <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Subtotal</span>
               </div>
 
@@ -442,7 +477,7 @@ export const CustomerDisplay: React.FC = () => {
               <div className="space-y-2">
                 <h2 className="text-4xl font-black tracking-tight text-zinc-800">Sale Completed!</h2>
                 <p className="text-zinc-500 text-sm max-w-xs mx-auto">
-                  Thank you for ordering at Dr. Humba. Your transaction has been recorded.
+                  Thank you for ordering at {appName}. Your transaction has been recorded.
                 </p>
               </div>
 
@@ -487,7 +522,7 @@ export const CustomerDisplay: React.FC = () => {
       {/* Footer / Copyright */}
       <footer className="px-6 py-4 border-t border-zinc-100 text-center bg-white shrink-0 relative z-10">
         <p className="text-[10px] font-semibold text-zinc-400 tracking-wider">
-          © {new Date().getFullYear()} DR. HUMBA SYSTEM. ALL RIGHTS RESERVED.
+          © {new Date().getFullYear()} {appName.toUpperCase()} SYSTEM. ALL RIGHTS RESERVED.
         </p>
       </footer>
     </div>

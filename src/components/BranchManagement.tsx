@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useTenant } from '../contexts/TenantContext';
 import { BoxModelIcon as Store, DrawingPinIcon as MapPin, PlusIcon as Plus, TrashIcon as Trash2, HomeIcon as Home, Pencil1Icon as Edit, CrossCircledIcon as ShieldOff, CheckCircledIcon as ShieldOn } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
@@ -15,7 +16,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 
 export const BranchManagement: React.FC = () => {
   const { profile, branches, refreshProfile } = useAuth();
+  const { tenant } = useTenant();
   const { confirm, showSuccess, showError } = useModal();
+
+  const limitReached = !!(tenant && branches.length >= tenant.max_branches);
 
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
@@ -40,6 +44,11 @@ export const BranchManagement: React.FC = () => {
     e.preventDefault();
     if (!name.trim()) return;
 
+    if (limitReached) {
+      showError(`Branch limit reached. Your current plan "${tenant.plan_type}" allows up to ${tenant.max_branches} branch locations. Please upgrade your subscription.`);
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -49,8 +58,10 @@ export const BranchManagement: React.FC = () => {
           name: name.trim(),
           location: location.trim() || null,
           is_warehouse: isWarehouse,
-          status: status
+          status: status,
+          tenant_id: tenant?.id,       // required for RLS: tenant_id = get_my_tenant_id()
         });
+
 
       if (insertError) throw insertError;
 
@@ -171,12 +182,18 @@ export const BranchManagement: React.FC = () => {
           <p className="text-muted-foreground mt-1">Add, review, and delete warehouses and retail restaurant branches.</p>
         </div>
         {isSuperAdmin && (
-          <Button onClick={() => setShowModal(true)}>
+          <Button onClick={() => setShowModal(true)} disabled={limitReached}>
             <Plus className="mr-2 h-4 w-4" />
             Create New Branch
           </Button>
         )}
       </div>
+
+      {limitReached && (
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 p-4 rounded-xl text-xs font-semibold mb-6">
+          ⚠️ Your branch locations limit ({tenant?.max_branches}) has been reached for the current "{tenant?.plan_type}" plan. Please contact the platform superadmin to upgrade.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-8">
         {/* Branches list */}

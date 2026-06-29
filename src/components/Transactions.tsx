@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useBusinessVocab } from '../hooks/useBusinessVocab';
+import { useTenant } from '../contexts/TenantContext';
 import { settingsService } from '../lib/settingsService';
 import type { SalesInvoiceTemplate } from '../lib/settingsService';
 import {
@@ -50,20 +52,23 @@ interface UnifiedTransaction {
   raw_data: any;
 }
 
-const TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  stock_in: { label: 'Stock In', color: 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/20' },
-  adjustment: { label: 'Adjustment', color: 'bg-blue-500/10 text-blue-500 border border-blue-500/20' },
-  waste: { label: 'Waste for Food', color: 'bg-amber-500/10 text-amber-500 border border-amber-500/20' },
-  transfer: { label: 'Transfer', color: 'bg-purple-500/10 text-purple-500 border border-purple-500/20' },
-  invoice: { label: 'Invoice (Sales)', color: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' },
-};
-
 const formatPHP = (amount: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(amount);
 
 export const Transactions: React.FC = () => {
   const { profile, branches, selectedBranch } = useAuth();
   const { showError } = useModal();
+  const vocab = useBusinessVocab();
+  const { tenant } = useTenant();
+  const isRestaurant = tenant?.is_restaurant ?? true;
+
+  const TYPE_LABELS: Record<string, { label: string; color: string }> = {
+    stock_in: { label: 'Stock In', color: 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/20' },
+    adjustment: { label: 'Adjustment', color: 'bg-blue-500/10 text-blue-500 border border-blue-500/20' },
+    waste: { label: vocab.wasteLabel, color: 'bg-amber-500/10 text-amber-500 border border-amber-500/20' },
+    transfer: { label: 'Transfer', color: 'bg-purple-500/10 text-purple-500 border border-purple-500/20' },
+    invoice: { label: 'Invoice (Sales)', color: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' },
+  };
 
   const [transactions, setTransactions] = useState<UnifiedTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -300,7 +305,7 @@ export const Transactions: React.FC = () => {
           ...tx.raw_data,
           branch_name: tx.branch_name,
           items: items.map(item => ({
-            item_name: item.menu_items?.name || 'Dish',
+            item_name: item.menu_items?.name || (vocab.itemUnit.charAt(0).toUpperCase() + vocab.itemUnit.slice(1)),
             quantity: item.quantity,
             unit_price: Number(item.unit_price),
             subtotal: Number(item.subtotal),
@@ -421,7 +426,7 @@ export const Transactions: React.FC = () => {
                 <SelectItem value="All">All Transactions</SelectItem>
                 <SelectItem value="stock_in">Stock In</SelectItem>
                 <SelectItem value="adjustment">Adjustments</SelectItem>
-                <SelectItem value="waste">Waste for Food</SelectItem>
+                <SelectItem value="waste">{vocab.wasteLabel}</SelectItem>
                 <SelectItem value="transfer">Transfers</SelectItem>
                 <SelectItem value="invoice">Invoices (Sales)</SelectItem>
               </SelectContent>
@@ -714,7 +719,7 @@ export const Transactions: React.FC = () => {
                       <TableRow>
                         {selectedTx.type === 'invoice' ? (
                           <>
-                            <TableHead className="pl-4">Dish / Menu Item</TableHead>
+                            <TableHead className="pl-4">{isRestaurant ? 'Dish / Menu Item' : 'Product / Service'}</TableHead>
                             <TableHead>SKU</TableHead>
                             <TableHead className="text-right">Unit Price</TableHead>
                             <TableHead className="text-center">Qty</TableHead>

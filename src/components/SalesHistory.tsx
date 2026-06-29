@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useBusinessVocab } from '../hooks/useBusinessVocab';
+import { useTenant } from '../contexts/TenantContext';
 import { CountdownTimerIcon as History, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, CalendarIcon as Calendar, BackpackIcon as ShoppingBag, ValueIcon as DollarSign, EyeOpenIcon as Eye, ActivityLogIcon as TrendingUp, FileTextIcon as Printer, FileTextIcon as FileIcon } from '@radix-ui/react-icons';
 import { settingsService, DEFAULT_SALES_INVOICE_TEMPLATE, DEFAULT_TRANSFER_SLIP_TEMPLATE } from '../lib/settingsService';
 import { printThermalInvoice, printEndOfDayReport, printEndOfDayPDFReport } from '../lib/printService';
@@ -70,6 +72,9 @@ const formatPHP = (amount: number) =>
 export const SalesHistory: React.FC = () => {
   const { profile, branches } = useAuth();
   const { showSuccess, showError } = useModal();
+  const vocab = useBusinessVocab();
+  const { tenant } = useTenant();
+  const isRestaurant = tenant?.is_restaurant ?? true;
   
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,17 +96,17 @@ export const SalesHistory: React.FC = () => {
   }, [searchTerm, selectedBranchId, dateFilter, startDate, endDate, saleCategoryFilter]);
 
   const getCategoryBadge = (category: string | null) => {
-    const cat = (category || 'Dine in').toLowerCase();
-    switch (cat) {
-      case 'dine in':
-        return <Badge className="bg-blue-500/10 text-blue-500 border border-blue-500/20 hover:bg-blue-500/20 text-[10px] font-bold uppercase">Dine in</Badge>;
-      case 'grab':
-        return <Badge className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20 text-[10px] font-bold uppercase">Grab</Badge>;
-      case 'foodpanda':
-        return <Badge className="bg-pink-500/10 text-pink-500 border border-pink-500/20 hover:bg-pink-500/20 text-[10px] font-bold uppercase">Foodpanda</Badge>;
-      default:
-        return <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500/20 text-[10px] font-bold uppercase capitalize">{category || 'Other'}</Badge>;
+    const cat = (category || vocab.defaultSaleCategory).toLowerCase();
+    if (cat === 'dine in' || cat === 'walk-in') {
+      return <Badge className="bg-blue-500/10 text-blue-500 border border-blue-500/20 hover:bg-blue-500/20 text-[10px] font-bold uppercase">{category || vocab.defaultSaleCategory}</Badge>;
     }
+    if (cat === 'grab' || cat === 'appointment' || cat === 'online order') {
+      return <Badge className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20 text-[10px] font-bold uppercase">{category || 'Online'}</Badge>;
+    }
+    if (cat === 'foodpanda' || cat === 'take out' || cat === 'delivery' || cat === 'pick-up') {
+      return <Badge className="bg-pink-500/10 text-pink-500 border border-pink-500/20 hover:bg-pink-500/20 text-[10px] font-bold uppercase">{category || 'Delivery'}</Badge>;
+    }
+    return <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500/20 text-[10px] font-bold uppercase capitalize">{category || 'Other'}</Badge>;
   };
   
   // UI States
@@ -411,7 +416,7 @@ export const SalesHistory: React.FC = () => {
             quantity: Number(si.quantity),
             unit_price: Number(si.unit_price),
             subtotal: Number(si.subtotal),
-            item_name: si.menu_items?.name || 'Unknown Dish',
+            item_name: si.menu_items?.name || ('Unknown ' + (vocab.itemUnit.charAt(0).toUpperCase() + vocab.itemUnit.slice(1))),
             sku: si.menu_items?.sku || ''
           }))
         };
@@ -470,8 +475,8 @@ export const SalesHistory: React.FC = () => {
 
     const matchesBranch = selectedBranchId === 'All' || sale.branch_id === selectedBranchId;
 
-    const normalizedCategory = (sale.sale_category || 'Dine in').toLowerCase();
-    const defaultCategories = ['dine in', 'grab', 'foodpanda'];
+    const normalizedCategory = (sale.sale_category || vocab.defaultSaleCategory).toLowerCase();
+    const defaultCategories = vocab.saleCategories.map(c => c.value.toLowerCase()).filter(c => c !== 'other');
     let matchesSaleCategory = false;
     if (saleCategoryFilter === 'all') {
       matchesSaleCategory = true;
@@ -573,12 +578,12 @@ export const SalesHistory: React.FC = () => {
             <div class="branches-box" style="display: grid; grid-template-cols: 1fr 1fr 1fr; gap: 20px;">
               <div><h3>Branch Context</h3><p>${sale.branch_name}</p></div>
               <div><h3>Cashier Register</h3><p>${sale.cashier_email}</p></div>
-              <div><h3>Sale Type</h3><p style="text-transform: capitalize;">${sale.sale_category || 'Dine in'}</p></div>
+              <div><h3>Sale Type</h3><p style="text-transform: capitalize;">${sale.sale_category || vocab.defaultSaleCategory}</p></div>
             </div>
             <table class="items-table">
               <thead>
                 <tr>
-                  <th>Dish / Menu Item</th>
+                  <th>${isRestaurant ? "Dish / Menu Item" : "Product / Service"}</th>
                   <th style="text-align: center;">Qty</th>
                   <th style="text-align: right;">Unit Price</th>
                   <th style="text-align: right;">Subtotal</th>
@@ -753,10 +758,9 @@ export const SalesHistory: React.FC = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="dine in">Dine in</SelectItem>
-                  <SelectItem value="grab">Grab</SelectItem>
-                  <SelectItem value="foodpanda">Foodpanda</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  {vocab.saleCategories.map(cat => (
+                    <SelectItem key={cat.value} value={cat.value.toLowerCase()}>{cat.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

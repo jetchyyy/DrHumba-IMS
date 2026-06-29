@@ -3,6 +3,10 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ModalProvider } from './contexts/ModalContext';
 import { supabase } from './lib/supabase';
+import { useTenant } from './contexts/TenantContext';
+import { TenantSuspendedPage, TenantNotFoundPage, UnauthorizedTenantPage, SaaSLandingPage } from './components/SaaSCommon';
+import { OnboardingPage } from './components/OnboardingPage';
+import { SuperAdminDashboard } from './components/SuperAdminDashboard';
 import { Sidebar, MobileHeader, MobileBottomNav } from './components/Sidebar';
 import { OfflineBanner } from './components/OfflineBanner';
 import { SplashScreen } from './components/SplashScreen';
@@ -21,6 +25,7 @@ import { AuditLogs } from './components/AuditLogs';
 import { UserManagement } from './components/UserManagement';
 import { Settings } from './components/Settings';
 import { SalesHistory } from './components/SalesHistory';
+import { ZReadHistory } from './components/ZReadHistory';
 import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen';
 import { ActiveBranchPill } from './components/ActiveBranchPill';
 import { Pig404 } from './components/Pig404';
@@ -35,6 +40,7 @@ import { Alert, AlertDescription } from './components/ui/alert';
 
 const AppContent: React.FC = () => {
   const { user, profile, loading, refreshProfile, signOut } = useAuth();
+  const { tenant, tenantLoading, tenantError, isSingleTenantMode } = useTenant();
 
   // Check if this is the customer display screen
   const isCustomerDisplay = 
@@ -103,13 +109,14 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     const isCustomerPath = window.location.pathname === '/customer-display';
-    if (window.location.pathname !== '/' && !isCustomerPath) {
+    const isSaaSRoute = ['/apply', '/odc'].includes(window.location.pathname);
+    if (window.location.pathname !== '/' && !isCustomerPath && !isSaaSRoute) {
       setIs404(true);
     }
     
     const loadAssets = async () => {
       const img = new Image();
-      img.src = '/drhumbalogo.jpg';
+      img.src = tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || '/saaslogo.png';
       
       const imgPromise = new Promise((resolve) => {
         img.onload = resolve;
@@ -124,7 +131,7 @@ const AppContent: React.FC = () => {
     };
 
     loadAssets();
-  }, []);
+  }, [tenant]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,8 +155,40 @@ const AppContent: React.FC = () => {
     }
   };
 
-  if (loading || !assetsLoaded) {
+
+  if (loading || tenantLoading || !assetsLoaded) {
     return <SplashScreen />;
+  }
+
+  // 1. Tenant Error Handlers
+  if (tenantError === 'not_found') {
+    return <TenantNotFoundPage />;
+  }
+  if (tenantError === 'suspended') {
+    return <TenantSuspendedPage tenantName={tenant?.name || 'Workspace'} />;
+  }
+
+  // 2. Root Domain Routing (No Subdomain resolved)
+  if (!isSingleTenantMode && tenant === null) {
+    if (window.location.pathname === '/apply') {
+      return <OnboardingPage />;
+    }
+    if (window.location.pathname === '/odc') {
+      if (!user) {
+        // Fall through to show the login screen
+      } else if (!profile || !profile.is_platform_admin) {
+        return <UnauthorizedTenantPage tenantName="Platform Superadmin" signOut={signOut} />;
+      } else {
+        return <SuperAdminDashboard />;
+      }
+    } else {
+      return <SaaSLandingPage />;
+    }
+  }
+
+  // 3. Authenticated Tenant Verification (prevent cross-tenant logins)
+  if (user && profile && !profile.is_platform_admin && profile.tenant_id !== tenant?.id) {
+    return <UnauthorizedTenantPage tenantName={tenant?.name || 'Workspace'} signOut={signOut} />;
   }
 
   if (is404) {
@@ -162,6 +201,124 @@ const AppContent: React.FC = () => {
 
   // Render Login / Signup if user is not authenticated
   if (!user) {
+    const showDrHumbaTheme = isSingleTenantMode || (tenant && tenant.subdomain === null);
+
+    if (!showDrHumbaTheme) {
+      // ── SaaS Tenant / Superadmin Console: Premium Dark/Indigo Glassmorphic Splash Screen ──
+      return (
+        <div className="min-h-screen relative overflow-hidden bg-slate-950 flex items-center justify-center p-4 text-white selection:bg-indigo-500/30">
+          {/* Background radial effects */}
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(99,102,241,0.08),transparent_50%)] pointer-events-none" />
+
+          {/* Background shapes */}
+          <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-500/10 rounded-full filter blur-3xl animate-blob"></div>
+          <div className="absolute top-[20%] right-[-10%] w-80 h-80 bg-purple-500/10 rounded-full filter blur-3xl animate-blob animation-delay-2000"></div>
+          <div className="absolute bottom-[-20%] left-[20%] w-80 h-80 bg-blue-500/10 rounded-full filter blur-3xl animate-blob animation-delay-4000"></div>
+
+          <Card className="w-full max-w-md shadow-[0_20px_50px_rgba(99,102,241,0.15)] bg-slate-900/90 border-slate-800 backdrop-blur-xl border-2 relative z-10 overflow-hidden text-white">
+            {/* Card top decorative accent */}
+            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
+            
+            <CardHeader className="text-center space-y-4 pt-8">
+              <div className="mx-auto w-32 h-32 bg-slate-950 rounded-full p-2 shadow-xl border-4 border-slate-850 relative group overflow-hidden flex items-center justify-center">
+                <div className="absolute inset-0 bg-indigo-500/10 opacity-0 group-hover:opacity-100 transition-opacity z-10"></div>
+                <img src={window.location.pathname === '/odc' ? (import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png") : (tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png")} alt="Logo" className="w-full h-full object-cover rounded-full transform group-hover:scale-105 transition-transform duration-300" />
+              </div>
+              <div>
+                <CardTitle className="text-3xl font-black text-white tracking-tight uppercase">
+                  {window.location.pathname === '/odc' ? "SaaS Superadmin" : (tenant?.name || "Workspace")}
+                </CardTitle>
+                <CardDescription className="text-sm font-semibold text-indigo-400 uppercase tracking-widest mt-1">
+                  {window.location.pathname === '/odc' ? "Console Administration" : "Management System"}
+                </CardDescription>
+              </div>
+            </CardHeader>
+
+            <CardContent className="px-8 pb-8">
+              {authError && (
+                <Alert variant="destructive" className="mb-6 border-red-950/30 bg-red-950/20 text-red-400">
+                  <AlertDescription className="font-medium text-sm">{authError}</AlertDescription>
+                </Alert>
+              )}
+              {authSuccess && (
+                <Alert className="mb-6 border-indigo-500/30 bg-indigo-950/20 text-indigo-400">
+                  <AlertDescription className="font-medium text-sm">{authSuccess}</AlertDescription>
+                </Alert>
+              )}
+
+              <form onSubmit={handleSignIn} className="space-y-5">
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Email Address</Label>
+                  <div className="relative group">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Mail className="h-5 w-5 text-indigo-450 group-focus-within:text-indigo-400 transition-colors" />
+                    </div>
+                    <Input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder={tenant?.subdomain ? `admin@${tenant.subdomain}.com` : "admin@domain.com"}
+                      className="pl-10 h-12 bg-slate-950 border-slate-850 text-white placeholder-slate-600 focus-visible:ring-indigo-500 focus-visible:border-indigo-500 rounded-xl transition-all shadow-inner focus-within:border-slate-700"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Password</Label>
+                  <div className="relative group">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Key className="h-5 w-5 text-indigo-450 group-focus-within:text-indigo-400 transition-colors" />
+                    </div>
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="pl-10 pr-10 h-12 bg-slate-950 border-slate-850 text-white placeholder-slate-600 focus-visible:ring-indigo-500 focus-visible:border-indigo-500 rounded-xl transition-all shadow-inner focus-within:border-slate-700"
+                    />
+                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="text-slate-500 hover:text-indigo-400 focus:outline-none transition-colors"
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOpenIcon className="h-5 w-5" /> : <EyeClosedIcon className="h-5 w-5" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full h-12 text-base font-bold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg hover:shadow-indigo-500/20 rounded-xl transition-all active:scale-[0.98] border-0"
+                  disabled={authLoading}
+                >
+                  {authLoading ? (
+                    <span className="flex items-center gap-2">
+                      <RefreshCw className="w-5 h-5 animate-spin" />
+                      Authenticating...
+                    </span>
+                  ) : (
+                    "Access Platform"
+                  )}
+                </Button>
+              </form>
+            </CardContent>
+            
+            <div className="bg-slate-950/60 py-4 px-8 border-t border-slate-850 text-center">
+               <p className="text-xs font-medium text-slate-550">
+                 © {new Date().getFullYear()} {tenant?.name || "ERPSaaS"}. All rights reserved.
+               </p>
+            </div>
+          </Card>
+        </div>
+      );
+    }
+
+    // ── Dr. Humba (Default): Original Pink Styled Playful Splash Screen ──
     return (
       <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-pink-50 via-pink-100 to-pink-200 flex items-center justify-center p-4">
         {/* Background shapes */}
@@ -184,12 +341,14 @@ const AppContent: React.FC = () => {
           <CardHeader className="text-center space-y-4 pt-8">
             <div className="mx-auto w-32 h-32 bg-white rounded-full p-2 shadow-xl border-4 border-pink-100 relative group overflow-hidden flex items-center justify-center">
               <div className="absolute inset-0 bg-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity z-10"></div>
-              <img src="/drhumbalogo.jpg" alt="Dr. Humba Logo" className="w-full h-full object-cover rounded-full transform group-hover:scale-105 transition-transform duration-300" />
+              <img src={window.location.pathname === '/odc' ? (import.meta.env.VITE_DEFAULT_LOGO || "/drhumbalogo.jpg") : (tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/drhumbalogo.jpg")} alt="Logo" className="w-full h-full object-cover rounded-full transform group-hover:scale-105 transition-transform duration-300" />
             </div>
             <div>
-              <CardTitle className="text-3xl font-black text-slate-900 tracking-tight">DR. HUMBA</CardTitle>
+              <CardTitle className="text-3xl font-black text-slate-900 tracking-tight uppercase">
+                {window.location.pathname === '/odc' ? "SaaS Superadmin" : (tenant?.name || import.meta.env.VITE_DEFAULT_APP_NAME || "DR. HUMBA")}
+              </CardTitle>
               <CardDescription className="text-sm font-semibold text-pink-600 uppercase tracking-widest mt-1">
-                Management System
+                {window.location.pathname === '/odc' ? "Console Administration" : "Management System"}
               </CardDescription>
             </div>
           </CardHeader>
@@ -218,7 +377,7 @@ const AppContent: React.FC = () => {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@drhumba.com"
+                    placeholder={tenant?.subdomain ? `admin@${tenant.subdomain}.com` : "admin@domain.com"}
                     className="pl-10 h-12 bg-white border-slate-200 text-slate-900 focus-visible:ring-pink-500 focus-visible:border-pink-500 rounded-xl transition-all shadow-sm"
                   />
                 </div>
@@ -269,8 +428,8 @@ const AppContent: React.FC = () => {
           </CardContent>
           
           <div className="bg-slate-50 py-4 px-8 border-t border-slate-100 text-center">
-             <p className="text-xs font-medium text-slate-500">
-               © {new Date().getFullYear()} Dr. Humba. All rights reserved.
+             <p className="text-xs font-medium text-slate-550">
+               © {new Date().getFullYear()} {tenant?.name || import.meta.env.VITE_DEFAULT_APP_NAME || "Dr. Humba"}. All rights reserved.
              </p>
           </div>
         </Card>
@@ -352,8 +511,81 @@ const AppContent: React.FC = () => {
     lastScrollY.current = currentScrollY;
   };
 
-  // Render Page Content based on selected tab
+  // ── Plan feature gate ────────────────────────────────────────────────────────
+  // Map tab IDs → feature flag keys in tenant.features
+  const TAB_FEATURE_MAP: Record<string, string> = {
+    pos:              'pos',
+    'sales-history':  'sales_history',
+    inventory:        'inventory',
+    'global-inventory': 'global_inventory',
+    receiving:        'receiving',
+    transfers:        'transfers',
+    adjustments:      'adjustments',
+    transactions:     'transactions',
+    recipes:          'recipes',
+    branches:         'branches',
+    analytics:        'analytics',
+    'audit-logs':     'audit_logs',
+    users:            'users',
+    settings:         'settings',
+  };
+
+  const isFeatureAllowed = (tabId: string): boolean => {
+    // dashboard is always allowed; platform admins bypass
+    if (tabId === 'dashboard') return true;
+    if (!tenant?.features) return true; // single-tenant / no restriction
+    const key = TAB_FEATURE_MAP[tabId];
+    if (!key) return true;
+    return (tenant.features as Record<string, boolean>)[key] !== false;
+  };
+
+  const PlanUpgradeWall: React.FC<{ tabId: string }> = ({ tabId }) => {
+    const featureLabel = tabId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const plan = tenant?.plan_type ?? 'starter';
+    const nextPlan = plan === 'starter' ? 'Professional' : 'Enterprise';
+    return (
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="max-w-md w-full text-center space-y-6">
+          <div className="w-20 h-20 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto">
+            <svg className="w-10 h-10 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">{featureLabel} Locked</h2>
+            <p className="text-muted-foreground mt-2 leading-relaxed">
+              This feature is not included in your current <span className="font-semibold capitalize text-primary">{plan}</span> plan.
+              Upgrade to <span className="font-semibold">{nextPlan}</span> or higher to unlock it.
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground uppercase tracking-wider">Your Plan Limits</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-left">
+            <div className="bg-muted/30 rounded-xl p-4 border">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-1">Max Branches</p>
+              <p className="text-2xl font-bold">{tenant?.max_branches ?? 1}</p>
+            </div>
+            <div className="bg-muted/30 rounded-xl p-4 border">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-1">Max Staff</p>
+              <p className="text-2xl font-bold">{tenant?.max_users ?? 3}</p>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Contact your platform administrator to upgrade your subscription plan.
+          </p>
+        </div>
+      </div>
+    );
+  };
+
+  // Render Page Content based on selected tab — plan-gated
   const renderContent = () => {
+    if (!isFeatureAllowed(activeTab)) {
+      return <PlanUpgradeWall tabId={activeTab} />;
+    }
     switch (activeTab) {
       case 'dashboard':
         return <Dashboard setActiveTab={setActiveTab} />;
@@ -361,6 +593,8 @@ const AppContent: React.FC = () => {
         return <POS isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen} />;
       case 'sales-history':
         return <SalesHistory />;
+      case 'z-read-history':
+        return <ZReadHistory />;
       case 'inventory':
         return <Inventory />;
       case 'global-inventory':

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useModal } from '../contexts/ModalContext';
+import { useTenant } from '../contexts/TenantContext';
 import {
   DashboardIcon as LayoutDashboard,
   BoxModelIcon as Store,
@@ -28,29 +29,49 @@ import { Button } from './ui/button';
 import { Separator } from './ui/separator';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from './ui/sheet';
 import { FloatingNotifications } from './FloatingNotifications';
+import { getTerminalConfig } from '../lib/offlineService';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
 }
 
+// Feature key map for plan gating
+const TAB_FEATURE_KEYS: Record<string, string> = {
+  pos: 'pos', 'sales-history': 'sales_history', 'z-read-history': 'pos', inventory: 'inventory',
+  'global-inventory': 'global_inventory', receiving: 'receiving',
+  transfers: 'transfers', adjustments: 'adjustments', transactions: 'transactions',
+  recipes: 'recipes', branches: 'branches', analytics: 'analytics',
+  'audit-logs': 'audit_logs', users: 'users', settings: 'settings',
+};
+
 // The shared nav items list — used by both desktop sidebar & mobile components
 export const useNavItems = () => {
   const { profile } = useAuth();
+  const { tenant } = useTenant();
   if (!profile) return [];
   const role = profile.role_name;
+  const isRestaurant = tenant?.is_restaurant ?? true;
+  const features = (tenant?.features ?? {}) as Record<string, boolean>;
+
+  const isFeatureLocked = (tabId: string) => {
+    const key = TAB_FEATURE_KEYS[tabId];
+    if (!key || !tenant?.features) return false;
+    return features[key] === false;
+  };
 
   const tabs = [
     { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, show: true },
     { id: 'pos', name: 'POS (Sales)', icon: ShoppingBag, show: ['super_admin', 'branch_manager', 'cashier'].includes(role) },
     { id: 'sales-history', name: 'Sales History', icon: History, show: true },
+    { id: 'z-read-history', name: 'Z-Read History', icon: ClipboardList, show: true },
     { id: 'inventory', name: 'Inventory Items', icon: Package, show: true },
     { id: 'global-inventory', name: 'Overall Stock', icon: Boxes, show: true },
     { id: 'receiving', name: 'Stock Receiving', icon: FilePlus, show: ['super_admin', 'inventory_manager'].includes(role) },
     { id: 'transfers', name: 'Transfers', icon: ArrowLeftRight, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
     { id: 'adjustments', name: 'Adjustments', icon: ClipboardList, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
     { id: 'transactions', name: 'Transactions', icon: FileText, show: true },
-    { id: 'recipes', name: 'Recipes', icon: ChefHat, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
+    { id: 'recipes', name: isRestaurant ? 'Recipes' : 'Products & Services', icon: ChefHat, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
     { id: 'branches', name: 'Branches', icon: Store, show: ['super_admin', 'auditor'].includes(role) },
     { id: 'analytics', name: 'Analytics', icon: BarChart3, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
     { id: 'audit-logs', name: 'Audit Logs', icon: FileText, show: ['super_admin', 'auditor'].includes(role) },
@@ -58,7 +79,8 @@ export const useNavItems = () => {
     { id: 'settings', name: 'Settings', icon: SettingsIcon, show: true },
   ];
 
-  return tabs.filter(tab => {
+  // Filter by role/allowed_tabs — locked features are kept but flagged
+  const filtered = tabs.filter(tab => {
     if (['dashboard', 'settings'].includes(tab.id)) return true;
     if (role === 'super_admin') return true;
     if (profile.allowed_tabs && Array.isArray(profile.allowed_tabs)) {
@@ -66,6 +88,9 @@ export const useNavItems = () => {
     }
     return tab.show;
   });
+
+  // Attach locked flag so nav can show lock icon
+  return filtered.map(tab => ({ ...tab, locked: isFeatureLocked(tab.id) }));
 };
 
 // ── Inner nav content (shared between desktop sidebar & mobile sheet) ─────────
@@ -73,11 +98,33 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
   activeTab, setActiveTab, onNavigate
 }) => {
   const { profile, selectedBranch, setSelectedBranch, branches, signOut } = useAuth();
+  const { tenant } = useTenant();
   const { theme, toggleTheme } = useTheme();
   const { confirm } = useModal();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const navItems = useNavItems();
-  const canSwitchBranch = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name);
+
+  const [terminalConfig, setTerminalConfig] = useState<any>(null);
+
+  React.useEffect(() => {
+    const checkTerminal = async () => {
+      const config = await getTerminalConfig();
+      setTerminalConfig(config);
+    };
+    checkTerminal();
+  }, []);
+
+  React.useEffect(() => {
+    if (terminalConfig && branches.length > 0) {
+      const targetBranch = branches.find(b => b.id === terminalConfig.branch_id);
+      if (targetBranch && selectedBranch?.id !== targetBranch.id) {
+        setSelectedBranch(targetBranch);
+      }
+    }
+  }, [terminalConfig, branches, selectedBranch]);
+
+  const isTerminalLocked = terminalConfig && profile?.role_name !== 'super_admin' && profile?.role_name !== 'auditor';
+  const canSwitchBranch = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name) && !isTerminalLocked;
 
   const handleSignOut = async () => {
     if (await confirm('Sign Out', 'Are you sure you want to log out?')) {
@@ -97,10 +144,10 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
       {/* Logo */}
       <div className="p-6 border-b flex items-center space-x-3">
         <div className="w-8 h-8 rounded-lg bg-white overflow-hidden shadow-lg border border-pink-100 flex-shrink-0">
-          <img src="/drhumbalogo.jpg" alt="Dr. Humba Logo" className="w-full h-full object-cover" />
+          <img src={tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png"} alt="Logo" className="w-full h-full object-cover" />
         </div>
         <div>
-          <h1 className="text-lg font-bold tracking-wide">Dr. Humba</h1>
+          <h1 className="text-lg font-bold tracking-wide">{tenant?.name || "Dr. Humba"}</h1>
           <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Inventory System</p>
         </div>
       </div>
@@ -110,7 +157,23 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
         <label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block mb-2">
           Active Branch Context
         </label>
-        {canSwitchBranch ? (
+        {branches.length === 0 ? (
+          /* No branches yet — prompt to create one */
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 space-y-1">
+            <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">No Branch Configured</p>
+            <p className="text-[10px] text-amber-300/80 leading-snug">
+              Go to <span className="font-bold">Branches</span> to create your first branch location before using the POS.
+            </p>
+          </div>
+        ) : branches.length === 1 ? (
+          /* Single branch — always locked-in, no dropdown needed */
+          <div className="flex items-center gap-2 bg-muted/50 rounded px-3 py-2 border">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+            <span className="text-sm font-medium truncate">
+              {selectedBranch?.name || branches[0]?.name || 'Loading…'}
+            </span>
+          </div>
+        ) : canSwitchBranch ? (
           <Select
             value={selectedBranch?.id || ''}
             onValueChange={(val) => {
@@ -136,21 +199,34 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
         )}
       </div>
 
+
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
         {navItems.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
+          const isLocked = (tab as any).locked;
           return (
             <Button
               key={tab.id}
               variant={isActive ? 'default' : 'ghost'}
-              className={`w-full justify-start h-10 px-3 transition-all ${isActive ? 'shadow-md' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
-                }`}
+              className={`w-full justify-start h-10 px-3 transition-all ${
+                isActive ? 'shadow-md' : isLocked
+                  ? 'text-muted-foreground/40 hover:bg-muted/30 hover:text-muted-foreground/60'
+                  : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+              }`}
               onClick={() => { setActiveTab(tab.id); onNavigate?.(); }}
+              title={isLocked ? `${tab.name} — not available in your current plan` : tab.name}
             >
-              <Icon className={`mr-3 h-4 w-4 ${isActive ? 'text-primary-foreground' : 'text-muted-foreground'}`} />
-              {tab.name}
+              <Icon className={`mr-3 h-4 w-4 flex-shrink-0 ${
+                isActive ? 'text-primary-foreground' : isLocked ? 'text-muted-foreground/40' : 'text-muted-foreground'
+              }`} />
+              <span className="flex-1 text-left">{tab.name}</span>
+              {isLocked && (
+                <svg className="h-3 w-3 text-muted-foreground/40 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              )}
             </Button>
           );
         })}
@@ -160,6 +236,17 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
 
       {/* Footer */}
       <div className="p-4 bg-muted/10 flex flex-col space-y-3">
+        {/* Plan Badge */}
+        {tenant && (
+          <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-primary/5 border border-primary/20">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Current Plan</span>
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+              tenant.plan_type === 'enterprise' ? 'bg-amber-500/20 text-amber-400' :
+              tenant.plan_type === 'professional' ? 'bg-emerald-500/20 text-emerald-400' :
+              'bg-primary/20 text-primary'
+            }`}>{tenant.plan_type}</span>
+          </div>
+        )}
         <div className="flex items-center space-x-3">
           <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center font-bold text-secondary-foreground border">
             {profile.email.slice(0, 2).toUpperCase()}
@@ -215,12 +302,24 @@ export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }
   const [open, setOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { profile, selectedBranch } = useAuth();
+  const { tenant } = useTenant();
 
   const navItems = useNavItems();
   const currentTab = navItems.find(t => t.id === activeTab);
   const CurrentIcon = currentTab?.icon || LayoutDashboard;
   
-  const canSwitchBranch = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name);
+  const [terminalConfig, setTerminalConfig] = useState<any>(null);
+
+  React.useEffect(() => {
+    const checkTerminal = async () => {
+      const config = await getTerminalConfig();
+      setTerminalConfig(config);
+    };
+    checkTerminal();
+  }, []);
+
+  const isTerminalLocked = terminalConfig && profile?.role_name !== 'super_admin' && profile?.role_name !== 'auditor';
+  const canSwitchBranch = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name) && !isTerminalLocked;
 
   return (
     <div className="md:hidden sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b shadow-sm flex flex-col">
@@ -257,7 +356,7 @@ export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
         <div className="w-7 h-7 rounded-md bg-white overflow-hidden shadow-sm border border-pink-100 flex-shrink-0">
-          <img src="/drhumbalogo.jpg" alt="Dr. Humba Logo" className="w-full h-full object-cover" />
+          <img src={tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png"} alt="Logo" className="w-full h-full object-cover" />
         </div>
       </div>
       </header>
