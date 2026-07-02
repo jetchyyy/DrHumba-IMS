@@ -78,11 +78,11 @@ export const UserManagement: React.FC = () => {
   }, [staff.length]);
 
   const ROLE_DEFAULTS: Record<string, string[]> = {
-    super_admin: ['pos', 'sales-history', 'inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'users', 'action_buttons'],
+    super_admin: ['pos', 'sales-history', 'inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'users', 'expenses', 'action_buttons'],
     inventory_manager: ['inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'analytics', 'action_buttons'],
-    branch_manager: ['pos', 'sales-history', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'analytics'],
+    branch_manager: ['pos', 'sales-history', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'analytics', 'expenses'],
     cashier: ['pos', 'sales-history', 'inventory', 'global-inventory'],
-    auditor: ['inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs'],
+    auditor: ['inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'expenses'],
   };
 
   const TAB_FEATURE_KEYS: Record<string, string> = {
@@ -90,12 +90,14 @@ export const UserManagement: React.FC = () => {
     'global-inventory': 'global_inventory', receiving: 'receiving',
     adjustments: 'adjustments', recipes: 'recipes', branches: 'branches',
     analytics: 'analytics', 'audit-logs': 'audit_logs', users: 'users',
+    expenses: 'expenses',
   };
 
   const planFeatures = (tenant?.features ?? {}) as Record<string, boolean>;
   const ALL_AVAILABLE_TABS = [
     { id: 'pos', name: 'POS (Sales)' },
     { id: 'sales-history', name: 'Sales History' },
+    { id: 'expenses', name: 'Expense Tracker' },
     { id: 'inventory', name: 'Inventory Items' },
     { id: 'global-inventory', name: 'Overall Stock' },
     { id: 'receiving', name: 'Stock Receiving' },

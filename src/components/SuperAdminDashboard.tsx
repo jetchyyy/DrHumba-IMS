@@ -155,6 +155,10 @@ export const SuperAdminDashboard: React.FC = () => {
       const port = host.split(':')[1] || '5173';
       return `${protocol}//${subdomain}.lvh.me:${port}`;
     }
+    const envMainDomain = import.meta.env.VITE_MAIN_DOMAIN;
+    if (envMainDomain) {
+      return `${protocol}//${subdomain}.${envMainDomain}`;
+    }
     const parts = host.split('.');
     if (parts.length >= 2) {
       const baseDomain = parts.slice(-2).join('.');
@@ -702,7 +706,7 @@ export const SuperAdminDashboard: React.FC = () => {
                               rel="noopener noreferrer"
                               className="text-pink-400 hover:text-pink-300 underline inline-flex items-center gap-1.5"
                             >
-                              {t.subdomain}.odcph.com
+                              {t.subdomain}.{import.meta.env.VITE_MAIN_DOMAIN || 'odcph.com'}
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                               </svg>
@@ -812,7 +816,7 @@ export const SuperAdminDashboard: React.FC = () => {
                               rel="noopener noreferrer"
                               className="text-pink-400 hover:text-pink-300 underline inline-flex items-center gap-1.5"
                             >
-                              {app.subdomain}.odcph.com
+                              {app.subdomain}.{import.meta.env.VITE_MAIN_DOMAIN || 'odcph.com'}
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                               </svg>
@@ -1063,7 +1067,7 @@ export const SuperAdminDashboard: React.FC = () => {
                   placeholder="odysseycoffee"
                   className="bg-slate-950 border-slate-800 text-white h-10 rounded-lg focus-visible:ring-pink-500 pr-24"
                 />
-                <span className="absolute right-3 top-2.5 text-xs text-slate-500 font-semibold">.odcph.com</span>
+                <span className="absolute right-3 top-2.5 text-xs text-slate-500 font-semibold">.{import.meta.env.VITE_MAIN_DOMAIN || 'odcph.com'}</span>
               </div>
             </div>
 

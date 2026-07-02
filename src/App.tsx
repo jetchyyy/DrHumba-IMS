@@ -26,6 +26,7 @@ import { UserManagement } from './components/UserManagement';
 import { Settings } from './components/Settings';
 import { SalesHistory } from './components/SalesHistory';
 import { ZReadHistory } from './components/ZReadHistory';
+import { Expenses } from './components/Expenses';
 import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen';
 import { ActiveBranchPill } from './components/ActiveBranchPill';
 import { Pig404 } from './components/Pig404';
@@ -116,12 +117,13 @@ const AppContent: React.FC = () => {
     
     const loadAssets = async () => {
       const img = new Image();
-      img.src = tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || '/saaslogo.png';
       
       const imgPromise = new Promise((resolve) => {
         img.onload = resolve;
         img.onerror = resolve; // proceed even if image fails to load
       });
+
+      img.src = tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || '/saaslogo.png';
 
       // Minimum splash screen duration (e.g., 1.5 seconds)
       const minDelay = new Promise(resolve => setTimeout(resolve, 1500));
@@ -528,6 +530,7 @@ const AppContent: React.FC = () => {
     'audit-logs':     'audit_logs',
     users:            'users',
     settings:         'settings',
+    expenses:         'expenses',
   };
 
   const isFeatureAllowed = (tabId: string): boolean => {
@@ -613,6 +616,8 @@ const AppContent: React.FC = () => {
         return <BranchManagement />;
       case 'analytics':
         return <Analytics />;
+      case 'expenses':
+        return <Expenses />;
       case 'audit-logs':
         return <AuditLogs />;
       case 'users':

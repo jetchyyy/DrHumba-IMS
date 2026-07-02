@@ -105,6 +105,44 @@ export interface Database {
           updated_at?: string;
         }
       }
+      expenses: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          branch_id: string;
+          category: string;
+          amount: number;
+          description: string | null;
+          expense_date: string;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        }
+        Insert: {
+          id?: string;
+          tenant_id?: string;
+          branch_id: string;
+          category: string;
+          amount: number;
+          description?: string | null;
+          expense_date?: string;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        }
+        Update: {
+          id?: string;
+          tenant_id?: string;
+          branch_id?: string;
+          category?: string;
+          amount?: number;
+          description?: string | null;
+          expense_date?: string;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        }
+      }
     }
   }
 }

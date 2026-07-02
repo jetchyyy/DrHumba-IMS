@@ -33,13 +33,72 @@ import {
 } from '../lib/settingsService';
 import type { TransferSlipTemplate, SalesInvoiceTemplate, CustomerPromotion } from '../lib/settingsService';
 import { useModal } from '../contexts/ModalContext';
+import { useTenant } from '../contexts/TenantContext';
 
 export const Settings: React.FC = () => {
   const { profile } = useAuth();
   const { confirm, showSuccess, showError } = useModal();
+  const { tenant, refreshTenant } = useTenant();
 
   // Navigation active tab
-  const [activeSubTab, setActiveSubTab] = useState<'guide' | 'templates' | 'promotions' | 'terminals'>('templates');
+  const [activeSubTab, setActiveSubTab] = useState<'guide' | 'templates' | 'promotions' | 'terminals' | 'branding'>('templates');
+
+  // Tenant Branding States
+  const [businessName, setBusinessName] = useState('');
+  const [brandLogo, setBrandLogo] = useState('');
+  const [savingBranding, setSavingBranding] = useState(false);
+
+  useEffect(() => {
+    if (tenant) {
+      setBusinessName(tenant.name || '');
+      setBrandLogo(tenant.logo_url || '');
+    }
+  }, [tenant]);
+
+  const handleBrandLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 1.5 * 1024 * 1024) {
+      showError('Selected image is too large. Please select an image under 1.5MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      setBrandLogo(base64);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveBranding = async () => {
+    if (!tenant) return;
+    if (!businessName.trim()) {
+      showError('Business Name cannot be empty.');
+      return;
+    }
+    setSavingBranding(true);
+    try {
+      const { error } = await supabase
+        .from('tenants')
+        .update({
+          name: businessName.trim(),
+          logo_url: brandLogo || null
+        })
+        .eq('id', tenant.id);
+
+      if (error) throw error;
+
+      showSuccess('Branding and PWA settings updated successfully!');
+      await refreshTenant();
+    } catch (err: any) {
+      console.error('Failed to save branding:', err);
+      showError(err.message || 'Failed to save branding configurations.');
+    } finally {
+      setSavingBranding(false);
+    }
+  };
 
   // Terminal States
   const [terminalConfig, setTerminalConfig] = useState<any>(null);
@@ -356,6 +415,17 @@ export const Settings: React.FC = () => {
             >
               <Terminal className="w-3.5 h-3.5 mr-1.5" />
               Register Device
+            </Button>
+          )}
+          {profile?.role_name === 'super_admin' && (
+            <Button
+              variant={activeSubTab === 'branding' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setActiveSubTab('branding')}
+              className="text-xs font-bold"
+            >
+              <ImageIcon className="w-3.5 h-3.5 mr-1.5" />
+              Tenant Branding
             </Button>
           )}
           <Button
@@ -1472,6 +1542,80 @@ WHERE email = 'your-email@example.com';`}</pre>
                       </Button>
                     </div>
                   )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          {activeSubTab === 'branding' && profile?.role_name === 'super_admin' && (
+            <div className="max-w-xl space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-bold uppercase tracking-wider flex items-center space-x-2">
+                    <ImageIcon className="w-4 h-4 text-primary" />
+                    <span>PWA & Tenant Branding Settings</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Customize the business name and app logo displayed when installing this system as a PWA on your devices.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="brand_name" className="text-xs font-semibold">Business / App Name</Label>
+                    <Input
+                      id="brand_name"
+                      type="text"
+                      value={businessName}
+                      onChange={(e) => setBusinessName(e.target.value)}
+                      placeholder="e.g. My Restaurant"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      This changes the PWA installation app label and the page titles in your browser.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold">PWA App Logo / Icon</Label>
+                    <div className="flex items-center space-x-4 p-4 bg-muted/20 border border-dashed rounded-xl">
+                      {brandLogo ? (
+                        <div className="relative w-20 h-20 bg-background border rounded-lg flex items-center justify-center p-1.5 shadow">
+                          <img src={brandLogo} className="max-w-full max-h-full object-contain rounded" />
+                          <button
+                            type="button"
+                            onClick={() => setBrandLogo('')}
+                            className="absolute -top-1.5 -right-1.5 p-1 bg-destructive rounded-full hover:bg-destructive/90 transition-all text-white shadow"
+                            title="Delete logo"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="w-20 h-20 rounded-lg bg-muted/50 border flex items-center justify-center text-muted-foreground shadow-inner">
+                          <ImageIcon className="w-8 h-8" />
+                        </div>
+                      )}
+                      <div className="flex-1 space-y-2">
+                        <label className="inline-flex items-center space-x-1.5 bg-background border hover:bg-muted text-foreground px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-sm">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Upload PWA Icon</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleBrandLogoUpload}
+                          />
+                        </label>
+                        <p className="text-[9px] text-muted-foreground">
+                          Recommended: Square image (1:1 ratio) under 1.5MB. Used for PWA launch screen and home screen icon.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t flex justify-end">
+                    <Button onClick={handleSaveBranding} disabled={savingBranding}>
+                      {savingBranding ? 'Saving Settings...' : 'Save Branding'}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             </div>

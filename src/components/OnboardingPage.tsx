@@ -289,7 +289,7 @@ export const OnboardingPage: React.FC = () => {
                       className="bg-slate-950 border-slate-800 text-white h-11 focus-visible:ring-pink-500 focus-visible:border-pink-500 rounded-xl pr-28"
                     />
                     <span className="absolute right-3 top-3 text-xs text-slate-500 font-semibold select-none">
-                      .odcph.com
+                      .{import.meta.env.VITE_MAIN_DOMAIN || 'odcph.com'}
                     </span>
                   </div>
                   <Button 
@@ -575,7 +575,7 @@ export const OnboardingPage: React.FC = () => {
                 <div className="space-y-2">
                   <h3 className="text-lg font-bold text-white">Application Successfully Queued</h3>
                   <p className="text-sm text-slate-400 leading-relaxed max-w-md mx-auto">
-                    Our systems have received your registration under subdomain <strong>{subdomain.toLowerCase()}.odcph.com</strong>.
+                    Our systems have received your registration under subdomain <strong>{subdomain.toLowerCase()}.{import.meta.env.VITE_MAIN_DOMAIN || 'odcph.com'}</strong>.
                     We are currently verifying reference <strong>{paymentReference}</strong>. Once approved, you can access your portal immediately.
                   </p>
                 </div>

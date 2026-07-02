@@ -173,6 +173,73 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (appleIcon) appleIcon.href = defaultLogo;
       }
     }
+
+    // Dynamic PWA Manifest Injection
+    try {
+      const appName = isDrHumba ? "Dr. Humba" : (tenant?.name || "ERPSaaS");
+      const appDescription = isDrHumba 
+        ? "Restaurant inventory and settings management system for Dr. Humba." 
+        : `Management system for ${appName}.`;
+      const logoUrl = isDrHumba 
+        ? "/drhumbalogo-192.png" 
+        : (tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png");
+      const logoUrl512 = isDrHumba 
+        ? "/drhumbalogo-512.png" 
+        : (tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png");
+
+      const myDynamicManifest = {
+        name: `${appName} Management System`,
+        short_name: appName,
+        description: appDescription,
+        start_url: window.location.origin + "/",
+        display: "standalone",
+        background_color: "#0a0a0a",
+        theme_color: "#0a0a0a",
+        orientation: "any",
+        icons: [
+          {
+            src: logoUrl,
+            sizes: "192x192",
+            type: "image/png",
+            purpose: "any"
+          },
+          {
+            src: logoUrl,
+            sizes: "192x192",
+            type: "image/png",
+            purpose: "maskable"
+          },
+          {
+            src: logoUrl512,
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any"
+          },
+          {
+            src: logoUrl512,
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable"
+          }
+        ]
+      };
+
+      const stringManifest = JSON.stringify(myDynamicManifest);
+      const blob = new Blob([stringManifest], { type: 'application/json' });
+      const manifestURL = URL.createObjectURL(blob);
+
+      let manifestLink = document.querySelector('link[rel="manifest"]') as HTMLLinkElement;
+      if (manifestLink) {
+        manifestLink.href = manifestURL;
+      } else {
+        manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        manifestLink.href = manifestURL;
+        document.head.appendChild(manifestLink);
+      }
+    } catch (e) {
+      console.error('Failed to inject dynamic PWA manifest:', e);
+    }
   }, [tenant, isSingleTenantMode]);
 
   return (

@@ -22,7 +22,8 @@ import {
   SunIcon as Sun,
   MoonIcon as Moon,
   HamburgerMenuIcon as Menu,
-  ReloadIcon as Spinner
+  ReloadIcon as Spinner,
+  CardStackIcon as ExpensesIcon
 } from '@radix-ui/react-icons';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Button } from './ui/button';
@@ -42,7 +43,7 @@ const TAB_FEATURE_KEYS: Record<string, string> = {
   'global-inventory': 'global_inventory', receiving: 'receiving',
   transfers: 'transfers', adjustments: 'adjustments', transactions: 'transactions',
   recipes: 'recipes', branches: 'branches', analytics: 'analytics',
-  'audit-logs': 'audit_logs', users: 'users', settings: 'settings',
+  'audit-logs': 'audit_logs', users: 'users', settings: 'settings', expenses: 'expenses',
 };
 
 // The shared nav items list — used by both desktop sidebar & mobile components
@@ -65,6 +66,7 @@ export const useNavItems = () => {
     { id: 'pos', name: 'POS (Sales)', icon: ShoppingBag, show: ['super_admin', 'branch_manager', 'cashier'].includes(role) },
     { id: 'sales-history', name: 'Sales History', icon: History, show: true },
     { id: 'z-read-history', name: 'Z-Read History', icon: ClipboardList, show: true },
+    { id: 'expenses', name: 'Expense Tracker', icon: ExpensesIcon, show: ['super_admin', 'branch_manager', 'auditor'].includes(role) },
     { id: 'inventory', name: 'Inventory Items', icon: Package, show: true },
     { id: 'global-inventory', name: 'Overall Stock', icon: Boxes, show: true },
     { id: 'receiving', name: 'Stock Receiving', icon: FilePlus, show: ['super_admin', 'inventory_manager'].includes(role) },
