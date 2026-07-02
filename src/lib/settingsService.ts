@@ -141,7 +141,12 @@ export const settingsService = {
     return settings;
   },
 
-  async saveSettings(key: 'transfer_slip' | 'sales_invoice' | 'customer_promotions', value: any, userId?: string): Promise<boolean> {
+  async saveSettings(
+    key: 'transfer_slip' | 'sales_invoice' | 'customer_promotions', 
+    value: any, 
+    userId?: string, 
+    tenantId?: string
+  ): Promise<boolean> {
     // Save to local storage first
     try {
       const local = localStorage.getItem('system_settings');
@@ -154,14 +159,35 @@ export const settingsService = {
 
     // Save to database
     try {
+      let activeTenantId = tenantId;
+      if (!activeTenantId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('tenant_id')
+            .eq('id', user.id)
+            .single();
+          if (profile) {
+            activeTenantId = profile.tenant_id;
+          }
+        }
+      }
+
+      if (!activeTenantId) {
+        console.warn('No active tenant ID found for saving settings.');
+        return false;
+      }
+
       const { error } = await supabase
         .from('system_settings')
         .upsert({
+          tenant_id: activeTenantId,
           key,
           value,
           updated_at: new Date().toISOString(),
           updated_by: userId || null,
-        }, { onConflict: 'key' });
+        }, { onConflict: 'tenant_id,key' });
 
       if (error) throw error;
       return true;

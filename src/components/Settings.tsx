@@ -271,7 +271,7 @@ export const Settings: React.FC = () => {
     setError('');
     setSuccess('');
     try {
-      const ok = await settingsService.saveSettings('transfer_slip', transferSlip, profile?.id);
+      const ok = await settingsService.saveSettings('transfer_slip', transferSlip, profile?.id || undefined, profile?.tenant_id || undefined);
       if (ok) {
         showSuccess('Transfer Slip template updated successfully in Database!');
       } else {
@@ -289,7 +289,7 @@ export const Settings: React.FC = () => {
     setError('');
     setSuccess('');
     try {
-      const ok = await settingsService.saveSettings('sales_invoice', salesInvoice, profile?.id);
+      const ok = await settingsService.saveSettings('sales_invoice', salesInvoice, profile?.id || undefined, profile?.tenant_id || undefined);
       if (ok) {
         showSuccess('Sales Invoice thermal template updated successfully in Database!');
       } else {
@@ -307,7 +307,7 @@ export const Settings: React.FC = () => {
     setError('');
     setSuccess('');
     try {
-      const ok = await settingsService.saveSettings('customer_promotions', promotions, profile?.id);
+      const ok = await settingsService.saveSettings('customer_promotions', promotions, profile?.id || undefined, profile?.tenant_id || undefined);
       if (ok) {
         showSuccess('Customer Screen Promotions updated successfully in Database!');
       } else {
