@@ -13,7 +13,8 @@ import {
   UploadIcon as Upload,
   EyeOpenIcon as Eye,
   TrashIcon as Trash2,
-  ReaderIcon as BookOpenIcon
+  ReaderIcon as BookOpenIcon,
+  LockClosedIcon as Lock
 } from '@radix-ui/react-icons';
 import { supabase } from '../lib/supabase';
 import { getTerminalConfig, saveTerminalConfig, clearTerminalConfig } from '../lib/offlineService';
@@ -41,12 +42,98 @@ export const Settings: React.FC = () => {
   const { tenant, refreshTenant } = useTenant();
 
   // Navigation active tab
-  const [activeSubTab, setActiveSubTab] = useState<'guide' | 'templates' | 'promotions' | 'terminals' | 'branding'>('templates');
+  const [activeSubTab, setActiveSubTab] = useState<'guide' | 'templates' | 'promotions' | 'terminals' | 'branding' | 'security'>('templates');
 
   // Tenant Branding States
   const [businessName, setBusinessName] = useState('');
   const [brandLogo, setBrandLogo] = useState('');
   const [savingBranding, setSavingBranding] = useState(false);
+
+  // Change Password States
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+
+  const validatePasswordStrength = (pass: string): string | null => {
+    if (pass.length < 8) {
+      return "Password must be at least 8 characters long.";
+    }
+    if (!/[A-Z]/.test(pass)) {
+      return "Password must contain at least one uppercase letter.";
+    }
+    if (!/[a-z]/.test(pass)) {
+      return "Password must contain at least one lowercase letter.";
+    }
+    if (!/[0-9]/.test(pass)) {
+      return "Password must contain at least one number.";
+    }
+    if (!/[@$!%*?&_#^]/.test(pass)) {
+      return "Password must contain at least one special character (e.g., @, $, !, %, *, ?, &, _, #).";
+    }
+    return null;
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordError('');
+    setPasswordSuccess('');
+
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+      setPasswordError('Please fill out all password fields.');
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      setPasswordError('New password and confirmation do not match.');
+      return;
+    }
+
+    const strengthError = validatePasswordStrength(newPassword);
+    if (strengthError) {
+      setPasswordError(strengthError);
+      return;
+    }
+
+    setChangingPassword(true);
+
+    try {
+      // Get current logged in user email
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !user.email) {
+        throw new Error('User session not found. Please log in again.');
+      }
+
+      // 1. Re-authenticate current user to verify they know the current password
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
+
+      if (signInError) {
+        throw new Error('Incorrect current password.');
+      }
+
+      // 2. Change password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        throw new Error(updateError.message || 'Failed to update password.');
+      }
+
+      setPasswordSuccess('Password changed successfully!');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (err: any) {
+      setPasswordError(err.message || 'An unexpected error occurred.');
+    } finally {
+      setChangingPassword(false);
+    }
+  };
 
   useEffect(() => {
     if (tenant) {
@@ -436,6 +523,15 @@ export const Settings: React.FC = () => {
           >
             <BookOpenIcon className="w-3.5 h-3.5 mr-1.5" />
             User Manual
+          </Button>
+          <Button
+            variant={activeSubTab === 'security' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveSubTab('security')}
+            className="text-xs font-bold"
+          >
+            <Lock className="w-3.5 h-3.5 mr-1.5" />
+            Security / Password
           </Button>
         </div>
       </div>
@@ -1614,6 +1710,86 @@ WHERE email = 'your-email@example.com';`}</pre>
                   <div className="pt-4 border-t flex justify-end">
                     <Button onClick={handleSaveBranding} disabled={savingBranding}>
                       {savingBranding ? 'Saving Settings...' : 'Save Branding'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          {activeSubTab === 'security' && (
+            <div className="max-w-xl space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-bold uppercase tracking-wider flex items-center space-x-2">
+                    <Lock className="w-4 h-4 text-primary" />
+                    <span>Change Account Password</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Update your password regularly to maintain security. Strong password criteria will be enforced.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {passwordError && (
+                    <div className="p-3 bg-destructive/10 border border-destructive/20 text-destructive text-xs rounded-lg font-semibold">
+                      {passwordError}
+                    </div>
+                  )}
+                  {passwordSuccess && (
+                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-lg font-semibold">
+                      {passwordSuccess}
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label htmlFor="current_password" className="text-xs font-semibold">Current Password</Label>
+                    <Input
+                      id="current_password"
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="new_password" className="text-xs font-semibold">New Password</Label>
+                    <Input
+                      id="new_password"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm_new_password" className="text-xs font-semibold">Confirm New Password</Label>
+                    <Input
+                      id="confirm_new_password"
+                      type="password"
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+
+                  <div className="p-3 bg-muted/20 border rounded-lg text-[10px] space-y-1 text-muted-foreground">
+                    <span className="font-semibold text-foreground">Password requirements:</span>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      <li>Minimum 8 characters long</li>
+                      <li>At least 1 uppercase letter</li>
+                      <li>At least 1 lowercase letter</li>
+                      <li>At least 1 numeric digit</li>
+                      <li>At least 1 special character (e.g. @, $, !, %, *, ?, &)</li>
+                    </ul>
+                  </div>
+
+                  <div className="pt-4 border-t flex justify-end">
+                    <Button onClick={handleChangePassword} disabled={changingPassword}>
+                      {changingPassword ? 'Updating Password...' : 'Change Password'}
                     </Button>
                   </div>
                 </CardContent>

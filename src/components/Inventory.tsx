@@ -14,6 +14,7 @@ import { Badge } from './ui/badge';
 import { Card, CardContent } from './ui/card';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { useModal } from '../contexts/ModalContext';
+import { Checkbox } from './ui/checkbox';
 import {
   Pagination,
   PaginationContent,
@@ -46,8 +47,6 @@ export const Inventory: React.FC = () => {
   const { profile, selectedBranch } = useAuth();
   const { confirm, showSuccess, showError } = useModal();
   const { tenant } = useTenant();
-  const isRetail = tenant?.is_retail ?? false;
-  const isService = tenant?.is_service ?? false;
   
   // Navigation Tabs: 'catalog' or 'balances'
   const [activeSubTab, setActiveSubTab] = useState<'balances' | 'catalog'>('balances');
@@ -78,6 +77,7 @@ export const Inventory: React.FC = () => {
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [initialQty, setInitialQty] = useState<number>(0);
   const [sellingPrice, setSellingPrice] = useState<number | ''>('');
+  const [directPOS, setDirectPOS] = useState(false);
   const [isCustomCategory, setIsCustomCategory] = useState(false);
 
   const isRestaurant = tenant?.is_restaurant ?? true;
@@ -142,6 +142,7 @@ export const Inventory: React.FC = () => {
     setStatus('active');
     setInitialQty(0);
     setSellingPrice('');
+    setDirectPOS(false);
     setShowForm(true);
   };
 
@@ -158,6 +159,7 @@ export const Inventory: React.FC = () => {
     setCostPerBaseUnit(item.cost_per_base_unit);
     setStatus(item.status);
     setSellingPrice(item.selling_price || '');
+    setDirectPOS(item.selling_price !== null && item.selling_price !== undefined && item.selling_price > 0);
     setShowForm(true);
   };
 
@@ -175,6 +177,7 @@ export const Inventory: React.FC = () => {
     }
 
     try {
+      const finalSellingPrice = directPOS && sellingPrice !== '' ? Number(sellingPrice) : null;
       const itemPayload = {
         sku: sku.trim(),
         item_name: itemName.trim(),
@@ -185,7 +188,7 @@ export const Inventory: React.FC = () => {
         reorder_level: Number(reorderLevel),
         cost_per_base_unit: Number(costPerBaseUnit),
         status,
-        selling_price: sellingPrice === '' ? null : Number(sellingPrice)
+        selling_price: finalSellingPrice
       };
 
       if (editingItem) {
@@ -208,7 +211,7 @@ export const Inventory: React.FC = () => {
           p_initial_quantity: Number(initialQty),
           p_branch_id: selectedBranch ? selectedBranch.id : null,
           p_created_by: profile ? profile.id : null,
-          p_selling_price: sellingPrice === '' ? null : Number(sellingPrice)
+          p_selling_price: finalSellingPrice
         });
         if (error) throw error;
         showSuccess("Item created successfully!");
@@ -725,19 +728,31 @@ export const Inventory: React.FC = () => {
               </div>
             </div>
 
-            {(isRetail || isService) && (
+            <div className="flex items-center space-x-2 pt-2 pb-1">
+              <Checkbox
+                id="direct_pos"
+                checked={directPOS}
+                onCheckedChange={(checked) => setDirectPOS(!!checked)}
+              />
+              <Label htmlFor="direct_pos" className="text-xs font-bold cursor-pointer select-none">
+                Directly list on POS (No Recipe Required)
+              </Label>
+            </div>
+
+            {directPOS && (
               <div className="space-y-2">
-                <Label>Retail Selling Price (₱) - Optional</Label>
+                <Label>POS Selling Price (₱)</Label>
                 <Input
                   type="number"
                   step="0.01"
                   min="0"
+                  required
                   value={sellingPrice}
                   onChange={(e) => setSellingPrice(e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="e.g. 150.00 (leave blank if not for POS sale)"
+                  placeholder="e.g. 150.00"
                 />
                 <p className="text-[10px] text-muted-foreground mt-1">
-                  Setting a selling price automatically creates and updates a matching POS catalog product.
+                  Setting a selling price automatically lists this item on the POS catalog. When sold, the system will deduct stock 1:1 directly from this inventory item.
                 </p>
               </div>
             )}
