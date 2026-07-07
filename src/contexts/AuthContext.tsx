@@ -97,33 +97,74 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // 1. Listen for auth changes and fetch initial session
   useEffect(() => {
     // Check active session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) {
-        const currentBranches = await fetchBranches();
-        await fetchProfile(session.user.id, currentBranches);
-      }
+    }).catch(err => {
+      console.error('Error getting initial session:', err);
+      setUser(null);
       setLoading(false);
     });
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    // Listen for subsequent changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      if (session?.user) {
-        const currentBranches = await fetchBranches();
-        await fetchProfile(session.user.id, currentBranches);
-      } else {
-        setProfile(null);
-        setSelectedBranchState(null);
-      }
-      setLoading(false);
     });
 
     return () => {
       subscription.unsubscribe();
     };
+  }, []);
+
+  // 2. Fetch profile and branches when user changes
+  useEffect(() => {
+    let active = true;
+
+    const loadData = async () => {
+      if (!user) {
+        if (active) {
+          setProfile(null);
+          setSelectedBranchState(null);
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (active) {
+        setLoading(true);
+      }
+
+      try {
+        const currentBranches = await fetchBranches();
+        if (active) {
+          await fetchProfile(user.id, currentBranches);
+        }
+      } catch (err) {
+        console.error('Error loading auth profile data:', err);
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  // 3. Safety fail-safe timeout to prevent infinite loading screen
+  useEffect(() => {
+    const safetyTimeout = setTimeout(() => {
+      setLoading(false);
+      console.warn('Auth initialization took too long. Force-resolved loading state to prevent hang.');
+    }, 8000);
+
+    return () => clearTimeout(safetyTimeout);
   }, []);
 
   const signOut = async () => {
