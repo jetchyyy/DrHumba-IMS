@@ -20,7 +20,7 @@ import {
 } from '../lib/offlineService';
 import type { TerminalConfig } from '../lib/offlineService';
 import { settingsService } from '../lib/settingsService';
-import { printThermalInvoice, printKitchenReceipt, printXZReport } from '../lib/printService';
+import { printThermalInvoice, printKitchenReceipt, printXZReport, printQueueNumberTicket } from '../lib/printService';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
@@ -83,7 +83,7 @@ interface PaymentDialogProps {
   open: boolean;
   onClose: () => void;
   cartTotal: number;
-  onConfirm: (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string) => Promise<void>;
+  onConfirm: (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string, queueNumber: string) => Promise<void>;
   processing: boolean;
   onStateChange?: (state: { method: PaymentMethod; tendered: number; refNumber: string } | null) => void;
   saleCategories: Array<{ value: string; label: string }>;
@@ -96,6 +96,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
   const [saleCategory, setSaleCategory] = useState<string>(defaultSaleCategory);
   const [customCategory, setCustomCategory] = useState<string>('');
   const [refNumber, setRefNumber] = useState<string>('');
+  const [queueNumber, setQueueNumber] = useState<string>('');
 
   const tendered = parseFloat(tenderedStr) || 0;
   const change = method === 'cash' ? tendered - cartTotal : 0;
@@ -125,6 +126,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
       setSaleCategory(defaultSaleCategory);
       setCustomCategory('');
       setRefNumber('');
+      setQueueNumber('');
     }
   }, [open, defaultSaleCategory]);
 
@@ -132,7 +134,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
     const tValue = method === 'cash' ? (tendered || null) : null;
     const finalCategory = saleCategory === 'other' ? customCategory.trim() : saleCategory;
     const finalRef = (method === 'gcash' || method === 'maya') ? refNumber.trim() : '';
-    await onConfirm(method, tValue, finalCategory, finalRef);
+    await onConfirm(method, tValue, finalCategory, finalRef, queueNumber.trim());
   };
 
   const quickAmounts = useMemo(() => QUICK_CASH_AMOUNTS(cartTotal), [cartTotal]);
@@ -218,6 +220,32 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
               />
             </div>
           )}
+
+          {/* Queue / Table / Order Designation */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                Queue / Order / Table # (Optional)
+              </Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px] px-2"
+                onClick={() => {
+                  const randomNum = Math.floor(1000 + Math.random() * 9000);
+                  setQueueNumber(String(randomNum));
+                }}
+              >
+                Random Order #
+              </Button>
+            </div>
+            <Input
+              value={queueNumber}
+              onChange={(e) => setQueueNumber(e.target.value)}
+              placeholder="e.g. Q-01, Table 5, 8742"
+            />
+          </div>
 
           {/* Cash Tendered — only for cash */}
           {method === 'cash' && (
@@ -335,7 +363,7 @@ export const POS: React.FC<POSProps> = ({
   // Payment dialog
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
-  const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string; control_number?: string } | null>(null);
+  const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string; control_number?: string; queue_number?: string | null } | null>(null);
 
   // Offline and Terminal Sync states
   const [terminalConfig, setTerminalConfig] = useState<TerminalConfig | null>(null);
@@ -374,6 +402,7 @@ export const POS: React.FC<POSProps> = ({
             p_control_number:   sale.control_number,
             p_created_at:       sale.created_at,
             p_cashier_id:       sale.cashier_id,
+            p_queue_number:     sale.queue_number || null,
           });
 
           if (error) throw error;
@@ -648,6 +677,8 @@ export const POS: React.FC<POSProps> = ({
           reference_number: offlineSale.reference_number,
           branch_name: selectedBranch?.name || 'Main Branch',
           cashier_email: offlineSale.cashier_email,
+          queue_number: offlineSale.queue_number || null,
+          queue_status: offlineSale.queue_status || null,
           items: offlineSale.items.map((item, idx) => ({
             id: String(idx),
             quantity: item.quantity,
@@ -672,6 +703,8 @@ export const POS: React.FC<POSProps> = ({
         created_at,
         sale_category,
         reference_number,
+        queue_number,
+        queue_status,
         branches (name),
         sale_items (
           id,
@@ -700,6 +733,8 @@ export const POS: React.FC<POSProps> = ({
           reference_number: offlineSale.reference_number,
           branch_name: selectedBranch?.name || 'Main Branch',
           cashier_email: offlineSale.cashier_email,
+          queue_number: offlineSale.queue_number || null,
+          queue_status: offlineSale.queue_status || null,
           items: offlineSale.items.map((item, idx) => ({
             id: String(idx),
             quantity: item.quantity,
@@ -729,6 +764,8 @@ export const POS: React.FC<POSProps> = ({
       created_at: saleData.created_at,
       sale_category: saleData.sale_category || 'Dine in',
       reference_number: saleData.reference_number || '',
+      queue_number: saleData.queue_number || null,
+      queue_status: saleData.queue_status || null,
       branch_name: (Array.isArray(saleData.branches) ? saleData.branches[0]?.name : (saleData.branches as any)?.name) || selectedBranch?.name || 'Main Branch',
       cashier_email: profileData?.email || profile?.email || 'System',
       items: (saleData.sale_items || []).map((si: any) => ({
@@ -761,6 +798,17 @@ export const POS: React.FC<POSProps> = ({
     } catch (err) {
       console.error('Failed to load and print kitchen receipt:', err);
       showError('Failed to print kitchen receipt.');
+    }
+  };
+
+  const handlePrintQueue = async (saleId: string) => {
+    try {
+      const mappedSale = await getSaleForPrinting(saleId);
+      const settings = await settingsService.getSettings();
+      printQueueNumberTicket(mappedSale, settings.sales_invoice);
+    } catch (err) {
+      console.error('Failed to load and print queue ticket:', err);
+      showError('Failed to print queue ticket.');
     }
   };
 
@@ -825,7 +873,7 @@ export const POS: React.FC<POSProps> = ({
     setPaymentOpen(true);
   };
 
-  const handleConfirmPayment = async (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string) => {
+  const handleConfirmPayment = async (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string, queueNumber: string) => {
     if (!selectedBranch) return;
     setCheckingOut(true);
 
@@ -845,6 +893,7 @@ export const POS: React.FC<POSProps> = ({
           p_amount_tendered:  tendered,
           p_sale_category:    saleCategory,
           p_reference_number: referenceNumber,
+          p_queue_number:     queueNumber || null,
         });
 
         if (error) throw error;
@@ -856,7 +905,8 @@ export const POS: React.FC<POSProps> = ({
           change,
           method,
           sale_category: saleCategory,
-          reference_number: referenceNumber
+          reference_number: referenceNumber,
+          queue_number: queueNumber || null
         });
         setCart([]);
         setPaymentOpen(false);
@@ -879,7 +929,9 @@ export const POS: React.FC<POSProps> = ({
           sale_category: saleCategory,
           reference_number: referenceNumber,
           items: payload,
-          total_amount: cartTotal
+          total_amount: cartTotal,
+          queue_number: queueNumber || undefined,
+          queue_status: queueNumber ? 'preparing' : undefined
         });
 
         const change = method === 'cash' && tendered ? tendered - cartTotal : 0;
@@ -890,7 +942,8 @@ export const POS: React.FC<POSProps> = ({
           method,
           sale_category: saleCategory,
           reference_number: referenceNumber,
-          control_number: offlineSale.control_number
+          control_number: offlineSale.control_number,
+          queue_number: queueNumber || null
         });
 
         setCart([]);
@@ -1337,6 +1390,13 @@ export const POS: React.FC<POSProps> = ({
                     <span className="font-mono text-foreground">{lastSaleResult.reference_number}</span>
                   </div>
                 )}
+
+                {lastSaleResult.queue_number && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Queue / Order / Table #</span>
+                    <span className="font-bold text-foreground">{lastSaleResult.queue_number}</span>
+                  </div>
+                )}
                 
                 {lastSaleResult.method === 'cash' && lastSaleResult.change > 0 && (
                   <>
@@ -1381,6 +1441,20 @@ export const POS: React.FC<POSProps> = ({
                 Print Receipt
               </Button>
             </div>
+            {lastSaleResult?.queue_number && (
+              <Button
+                variant="outline"
+                className="w-full font-bold border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-900 dark:text-indigo-400 dark:hover:bg-indigo-950/20"
+                onClick={() => {
+                  if (lastSaleResult) {
+                    handlePrintQueue(lastSaleResult.id);
+                  }
+                }}
+              >
+                <Printer className="w-4 h-4 mr-2" />
+                Print Queue Ticket
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setLastSaleResult(null)} className="w-full">
               Close (New Sale)
             </Button>

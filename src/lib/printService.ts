@@ -867,6 +867,125 @@ export const printKitchenReceipt = (sale: any, template: SalesInvoiceTemplate) =
   printWindow.document.close();
 };
 
+export const printQueueNumberTicket = (sale: any, template: SalesInvoiceTemplate) => {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Please allow popups to generate the queue ticket.');
+    return;
+  }
+
+  const dateStr = new Date(sale.created_at || new Date()).toLocaleString();
+  const widthStyle = template.paper_width === '58mm' ? '54mm' : '76mm';
+  const fontSizeStyle = template.font_size === 'small' ? '11px' : template.font_size === 'large' ? '14px' : '12px';
+
+  const html = `
+    <html>
+      <head>
+        <title>Queue Ticket - ${sale.queue_number || 'Order'}</title>
+        <style>
+          @page {
+            margin: 0;
+          }
+          body {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: ${fontSizeStyle};
+            line-height: 1.3;
+            color: #000000;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 8px;
+            width: ${widthStyle};
+          }
+          .ticket-container {
+            width: 100%;
+            text-align: center;
+          }
+          .separator {
+            border-top: 1px dashed #000000;
+            margin: 8px 0;
+          }
+          .title {
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 4px;
+          }
+          .branch {
+            font-size: 1.1em;
+            margin-bottom: 8px;
+          }
+          .number-box {
+            border: 2px solid #000000;
+            padding: 12px;
+            margin: 12px 0;
+            font-size: 2.2em;
+            font-weight: bold;
+          }
+          .footer-text {
+            font-size: 0.9em;
+            margin-top: 10px;
+          }
+          .print-btn {
+            background-color: #000000;
+            color: #ffffff;
+            border: none;
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 12px;
+            width: 100%;
+            font-family: inherit;
+          }
+          @media print {
+            .print-btn {
+              display: none;
+            }
+            body {
+              padding: 0;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="ticket-container">
+          <button class="print-btn" onclick="window.print(); window.close();">Print Ticket</button>
+          <div class="title">QUEUE TICKET</div>
+          <div class="branch">${sale.branch_name || 'Main Branch'}</div>
+          
+          <div class="separator"></div>
+          
+          <div style="font-size: 1em; font-weight: bold;">YOUR NUMBER IS:</div>
+          <div class="number-box">${sale.queue_number}</div>
+          
+          <div class="separator"></div>
+          
+          <div style="text-align: left; font-size: 0.95em;">
+            <div>Date: ${dateStr}</div>
+            ${sale.control_number ? `<div>Invoice: ${sale.control_number}</div>` : ''}
+            ${sale.sale_category ? `<div>Type: ${sale.sale_category}</div>` : ''}
+          </div>
+          
+          <div class="separator"></div>
+          
+          <div class="footer-text">
+            Please wait for your number<br/>to be called. Thank you!
+          </div>
+        </div>
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          };
+        </script>
+      </body>
+    </html>
+  `;
+
+  printWindow.document.write(html);
+  printWindow.document.close();
+};
+
 export const printEndOfDayReport = (report: any, template: SalesInvoiceTemplate) => {
   const printWindow = window.open('', '_blank');
   if (!printWindow) {

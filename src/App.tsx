@@ -31,6 +31,8 @@ import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen'
 import { ActiveBranchPill } from './components/ActiveBranchPill';
 import { Pig404 } from './components/Pig404';
 import { CustomerDisplay } from './components/CustomerDisplay';
+import { QueueCaller } from './components/QueueCaller';
+import { QueueTvScreen } from './components/QueueTvScreen';
 import { EnvelopeClosedIcon as Mail, LockClosedIcon as Key, ReloadIcon as RefreshCw, ExclamationTriangleIcon as ShieldAlert, EyeOpenIcon, EyeClosedIcon } from '@radix-ui/react-icons';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -47,6 +49,11 @@ const AppContent: React.FC = () => {
   const isCustomerDisplay = 
     window.location.pathname === '/customer-display' || 
     window.location.search.includes('view=customer-display');
+
+  // Check if this is the queue TV screen
+  const isQueueTv = 
+    window.location.pathname === '/queue-tv' || 
+    window.location.search.includes('view=queue-tv');
 
   // Navigation active state
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -110,8 +117,9 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     const isCustomerPath = window.location.pathname === '/customer-display';
+    const isQueuePath = window.location.pathname === '/queue-tv';
     const isSaaSRoute = ['/apply', '/odc'].includes(window.location.pathname);
-    if (window.location.pathname !== '/' && !isCustomerPath && !isSaaSRoute) {
+    if (window.location.pathname !== '/' && !isCustomerPath && !isQueuePath && !isSaaSRoute) {
       setIs404(true);
     }
     
@@ -199,6 +207,10 @@ const AppContent: React.FC = () => {
 
   if (isCustomerDisplay) {
     return <CustomerDisplay />;
+  }
+
+  if (isQueueTv) {
+    return <QueueTvScreen />;
   }
 
   // Render Login / Signup if user is not authenticated
@@ -594,6 +606,8 @@ const AppContent: React.FC = () => {
         return <Dashboard setActiveTab={setActiveTab} />;
       case 'pos':
         return <POS isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen} />;
+      case 'queue-caller':
+        return <QueueCaller />;
       case 'sales-history':
         return <SalesHistory />;
       case 'z-read-history':

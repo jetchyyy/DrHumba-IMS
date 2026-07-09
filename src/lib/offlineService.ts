@@ -33,6 +33,8 @@ export interface OfflineSale {
   created_at: string; // ISO string
   items: Array<{ menu_item_id: string; quantity: number; name?: string; price?: number }>;
   total_amount: number;
+  queue_number?: string;
+  queue_status?: string;
 }
 
 interface EncryptedQueueItem {

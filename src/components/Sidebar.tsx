@@ -23,7 +23,8 @@ import {
   MoonIcon as Moon,
   HamburgerMenuIcon as Menu,
   ReloadIcon as Spinner,
-  CardStackIcon as ExpensesIcon
+  CardStackIcon as ExpensesIcon,
+  SpeakerLoudIcon as Megaphone
 } from '@radix-ui/react-icons';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Button } from './ui/button';
@@ -64,6 +65,7 @@ export const useNavItems = () => {
   const tabs = [
     { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, show: true },
     { id: 'pos', name: 'POS (Sales)', icon: ShoppingBag, show: ['super_admin', 'branch_manager', 'cashier'].includes(role) },
+    { id: 'queue-caller', name: 'Queue Caller', icon: Megaphone, show: ['super_admin', 'branch_manager', 'cashier'].includes(role) },
     { id: 'sales-history', name: 'Sales History', icon: History, show: true },
     { id: 'z-read-history', name: 'Z-Read History', icon: ClipboardList, show: true },
     { id: 'expenses', name: 'Expense Tracker', icon: ExpensesIcon, show: ['super_admin', 'branch_manager', 'auditor'].includes(role) },
