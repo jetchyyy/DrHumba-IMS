@@ -270,7 +270,7 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
                   <TableHead>Category</TableHead>
                   {branches.map(b => (
                     <TableHead key={b.id} className="text-center font-bold text-primary whitespace-nowrap">
-                      {b.name} {b.is_warehouse ? '🏢' : '🍔'}
+                      {b.name}
                     </TableHead>
                   ))}
                   <TableHead className="text-right pr-6 font-bold">Total Stock</TableHead>
