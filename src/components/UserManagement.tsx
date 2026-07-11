@@ -157,6 +157,7 @@ export const UserManagement: React.FC = () => {
           created_at,
           branches (name)
         `)
+        .neq('is_platform_admin', true)
         .order('role_name');
 
       if (staffError) throw staffError;
