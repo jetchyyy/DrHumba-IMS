@@ -189,7 +189,7 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
               <SelectValue placeholder="Select Branch" />
             </SelectTrigger>
             <SelectContent>
-              {branches.map((b) => (
+              {branches.filter(b => !b.parent_id).map((b) => (
                 <SelectItem key={b.id} value={b.id} className="text-xs">
                   {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
                 </SelectItem>

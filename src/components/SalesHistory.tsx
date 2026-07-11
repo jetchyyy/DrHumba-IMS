@@ -56,6 +56,8 @@ interface SaleRecord {
   branch_name: string;
   cashier_email: string;
   items: SaleItem[];
+  sub_store_id?: string | null;
+  sub_store_name?: string | null;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -82,10 +84,15 @@ export const SalesHistory: React.FC = () => {
   // Filtering States
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBranchId, setSelectedBranchId] = useState('All');
+  const [selectedSubStoreId, setSelectedSubStoreId] = useState('All');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
   const [saleCategoryFilter, setSaleCategoryFilter] = useState<string>('all');
+
+  useEffect(() => {
+    setSelectedSubStoreId('All');
+  }, [selectedBranchId]);
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -93,7 +100,7 @@ export const SalesHistory: React.FC = () => {
   
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedBranchId, dateFilter, startDate, endDate, saleCategoryFilter]);
+  }, [searchTerm, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter]);
 
   const getCategoryBadge = (category: string | null) => {
     const cat = (category || vocab.defaultSaleCategory).toLowerCase();
@@ -358,6 +365,7 @@ export const SalesHistory: React.FC = () => {
           id,
           control_number,
           branch_id,
+          sub_store_id,
           cashier_id,
           total_amount,
           status,
@@ -369,7 +377,8 @@ export const SalesHistory: React.FC = () => {
           void_reason,
           voided_at,
           created_at,
-          branches (name),
+          branches:branches!branch_id (name),
+          sub_stores:branches!sub_store_id (name),
           sale_items (
             id,
             quantity,
@@ -411,6 +420,8 @@ export const SalesHistory: React.FC = () => {
           created_at: sale.created_at,
           branch_name: sale.branches?.name || 'Unknown Branch',
           cashier_email: cashierProfile?.email || 'System / Cashier',
+          sub_store_id: sale.sub_store_id || null,
+          sub_store_name: sale.sub_stores?.name || null,
           items: (sale.sale_items || []).map((si: any) => ({
             id: si.id,
             quantity: Number(si.quantity),
@@ -474,6 +485,9 @@ export const SalesHistory: React.FC = () => {
       sale.cashier_email.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesBranch = selectedBranchId === 'All' || sale.branch_id === selectedBranchId;
+    const matchesSubStore = selectedSubStoreId === 'All' || 
+      (selectedSubStoreId === 'parent' && !sale.sub_store_id) || 
+      sale.sub_store_id === selectedSubStoreId;
 
     const normalizedCategory = (sale.sale_category || vocab.defaultSaleCategory).toLowerCase();
     const defaultCategories = vocab.saleCategories.map(c => c.value.toLowerCase()).filter(c => c !== 'other');
@@ -512,7 +526,7 @@ export const SalesHistory: React.FC = () => {
       }
     }
 
-    return matchesSearch && matchesBranch && matchesDate && matchesSaleCategory;
+    return matchesSearch && matchesBranch && matchesSubStore && matchesDate && matchesSaleCategory;
   });
 
   const totalPages = Math.ceil(filteredSales.length / itemsPerPage);
@@ -736,7 +750,7 @@ export const SalesHistory: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="All">All Branches</SelectItem>
-                    {branches.map(br => (
+                    {branches.filter(br => !br.parent_id).map(br => (
                       <SelectItem key={br.id} value={br.id}>{br.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -745,10 +759,34 @@ export const SalesHistory: React.FC = () => {
             ) : (
               profile?.branch_id && (
                 <div className="text-xs text-muted-foreground bg-muted/50 border px-3 py-2 rounded-lg font-medium">
-                  Branch Locked: <span className="text-foreground font-bold">{sales[0]?.branch_name || 'My Branch'}</span>
+                  Branch Locked: <span className="text-foreground font-bold">{branches.find(b => b.id === (branches.find(x => x.id === profile.branch_id)?.parent_id || profile.branch_id))?.name || 'My Branch'}</span>
                 </div>
               )
             )}
+
+            {/* Sub-Store Filter */}
+            {((isAdminRole && selectedBranchId !== 'All') || (!isAdminRole && profile?.branch_id)) && (() => {
+              const currentParentId = isAdminRole ? selectedBranchId : (branches.find(b => b.id === profile?.branch_id)?.parent_id || profile?.branch_id);
+              const subStores = branches.filter(b => b.parent_id === currentParentId);
+              if (subStores.length === 0) return null;
+              return (
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-muted-foreground font-medium">Store:</span>
+                  <Select value={selectedSubStoreId} onValueChange={setSelectedSubStoreId}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="All Sub-Stores" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="All">All Sub-Stores</SelectItem>
+                      <SelectItem value="parent">Parent Store Only</SelectItem>
+                      {subStores.map(ss => (
+                        <SelectItem key={ss.id} value={ss.id}>{ss.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              );
+            })()}
 
             <div className="flex items-center space-x-2">
               <span className="text-xs text-muted-foreground font-medium">Sale Type:</span>
@@ -888,7 +926,14 @@ export const SalesHistory: React.FC = () => {
                           <div className="font-bold">{sale.control_number || 'Pending'}</div>
                           <div className="text-[10px] text-muted-foreground">{sale.id.slice(0, 8)}...</div>
                         </TableCell>
-                        <TableCell className="font-bold">{sale.branch_name}</TableCell>
+                        <TableCell className="font-bold">
+                          <div>{sale.branch_name}</div>
+                          {sale.sub_store_name && (
+                            <span className="text-[10px] text-indigo-500 font-medium bg-indigo-500/5 px-1.5 py-0.5 rounded border border-indigo-500/10 block mt-1 w-max">
+                              Store: {sale.sub_store_name}
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           {getCategoryBadge(sale.sale_category)}
                         </TableCell>

@@ -19,7 +19,8 @@ export const BranchManagement: React.FC = () => {
   const { tenant } = useTenant();
   const { confirm, showSuccess, showError } = useModal();
 
-  const limitReached = !!(tenant && branches.length >= tenant.max_branches);
+  const parentBranchesCount = branches.filter(b => !b.parent_id).length;
+  const limitReached = !!(tenant && parentBranchesCount >= tenant.max_branches);
 
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
@@ -27,6 +28,7 @@ export const BranchManagement: React.FC = () => {
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [submitting, setSubmitting] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [parentBranchForSubStore, setParentBranchForSubStore] = useState<any>(null);
 
   // Edit States
   const [editingBranch, setEditingBranch] = useState<any>(null);
@@ -36,6 +38,17 @@ export const BranchManagement: React.FC = () => {
   const [editStatus, setEditStatus] = useState<'active' | 'inactive'>('active');
   const [showEditModal, setShowEditModal] = useState(false);
 
+  const handleCloseCreateModal = (open: boolean) => {
+    setShowModal(open);
+    if (!open) {
+      setParentBranchForSubStore(null);
+      setName('');
+      setLocation('');
+      setIsWarehouse(false);
+      setStatus('active');
+    }
+  };
+
   useEffect(() => {
     refreshProfile();
   }, []);
@@ -44,7 +57,7 @@ export const BranchManagement: React.FC = () => {
     e.preventDefault();
     if (!name.trim()) return;
 
-    if (limitReached) {
+    if (limitReached && !parentBranchForSubStore) {
       showError(`Branch limit reached. Your current plan "${tenant.plan_type}" allows up to ${tenant.max_branches} branch locations. Please upgrade your subscription.`);
       return;
     }
@@ -59,17 +72,19 @@ export const BranchManagement: React.FC = () => {
           location: location.trim() || null,
           is_warehouse: isWarehouse,
           status: status,
+          parent_id: parentBranchForSubStore?.id || null,
           tenant_id: tenant?.id,       // required for RLS: tenant_id = get_my_tenant_id()
         });
 
 
       if (insertError) throw insertError;
 
-      showSuccess(`Branch "${name}" created successfully!`);
+      showSuccess(parentBranchForSubStore ? `Sub-store "${name}" created successfully!` : `Branch "${name}" created successfully!`);
       setName('');
       setLocation('');
       setIsWarehouse(false);
       setStatus('active');
+      setParentBranchForSubStore(null);
       setShowModal(false);
 
       await refreshProfile();
@@ -218,76 +233,159 @@ export const BranchManagement: React.FC = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    branches.map((b) => (
-                      <TableRow key={b.id}>
-                        <TableCell className="pl-6 font-semibold">
-                          <div className="flex items-center space-x-3">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${b.is_warehouse
-                                ? 'bg-primary/10 border-primary/20 text-primary'
-                                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
-                              }`}>
-                              {b.is_warehouse ? <Home className="w-4 h-4" /> : <Store className="w-4 h-4" />}
-                            </div>
-                            <span>{b.name}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {b.is_warehouse ? (
-                            <Badge variant="outline" className="text-[10px] uppercase border-primary/50 text-primary bg-primary/5">
-                              Central Warehouse
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px] uppercase border-emerald-500/50 text-emerald-500 bg-emerald-500/5">
-                              Retail Branch
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          <div className="flex items-center space-x-1">
-                            <MapPin className="w-3.5 h-3.5" />
-                            <span>{b.location || 'No address specified'}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant={b.status === 'inactive' ? 'secondary' : 'default'} className="text-[10px] uppercase">
-                            {b.status || 'active'}
-                          </Badge>
-                        </TableCell>
-                        {isSuperAdmin && (
-                          <TableCell className="text-right pr-6">
-                            <div className="flex justify-end space-x-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => openEditModal(b)}
-                                className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
-                                title="Edit Branch"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleToggleStatus(b.id, b.name, b.status || 'active')}
-                                className={`h-8 w-8 ${b.status === 'inactive' ? 'text-emerald-500 hover:text-emerald-500 hover:bg-emerald-500/10' : 'text-amber-500 hover:text-amber-500 hover:bg-amber-500/10'}`}
-                                title={b.status === 'inactive' ? 'Activate Branch' : 'Deactivate Branch'}
-                              >
-                                {b.status === 'inactive' ? <ShieldOn className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDeleteBranch(b.id, b.name)}
-                                className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                title="Delete Branch"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    ))
+                    branches.filter(b => !b.parent_id).map((parent) => {
+                      const subStores = branches.filter(b => b.parent_id === parent.id);
+                      return (
+                        <React.Fragment key={parent.id}>
+                          {/* Parent Branch Row */}
+                          <TableRow>
+                            <TableCell className="pl-6 font-semibold">
+                              <div className="flex items-center space-x-3">
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${parent.is_warehouse
+                                    ? 'bg-primary/10 border-primary/20 text-primary'
+                                    : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                                  }`}>
+                                  {parent.is_warehouse ? <Home className="w-4 h-4" /> : <Store className="w-4 h-4" />}
+                                </div>
+                                <span>{parent.name}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {parent.is_warehouse ? (
+                                <Badge variant="outline" className="text-[10px] uppercase border-primary/50 text-primary bg-primary/5">
+                                  Central Warehouse
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] uppercase border-emerald-500/50 text-emerald-500 bg-emerald-500/5">
+                                  Retail Branch
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              <div className="flex items-center space-x-1">
+                                <MapPin className="w-3.5 h-3.5" />
+                                <span>{parent.location || 'No address specified'}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Badge variant={parent.status === 'inactive' ? 'secondary' : 'default'} className="text-[10px] uppercase">
+                                {parent.status || 'active'}
+                              </Badge>
+                            </TableCell>
+                            {isSuperAdmin && (
+                              <TableCell className="text-right pr-6">
+                                <div className="flex justify-end space-x-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setParentBranchForSubStore(parent);
+                                      setName('');
+                                      setLocation(parent.location || '');
+                                      setIsWarehouse(false);
+                                      setStatus('active');
+                                      setShowModal(true);
+                                    }}
+                                    className="h-8 w-8 text-emerald-600 hover:text-emerald-600 hover:bg-emerald-500/10"
+                                    title="Add Sub-Store"
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => openEditModal(parent)}
+                                    className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
+                                    title="Edit Branch"
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleToggleStatus(parent.id, parent.name, parent.status || 'active')}
+                                    className={`h-8 w-8 ${parent.status === 'inactive' ? 'text-emerald-500 hover:text-emerald-500 hover:bg-emerald-500/10' : 'text-amber-500 hover:text-amber-500 hover:bg-amber-500/10'}`}
+                                    title={parent.status === 'inactive' ? 'Activate Branch' : 'Deactivate Branch'}
+                                  >
+                                    {parent.status === 'inactive' ? <ShieldOn className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleDeleteBranch(parent.id, parent.name)}
+                                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    title="Delete Branch"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            )}
+                          </TableRow>
+                          {/* Sub-Store Rows */}
+                          {subStores.map((sub) => (
+                            <TableRow key={sub.id} className="bg-muted/10 border-l-2 border-l-primary/30">
+                              <TableCell className="pl-14 font-medium text-muted-foreground">
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-muted-foreground/60 mr-1">└─</span>
+                                  <Store className="w-3.5 h-3.5 text-indigo-500/70" />
+                                  <span className="text-foreground">{sub.name}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="text-[10px] uppercase border-indigo-500/50 text-indigo-500 bg-indigo-500/5">
+                                  Sub-Store
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-muted-foreground/80">
+                                <div className="flex items-center space-x-1 pl-4">
+                                  <MapPin className="w-3 h-3" />
+                                  <span>{sub.location || parent.location || 'No address specified'}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant={sub.status === 'inactive' ? 'secondary' : 'default'} className="text-[10px] uppercase">
+                                  {sub.status || 'active'}
+                                </Badge>
+                              </TableCell>
+                              {isSuperAdmin && (
+                                <TableCell className="text-right pr-6">
+                                  <div className="flex justify-end space-x-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => openEditModal(sub)}
+                                      className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
+                                      title="Edit Sub-Store"
+                                    >
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => handleToggleStatus(sub.id, sub.name, sub.status || 'active')}
+                                      className={`h-8 w-8 ${sub.status === 'inactive' ? 'text-emerald-500 hover:text-emerald-500 hover:bg-emerald-500/10' : 'text-amber-500 hover:text-amber-500 hover:bg-amber-500/10'}`}
+                                      title={sub.status === 'inactive' ? 'Activate Sub-Store' : 'Deactivate Sub-Store'}
+                                    >
+                                      {sub.status === 'inactive' ? <ShieldOn className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => handleDeleteBranch(sub.id, sub.name)}
+                                      className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                      title="Delete Sub-Store"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              )}
+                            </TableRow>
+                          ))}
+                        </React.Fragment>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -296,12 +394,14 @@ export const BranchManagement: React.FC = () => {
         </div>
       </div>
 
-      <Dialog open={showModal} onOpenChange={setShowModal}>
+      <Dialog open={showModal} onOpenChange={handleCloseCreateModal}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Create New Branch</DialogTitle>
+            <DialogTitle>{parentBranchForSubStore ? `Add Sub-Store to ${parentBranchForSubStore.name}` : 'Create New Branch'}</DialogTitle>
             <DialogDescription>
-              Add a new warehouse or retail location to the system.
+              {parentBranchForSubStore 
+                ? 'Add a storefront, brand, or sub-outlet under this branch location. Shares parent inventory.' 
+                : 'Add a new warehouse or retail location to the system.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -338,16 +438,18 @@ export const BranchManagement: React.FC = () => {
               </Select>
             </div>
 
-            <div className="flex items-center space-x-2 pt-2 pb-4">
-              <Checkbox
-                id="isWarehouse"
-                checked={isWarehouse}
-                onCheckedChange={(checked) => setIsWarehouse(!!checked)}
-              />
-              <Label htmlFor="isWarehouse" className="font-normal cursor-pointer text-sm">
-                This location is a Central Warehouse
-              </Label>
-            </div>
+            {!parentBranchForSubStore && (
+              <div className="flex items-center space-x-2 pt-2 pb-4">
+                <Checkbox
+                  id="isWarehouse"
+                  checked={isWarehouse}
+                  onCheckedChange={(checked) => setIsWarehouse(!!checked)}
+                />
+                <Label htmlFor="isWarehouse" className="font-normal cursor-pointer text-sm">
+                  This location is a Central Warehouse
+                </Label>
+              </div>
+            )}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowModal(false)}>
@@ -372,8 +474,16 @@ export const BranchManagement: React.FC = () => {
           </DialogHeader>
 
           <form onSubmit={handleUpdateBranch} className="space-y-4 pt-4">
+            {editingBranch?.parent_id && (
+              <div className="bg-muted p-3 rounded-lg text-xs text-muted-foreground flex items-center space-x-2">
+                <Store className="w-4 h-4 text-indigo-500" />
+                <span>
+                  This is a sub-store of <span className="font-bold text-foreground">{branches.find(b => b.id === editingBranch.parent_id)?.name}</span>. Shares parent inventory.
+                </span>
+              </div>
+            )}
             <div className="space-y-2">
-              <Label>Branch Name *</Label>
+              <Label>{editingBranch?.parent_id ? 'Sub-Store Name *' : 'Branch Name *'}</Label>
               <Input
                 required
                 value={editName}
@@ -404,16 +514,18 @@ export const BranchManagement: React.FC = () => {
               </Select>
             </div>
 
-            <div className="flex items-center space-x-2 pt-2 pb-4">
-              <Checkbox
-                id="editIsWarehouse"
-                checked={editIsWarehouse}
-                onCheckedChange={(checked) => setEditIsWarehouse(!!checked)}
-              />
-              <Label htmlFor="editIsWarehouse" className="font-normal cursor-pointer text-sm">
-                This location is a Central Warehouse
-              </Label>
-            </div>
+            {!editingBranch?.parent_id && (
+              <div className="flex items-center space-x-2 pt-2 pb-4">
+                <Checkbox
+                  id="editIsWarehouse"
+                  checked={editIsWarehouse}
+                  onCheckedChange={(checked) => setEditIsWarehouse(!!checked)}
+                />
+                <Label htmlFor="editIsWarehouse" className="font-normal cursor-pointer text-sm">
+                  This location is a Central Warehouse
+                </Label>
+              </div>
+            )}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => { setShowEditModal(false); setEditingBranch(null); }}>

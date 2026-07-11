@@ -8,6 +8,7 @@ import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Label } from './ui/label';
 import {
   FileTextIcon as FileText,
@@ -45,7 +46,7 @@ const formatPHP = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n);
 
 export const ZReadHistory: React.FC = () => {
-  const { selectedBranch } = useAuth();
+  const { selectedBranch, branches } = useAuth();
   const { showError } = useModal();
 
   const [sessions, setSessions] = useState<CashierSession[]>([]);
@@ -54,6 +55,7 @@ export const ZReadHistory: React.FC = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedSession, setSelectedSession] = useState<CashierSession | null>(null);
+  const [filterBranchId, setFilterBranchId] = useState('All');
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -72,8 +74,8 @@ export const ZReadHistory: React.FC = () => {
         .eq('status', 'closed')
         .order('closed_at', { ascending: false });
 
-      if (selectedBranch?.id) {
-        query = query.eq('branch_id', selectedBranch.id);
+      if (filterBranchId !== 'All') {
+        query = query.eq('branch_id', filterBranchId);
       }
 
       const { data, error } = await query;
@@ -88,8 +90,16 @@ export const ZReadHistory: React.FC = () => {
   };
 
   useEffect(() => {
-    loadSessions();
+    if (selectedBranch?.id) {
+      setFilterBranchId(selectedBranch.id);
+    } else {
+      setFilterBranchId('All');
+    }
   }, [selectedBranch?.id]);
+
+  useEffect(() => {
+    loadSessions();
+  }, [filterBranchId]);
 
   // Filters logic
   const filteredSessions = useMemo(() => {
@@ -178,6 +188,20 @@ export const ZReadHistory: React.FC = () => {
                 className="pl-9"
               />
             </div>
+          </div>
+          <div className="w-full md:w-52 space-y-1">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase">Branch Location</Label>
+            <Select value={filterBranchId} onValueChange={val => { setFilterBranchId(val); setCurrentPage(1); }}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="All Branches" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Branches</SelectItem>
+                {branches.filter(b => !b.parent_id).map(b => (
+                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="w-full md:w-44 space-y-1">
             <Label className="text-xs font-semibold text-muted-foreground uppercase">Start Date</Label>

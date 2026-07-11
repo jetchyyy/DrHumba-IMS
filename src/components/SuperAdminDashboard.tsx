@@ -8,7 +8,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import {
   DashboardIcon as OverviewIcon,
@@ -138,6 +138,16 @@ export const SuperAdminDashboard: React.FC = () => {
   // Tenant Editing State
   const [editingTenant, setEditingTenant] = useState<TenantRecord | null>(null);
   const [editName, setEditName] = useState('');
+  
+  // Tenant Delete & Export States
+  const [deletingTenant, setDeletingTenant] = useState<TenantRecord | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  
+  // Tenant Reset States
+  const [resettingTenant, setResettingTenant] = useState<TenantRecord | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
   const [editPlan, setEditPlan] = useState<'starter' | 'professional' | 'enterprise'>('starter');
   const [editCycle, setEditCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [editStatus, setEditStatus] = useState<'active' | 'suspended'>('active');
@@ -361,6 +371,117 @@ export const SuperAdminDashboard: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       showError(err.message || 'Failed to update tenant configs.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // 3b. Export Tenant Data
+  const handleExportTenant = async (tenant: TenantRecord) => {
+    try {
+      showSuccess(`Exporting all data for ${tenant.name}. Please wait...`);
+      const tenantId = tenant.id;
+      
+      const tables = [
+        'tenants', 'branches', 'profiles', 'inventory_items', 'inventory_balances',
+        'inventory_movements', 'menu_items', 'recipes', 'recipe_ingredients',
+        'stock_receipts', 'stock_receipt_items', 'transfer_requests', 'transfer_items',
+        'stock_adjustments', 'stock_adjustment_items', 'sales', 'sale_items',
+        'expenses', 'notifications', 'control_number_sequences', 'system_settings',
+        'terminal_counters', 'cashier_sessions'
+      ];
+      
+      const exportData: Record<string, any> = {};
+      
+      for (const table of tables) {
+        let query = supabase.from(table).select('*');
+        if (table === 'tenants') {
+          query = query.eq('id', tenantId);
+        } else {
+          query = query.eq('tenant_id', tenantId);
+        }
+        
+        const { data, error } = await query;
+        if (error) {
+          console.warn(`Could not export table ${table}:`, error);
+          exportData[table] = [];
+        } else {
+          exportData[table] = data || [];
+        }
+      }
+      
+      const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+        JSON.stringify(exportData, null, 2)
+      )}`;
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', jsonString);
+      const safeName = tenant.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      const dateStr = new Date().toISOString().split('T')[0];
+      downloadAnchor.setAttribute('download', `tenant_export_${safeName}_${dateStr}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      
+      showSuccess(`Successfully exported all data for ${tenant.name}.`);
+    } catch (err: any) {
+      console.error('Export failed:', err);
+      showError(err.message || 'Failed to export tenant data.');
+    }
+  };
+
+  // 3c. Delete Tenant Data
+  const handleDeleteTenantSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deletingTenant) return;
+    
+    const expectedConfirmText = deletingTenant.subdomain || deletingTenant.name || '';
+    if (deleteConfirmText.trim().toLowerCase() !== expectedConfirmText.toLowerCase()) {
+      showError('Confirmation input does not match. Aborting deletion.');
+      return;
+    }
+    
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.rpc('fn_delete_tenant_data', { p_tenant_id: deletingTenant.id });
+      if (error) throw error;
+      
+      showSuccess(`Successfully deleted all data and configuration for ${deletingTenant.name}.`);
+      setIsDeleteModalOpen(false);
+      setDeletingTenant(null);
+      setDeleteConfirmText('');
+      await loadAllData();
+    } catch (err: any) {
+      console.error('Deletion failed:', err);
+      showError(err.message || 'Failed to delete tenant data.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // 3d. Reset Tenant Transactional Data
+  const handleResetTenantSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resettingTenant) return;
+    
+    const expectedConfirmText = resettingTenant.subdomain || resettingTenant.name || '';
+    if (resetConfirmText.trim().toLowerCase() !== expectedConfirmText.toLowerCase()) {
+      showError('Confirmation input does not match. Aborting reset.');
+      return;
+    }
+    
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.rpc('fn_reset_tenant_data', { p_tenant_id: resettingTenant.id });
+      if (error) throw error;
+      
+      showSuccess(`Successfully cleared all transactional data for "${resettingTenant.name}". Accounts, branches, menu catalogs, and settings have been preserved.`);
+      setIsResetModalOpen(false);
+      setResettingTenant(null);
+      setResetConfirmText('');
+      await loadAllData();
+    } catch (err: any) {
+      console.error('Reset failed:', err);
+      showError(err.message || 'Failed to reset tenant data.');
     } finally {
       setSubmitting(false);
     }
@@ -754,14 +875,57 @@ export const SuperAdminDashboard: React.FC = () => {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => openEditTenantModal(t)}
-                            className="text-xs font-bold text-pink-400 hover:text-white hover:bg-pink-500/10 rounded-lg"
-                          >
-                            Edit Portal Config
-                          </Button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => openEditTenantModal(t)}
+                              className="text-[10px] font-bold text-pink-400 hover:text-white hover:bg-pink-500/10 rounded-lg h-7 px-2"
+                            >
+                              Edit Config
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => handleExportTenant(t)}
+                              className="text-xs font-bold text-emerald-400 hover:text-white hover:bg-emerald-500/10 rounded-lg p-1.5 h-7"
+                              title="Export Tenant Data"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => {
+                                setResettingTenant(t);
+                                setResetConfirmText('');
+                                setIsResetModalOpen(true);
+                              }}
+                              className="text-xs font-bold text-amber-400 hover:text-white hover:bg-amber-500/10 rounded-lg p-1.5 h-7"
+                              title="Reset Transactional Data"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                              </svg>
+                            </Button>
+                            {t.id !== '00000000-0000-0000-0000-000000000000' && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => {
+                                  setDeletingTenant(t);
+                                  setDeleteConfirmText('');
+                                  setIsDeleteModalOpen(true);
+                                }}
+                                className="text-xs font-bold text-red-450 hover:text-white hover:bg-red-500/10 rounded-lg p-1.5 h-7"
+                                title="Delete Tenant Data"
+                              >
+                                <TrashIcon className="w-3.5 h-3.5 text-red-400 hover:text-red-300" />
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -1440,6 +1604,100 @@ export const SuperAdminDashboard: React.FC = () => {
               </Button>
               <Button type="submit" disabled={submitting} className="bg-pink-500 hover:bg-pink-600 text-white font-bold">
                 {submitting ? "Saving Plan..." : "Save Plan Configurations"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* DIALOG 6: CONFIRM DELETE TENANT MODAL */}
+      <Dialog open={isDeleteModalOpen} onOpenChange={(open) => { if (!open) { setIsDeleteModalOpen(false); setDeletingTenant(null); } }}>
+        <DialogContent className="max-w-md bg-slate-900 border-slate-800 text-white p-6">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="text-red-500 font-black text-lg">⚠️ CRITICAL ACTION: Delete Tenant Data</DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs mt-2">
+              This action will permanently delete all branches, staff profiles, menu items, sales, inventory, and transaction history for <span className="font-bold text-white font-mono bg-slate-950 px-1 py-0.5 rounded">{deletingTenant?.name}</span>.
+              <br /><br />
+              This action <span className="font-bold text-red-400">CANNOT</span> be undone. It is isolated and will not affect any other tenants.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleDeleteTenantSubmit} className="space-y-4">
+            <div className="space-y-2 bg-slate-950/40 p-3 rounded-lg border border-slate-850">
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                To confirm, type the tenant's identifier: <span className="font-bold text-pink-400 font-mono select-all">{(deletingTenant?.subdomain || deletingTenant?.name || '').toLowerCase()}</span>
+              </Label>
+              <Input
+                type="text"
+                required
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="Type name/subdomain here..."
+                className="bg-slate-950 border-slate-800 focus:border-red-500 focus:ring-red-500 text-xs"
+              />
+            </div>
+
+            <DialogFooter className="pt-4 border-t border-slate-850">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => { setIsDeleteModalOpen(false); setDeletingTenant(null); }} 
+                className="border-slate-800 text-slate-300"
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit" 
+                disabled={submitting || deleteConfirmText.trim().toLowerCase() !== (deletingTenant?.subdomain || deletingTenant?.name || '').toLowerCase()} 
+                className="bg-red-650 hover:bg-red-700 text-white font-bold text-xs"
+              >
+                {submitting ? "Deleting Tenant..." : "Permanently Delete Data"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* DIALOG 7: CONFIRM RESET TENANT MODAL */}
+      <Dialog open={isResetModalOpen} onOpenChange={(open) => { if (!open) { setIsResetModalOpen(false); setResettingTenant(null); } }}>
+        <DialogContent className="max-w-md bg-slate-900 border-slate-800 text-white p-6">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="text-amber-500 font-black text-lg">⚠️ RESET TRANSACTIONAL DATA</DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs mt-2">
+              This action will erase all sales history, cashier sessions, inventory movements/balances, stock adjustments, transfers, expenses, menu items, recipes, settings, and sequences for <span className="font-bold text-white font-mono bg-slate-950 px-1 py-0.5 rounded">{resettingTenant?.name}</span> to start from scratch.
+              <br /><br />
+              All **user accounts, staff profiles, and physical branch structures** will be preserved.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleResetTenantSubmit} className="space-y-4">
+            <div className="space-y-2 bg-slate-950/40 p-3 rounded-lg border border-slate-850">
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                To confirm, type the tenant's identifier: <span className="font-bold text-pink-400 font-mono select-all">{(resettingTenant?.subdomain || resettingTenant?.name || '').toLowerCase()}</span>
+              </Label>
+              <Input
+                type="text"
+                required
+                value={resetConfirmText}
+                onChange={(e) => setResetConfirmText(e.target.value)}
+                placeholder="Type name/subdomain here..."
+                className="bg-slate-950 border-slate-800 focus:border-amber-500 focus:ring-amber-500 text-xs"
+              />
+            </div>
+
+            <DialogFooter className="pt-4 border-t border-slate-850">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => { setIsResetModalOpen(false); setResettingTenant(null); }} 
+                className="border-slate-800 text-slate-300"
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit" 
+                disabled={submitting || resetConfirmText.trim().toLowerCase() !== (resettingTenant?.subdomain || resettingTenant?.name || '').toLowerCase()} 
+                className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
+              >
+                {submitting ? "Resetting Data..." : "Confirm Reset Transactional Data"}
               </Button>
             </DialogFooter>
           </form>

@@ -83,20 +83,23 @@ interface PaymentDialogProps {
   open: boolean;
   onClose: () => void;
   cartTotal: number;
-  onConfirm: (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string, queueNumber: string) => Promise<void>;
+  onConfirm: (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string, queueNumber: string, subStoreId: string | null) => Promise<void>;
   processing: boolean;
   onStateChange?: (state: { method: PaymentMethod; tendered: number; refNumber: string } | null) => void;
   saleCategories: Array<{ value: string; label: string }>;
   defaultSaleCategory: string;
+  subStores: any[];
+  initialSubStore: any | null;
 }
 
-const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal, onConfirm, processing, onStateChange, saleCategories, defaultSaleCategory }) => {
+const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal, onConfirm, processing, onStateChange, saleCategories, defaultSaleCategory, subStores, initialSubStore }) => {
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [tenderedStr, setTenderedStr] = useState('');
   const [saleCategory, setSaleCategory] = useState<string>(defaultSaleCategory);
   const [customCategory, setCustomCategory] = useState<string>('');
   const [refNumber, setRefNumber] = useState<string>('');
   const [queueNumber, setQueueNumber] = useState<string>('');
+  const [dialogSubStoreId, setDialogSubStoreId] = useState<string>('parent');
 
   const tendered = parseFloat(tenderedStr) || 0;
   const change = method === 'cash' ? tendered - cartTotal : 0;
@@ -127,21 +130,23 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
       setCustomCategory('');
       setRefNumber('');
       setQueueNumber('');
+      setDialogSubStoreId(initialSubStore?.id || 'parent');
     }
-  }, [open, defaultSaleCategory]);
+  }, [open, defaultSaleCategory, initialSubStore]);
 
   const handleConfirm = async () => {
     const tValue = method === 'cash' ? (tendered || null) : null;
     const finalCategory = saleCategory === 'other' ? customCategory.trim() : saleCategory;
     const finalRef = (method === 'gcash' || method === 'maya') ? refNumber.trim() : '';
-    await onConfirm(method, tValue, finalCategory, finalRef, queueNumber.trim());
+    const finalSubStoreId = dialogSubStoreId === 'parent' ? null : dialogSubStoreId;
+    await onConfirm(method, tValue, finalCategory, finalRef, queueNumber.trim(), finalSubStoreId);
   };
 
   const quickAmounts = useMemo(() => QUICK_CASH_AMOUNTS(cartTotal), [cartTotal]);
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v && !processing) onClose(); }}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="text-lg font-bold tracking-tight">Collect Payment</DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
@@ -149,169 +154,199 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
+        <div className="space-y-4">
           {/* Order Total */}
           <div className="flex justify-between items-center bg-primary/5 border border-primary/20 rounded-lg px-4 py-3">
             <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Order Total</span>
             <span className="text-2xl font-black text-primary">{formatPHP(cartTotal)}</span>
           </div>
 
-          {/* Payment Method */}
-          <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-              Payment Method
-            </Label>
-            <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(PAYMENT_LABELS) as PaymentMethod[]).map(m => (
-                  <SelectItem key={m} value={m}>{PAYMENT_LABELS[m]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Reference Number for Gcash/Maya */}
-          {(method === 'gcash' || method === 'maya') && (
-            <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                Reference Number *
-              </Label>
-              <Input
-                required
-                value={refNumber}
-                onChange={(e) => setRefNumber(e.target.value)}
-                placeholder={`Enter ${PAYMENT_LABELS[method]} Reference Number`}
-                autoFocus
-              />
-            </div>
-          )}
-
-          {/* Sale Category */}
-          <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-              Sale Category
-            </Label>
-            <Select value={saleCategory} onValueChange={setSaleCategory}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {saleCategories.map(cat => (
-                  <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Custom Sale Category Input */}
-          {saleCategory === 'other' && (
-            <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                Specify Sale Category *
-              </Label>
-              <Input
-                required
-                value={customCategory}
-                onChange={(e) => setCustomCategory(e.target.value)}
-                placeholder="e.g. Delivery Direct"
-              />
-            </div>
-          )}
-
-          {/* Queue / Table / Order Designation */}
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                Queue / Order / Table # (Optional)
-              </Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 text-[10px] px-2"
-                onClick={() => {
-                  const randomNum = Math.floor(1000 + Math.random() * 9000);
-                  setQueueNumber(String(randomNum));
-                }}
-              >
-                Random Order #
-              </Button>
-            </div>
-            <Input
-              value={queueNumber}
-              onChange={(e) => setQueueNumber(e.target.value)}
-              placeholder="e.g. Q-01, Table 5, 8742"
-            />
-          </div>
-
-          {/* Cash Tendered — only for cash */}
-          {method === 'cash' && (
-            <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-2">
+            {/* Left Column: Payment Input */}
+            <div className="space-y-4">
+              {/* Payment Method */}
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                  Amount Tendered (₱)
+                  Payment Method
                 </Label>
-                <Input
-                  type="number"
-                  min={cartTotal}
-                  step="0.01"
-                  placeholder={`Min: ${formatPHP(cartTotal)}`}
-                  value={tenderedStr}
-                  onChange={(e) => setTenderedStr(e.target.value)}
-                  className="text-base font-bold h-12"
-                  autoFocus
-                />
+                <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(PAYMENT_LABELS) as PaymentMethod[]).map(m => (
+                      <SelectItem key={m} value={m}>{PAYMENT_LABELS[m]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
-              {/* Quick-select bills */}
-              <div className="space-y-1.5">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Quick Bill</p>
-                <div className="flex gap-2 flex-wrap">
-                  {quickAmounts.map(amt => (
-                    <Button
-                      key={amt}
-                      size="sm"
-                      variant={tendered === amt ? 'default' : 'outline'}
-                      className="text-xs font-bold h-8"
-                      onClick={() => setTenderedStr(String(amt))}
-                    >
-                      ₱{amt}
-                    </Button>
-                  ))}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-xs text-muted-foreground h-8"
-                    onClick={() => setTenderedStr(cartTotal.toFixed(2))}
-                  >
-                    Exact
-                  </Button>
+              {/* Reference Number for Gcash/Maya */}
+              {(method === 'gcash' || method === 'maya') && (
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                    Reference Number *
+                  </Label>
+                  <Input
+                    required
+                    value={refNumber}
+                    onChange={(e) => setRefNumber(e.target.value)}
+                    placeholder={`Enter ${PAYMENT_LABELS[method]} Reference Number`}
+                    autoFocus
+                  />
                 </div>
-              </div>
+              )}
 
-              {/* Change */}
-              {tendered > 0 && (
-                <div className={`flex justify-between items-center rounded-lg px-4 py-3 border font-bold ${
-                  change >= 0
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-destructive/10 border-destructive/30 text-destructive'
-                }`}>
-                  <span className="text-xs uppercase tracking-wider">{change >= 0 ? 'Change' : 'Short by'}</span>
-                  <span className="text-xl">{formatPHP(Math.abs(change))}</span>
+              {/* Cash Tendered — only for cash */}
+              {method === 'cash' && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                      Amount Tendered (₱)
+                    </Label>
+                    <Input
+                      type="number"
+                      min={cartTotal}
+                      step="0.01"
+                      placeholder={`Min: ${formatPHP(cartTotal)}`}
+                      value={tenderedStr}
+                      onChange={(e) => setTenderedStr(e.target.value)}
+                      className="text-base font-bold h-12"
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* Quick-select bills */}
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Quick Bill</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {quickAmounts.map(amt => (
+                        <Button
+                          key={amt}
+                          size="sm"
+                          variant={tendered === amt ? 'default' : 'outline'}
+                          className="text-xs font-bold h-8"
+                          onClick={() => setTenderedStr(String(amt))}
+                        >
+                          ₱{amt}
+                        </Button>
+                      ))}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-xs text-muted-foreground h-8"
+                        onClick={() => setTenderedStr(cartTotal.toFixed(2))}
+                      >
+                        Exact
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Change */}
+                  {tendered > 0 && (
+                    <div className={`flex justify-between items-center rounded-lg px-4 py-3 border font-bold ${
+                      change >= 0
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                        : 'bg-destructive/10 border-destructive/30 text-destructive'
+                    }`}>
+                      <span className="text-xs uppercase tracking-wider">{change >= 0 ? 'Change' : 'Short by'}</span>
+                      <span className="text-xl">{formatPHP(Math.abs(change))}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Non-cash note */}
+              {method !== 'cash' && (
+                <div className="bg-muted/40 border rounded-lg px-4 py-3 text-xs text-muted-foreground">
+                  {PAYMENT_LABELS[method]} — no change calculation required. Confirm when payment is received.
                 </div>
               )}
             </div>
-          )}
 
-          {/* Non-cash note */}
-          {method !== 'cash' && (
-            <div className="bg-muted/40 border rounded-lg px-4 py-3 text-xs text-muted-foreground">
-              {PAYMENT_LABELS[method]} — no change calculation required. Confirm when payment is received.
+            {/* Right Column: Metadata & Attribution */}
+            <div className="space-y-4">
+              {/* Sale Category */}
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  Sale Category
+                </Label>
+                <Select value={saleCategory} onValueChange={setSaleCategory}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {saleCategories.map(cat => (
+                      <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Custom Sale Category Input */}
+              {saleCategory === 'other' && (
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                    Specify Sale Category *
+                  </Label>
+                  <Input
+                    required
+                    value={customCategory}
+                    onChange={(e) => setCustomCategory(e.target.value)}
+                    placeholder="e.g. Delivery Direct"
+                  />
+                </div>
+              )}
+
+              {/* Sub-Store Selection (Attribution) */}
+              {subStores.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                    Store Attribution
+                  </Label>
+                  <Select value={dialogSubStoreId} onValueChange={setDialogSubStoreId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Attribution Store" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="parent">Parent Store</SelectItem>
+                      {subStores.map((ss) => (
+                        <SelectItem key={ss.id} value={ss.id}>
+                          {ss.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Queue / Table / Order Designation */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                    Queue / Order / Table # (Optional)
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[10px] px-2"
+                    onClick={() => {
+                      const randomNum = Math.floor(1000 + Math.random() * 9000);
+                      setQueueNumber(String(randomNum));
+                    }}
+                  >
+                    Random Order #
+                  </Button>
+                </div>
+                <Input
+                  value={queueNumber}
+                  onChange={(e) => setQueueNumber(e.target.value)}
+                  placeholder="e.g. Q-01, Table 5, 8742"
+                />
+              </div>
             </div>
-          )}
+          </div>
         </div>
 
         <Separator />
@@ -344,7 +379,7 @@ export const POS: React.FC<POSProps> = ({
   isFullscreen = false,
   onToggleFullscreen,
 }) => {
-  const { selectedBranch, profile } = useAuth();
+  const { selectedBranch, profile, branches } = useAuth();
   const { showSuccess, showError } = useModal();
   const { isOnline } = useNetworkStatus();
   const vocab = useBusinessVocab();
@@ -355,6 +390,25 @@ export const POS: React.FC<POSProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [loading, setLoading] = useState(true);
+
+  // Sub-store states
+  const [subStores, setSubStores] = useState<any[]>([]);
+  const [selectedSubStore, setSelectedSubStore] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (selectedBranch?.id && branches) {
+      const kids = branches.filter(b => b.parent_id === selectedBranch.id && b.status !== 'inactive');
+      setSubStores(kids);
+      const profileBranch = branches.find(b => b.id === profile?.branch_id);
+      const defaultSubStore = (profileBranch && profileBranch.parent_id === selectedBranch.id)
+        ? profileBranch
+        : (kids.length > 0 ? kids[0] : null);
+      setSelectedSubStore(defaultSubStore);
+    } else {
+      setSubStores([]);
+      setSelectedSubStore(null);
+    }
+  }, [selectedBranch?.id, branches, profile?.branch_id]);
 
   // Cart
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -403,6 +457,7 @@ export const POS: React.FC<POSProps> = ({
             p_created_at:       sale.created_at,
             p_cashier_id:       sale.cashier_id,
             p_queue_number:     sale.queue_number || null,
+            p_sub_store_id:     (sale as any).sub_store_id || null,
           });
 
           if (error) throw error;
@@ -873,7 +928,7 @@ export const POS: React.FC<POSProps> = ({
     setPaymentOpen(true);
   };
 
-  const handleConfirmPayment = async (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string, queueNumber: string) => {
+  const handleConfirmPayment = async (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string, queueNumber: string, subStoreId: string | null = null) => {
     if (!selectedBranch) return;
     setCheckingOut(true);
 
@@ -885,6 +940,9 @@ export const POS: React.FC<POSProps> = ({
         price: ci.price
       }));
 
+      // Resolve final subStoreId (dialog selection overrides header selection)
+      const finalSubStoreId = subStoreId || selectedSubStore?.id || null;
+
       if (isOnline) {
         const { data: saleId, error } = await supabase.rpc('fn_process_sale', {
           p_branch_id:        selectedBranch.id,
@@ -894,6 +952,7 @@ export const POS: React.FC<POSProps> = ({
           p_sale_category:    saleCategory,
           p_reference_number: referenceNumber,
           p_queue_number:     queueNumber || null,
+          p_sub_store_id:     finalSubStoreId,
         });
 
         if (error) throw error;
@@ -922,6 +981,7 @@ export const POS: React.FC<POSProps> = ({
 
         const offlineSale = await enqueueOfflineSale({
           branch_id: selectedBranch.id,
+          sub_store_id: finalSubStoreId || undefined,
           cashier_id: profile?.id || '',
           cashier_email: profile?.email || '',
           payment_method: method,
@@ -932,7 +992,7 @@ export const POS: React.FC<POSProps> = ({
           total_amount: cartTotal,
           queue_number: queueNumber || undefined,
           queue_status: queueNumber ? 'preparing' : undefined
-        });
+        } as any);
 
         const change = method === 'cash' && tendered ? tendered - cartTotal : 0;
 
@@ -1152,7 +1212,35 @@ export const POS: React.FC<POSProps> = ({
                 </Badge>
               )}
 
-              {/* Register / Shift Controls */}
+              {/* Sub-Store Selector */}
+              {selectedBranch && subStores.length > 0 && (
+                <Select
+                  value={selectedSubStore?.id || 'parent'}
+                  onValueChange={(val) => {
+                    if (val === 'parent') {
+                      setSelectedSubStore(null);
+                    } else {
+                      const ss = subStores.find(s => s.id === val);
+                      setSelectedSubStore(ss || null);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-[180px] text-xs h-8 bg-background">
+                    <SelectValue placeholder="Attribution Store" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="parent" className="text-xs font-semibold">
+                      {selectedBranch.name} (Parent)
+                    </SelectItem>
+                    {subStores.map((ss) => (
+                      <SelectItem key={ss.id} value={ss.id} className="text-xs">
+                        {ss.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
               {selectedBranch && (
                 sessionLoading ? (
                   <Button variant="outline" size="sm" className="h-8 text-xs font-bold gap-1.5" disabled>
@@ -1343,6 +1431,8 @@ export const POS: React.FC<POSProps> = ({
         onStateChange={setPaymentState}
         saleCategories={vocab.saleCategories}
         defaultSaleCategory={vocab.defaultSaleCategory}
+        subStores={subStores}
+        initialSubStore={selectedSubStore}
       />
 
 
