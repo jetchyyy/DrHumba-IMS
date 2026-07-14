@@ -28,7 +28,6 @@ import { SalesHistory } from './components/SalesHistory';
 import { ZReadHistory } from './components/ZReadHistory';
 import { Expenses } from './components/Expenses';
 import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen';
-import { ActiveBranchPill } from './components/ActiveBranchPill';
 import { Pig404 } from './components/Pig404';
 import { CustomerDisplay } from './components/CustomerDisplay';
 import { QueueCaller } from './components/QueueCaller';
@@ -668,7 +667,6 @@ const AppContent: React.FC = () => {
       {!shouldHideSidebar && <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} isVisible={showMobileNav} />}
 
       <ActiveBranchSplashScreen />
-      {!shouldHideSidebar && <ActiveBranchPill />}
       <Toaster />
     </div>
   );
