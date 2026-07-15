@@ -31,19 +31,24 @@ interface TransferRequest {
   control_number: string | null;
   source_branch_id: string;
   target_branch_id: string;
-  status: 'requested' | 'approved' | 'rejected' | 'completed';
+  status: 'requested' | 'approved' | 'rejected' | 'pending_receipt_approval' | 'completed';
   remarks: string | null;
   created_at: string;
   requested_by?: string | null;
   approved_by?: string | null;
   source_branch?: { name: string };
   target_branch?: { name: string };
+  receipt_requested_by?: string | null;
+  receipt_approved_by?: string | null;
+  receipt_remarks?: string | null;
 }
 
 interface TransferItem {
   id: string;
   item_id: string;
   quantity_base_unit: number;
+  received_quantity_base_unit?: number | null;
+  missing_reason?: string | null;
   inventory_items?: {
     item_name: string;
     base_unit: string;
@@ -95,6 +100,13 @@ export const Transfers: React.FC = () => {
   const [receiving, setReceiving] = useState(false);
   const [isProactive, setIsProactive] = useState(false);
 
+  // Discrepancy inputs state
+  const [receivedQuantities, setReceivedQuantities] = useState<Record<string, number>>({});
+  const [missingReasons, setMissingReasons] = useState<Record<string, string>>({});
+  const [rejectRemarks, setRejectRemarks] = useState('');
+  const [submittingReceipt, setSubmittingReceipt] = useState(false);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+
   const loadData = async () => {
     try {
       const { data: tranData, error: tranError } = await supabase
@@ -109,6 +121,9 @@ export const Transfers: React.FC = () => {
           created_at,
           requested_by,
           approved_by,
+          receipt_requested_by,
+          receipt_approved_by,
+          receipt_remarks,
           source_branch:branches!transfer_requests_source_branch_id_fkey(name),
           target_branch:branches!transfer_requests_target_branch_id_fkey(name)
         `)
@@ -278,6 +293,8 @@ export const Transfers: React.FC = () => {
           id,
           item_id,
           quantity_base_unit,
+          received_quantity_base_unit,
+          missing_reason,
           inventory_items (
             item_name,
             base_unit
@@ -286,7 +303,22 @@ export const Transfers: React.FC = () => {
         .eq('transfer_id', transfer.id);
       
       if (error) throw error;
-      setTransferItems(data as any[] || []);
+      const items = data as any[] || [];
+      setTransferItems(items);
+
+      // Initialize discrepancy inputs state
+      const rq: Record<string, number> = {};
+      const mr: Record<string, string> = {};
+      items.forEach(item => {
+        rq[item.item_id] = item.received_quantity_base_unit !== null && item.received_quantity_base_unit !== undefined
+          ? item.received_quantity_base_unit
+          : item.quantity_base_unit;
+        mr[item.item_id] = item.missing_reason || '';
+      });
+      setReceivedQuantities(rq);
+      setMissingReasons(mr);
+      setRejectRemarks('');
+
       setShowViewModal(true);
     } catch (err) {
       console.error(err);
@@ -341,6 +373,111 @@ export const Transfers: React.FC = () => {
       showError(err.message || 'Failed to receive stock.');
     } finally {
       setReceiving(false);
+    }
+  };
+
+  const handleReceiveDiscrepancyTransfer = async (transferId: string) => {
+    try {
+      // Validate that all missing items have a reason specified
+      const itemsPayload = transferItems.map(item => {
+        const received = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
+        const reason = missingReasons[item.item_id] || '';
+        
+        if (received < 0) {
+          throw new Error(`Arrived quantity for ${item.inventory_items?.item_name || 'item'} cannot be negative.`);
+        }
+        if (received > item.quantity_base_unit) {
+          throw new Error(`Arrived quantity for ${item.inventory_items?.item_name || 'item'} cannot exceed the dispatched quantity (${item.quantity_base_unit}).`);
+        }
+        if (received < item.quantity_base_unit && !reason.trim()) {
+          throw new Error(`A reason/note is required for the missing quantity of ${item.inventory_items?.item_name || 'item'}.`);
+        }
+        
+        return {
+          item_id: item.item_id,
+          received_quantity_base_unit: received,
+          missing_reason: received < item.quantity_base_unit ? reason.trim() : null
+        };
+      });
+
+      if (!await confirm(
+        'Submit Receipt for Admin Approval',
+        'Are you sure you want to submit this receipt with discrepancy reports? Stock will NOT be added until an admin approves the discrepancy.'
+      )) return;
+
+      setSubmittingReceipt(true);
+      const { error } = await supabase.rpc('fn_submit_transfer_receipt', {
+        p_transfer_id: transferId,
+        p_items: itemsPayload
+      });
+
+      if (error) throw error;
+
+      showSuccess("Discrepancy receipt submitted. Awaiting admin approval.");
+      setShowViewModal(false);
+      loadData();
+    } catch (err: any) {
+      console.error(err);
+      showError(err.message || 'Failed to submit receipt.');
+    } finally {
+      setSubmittingReceipt(false);
+    }
+  };
+
+  const handleApproveReceipt = async (transferId: string) => {
+    if (!await confirm(
+      'Approve Delivery Receipt',
+      'Are you sure you want to approve this delivery receipt? The received quantities will be added to the target branch inventory and a stock receipt will be generated.'
+    )) return;
+
+    setSubmittingReceipt(true);
+    try {
+      const { error } = await supabase.rpc('fn_approve_transfer_receipt', {
+        p_transfer_id: transferId
+      });
+
+      if (error) throw error;
+
+      showSuccess("Delivery receipt approved and inventory updated!");
+      setShowViewModal(false);
+      loadData();
+    } catch (err: any) {
+      console.error(err);
+      showError(err.message || 'Failed to approve receipt.');
+    } finally {
+      setSubmittingReceipt(false);
+    }
+  };
+
+  const handleRejectReceipt = async (transferId: string) => {
+    if (!rejectRemarks.trim()) {
+      showError("Please enter a reason/remarks for rejecting this receipt.");
+      return;
+    }
+
+    if (!await confirm(
+      'Reject Delivery Receipt',
+      'Are you sure you want to reject this receipt? The transfer will be reset back to In Transit and discrepancy values will be cleared.'
+    )) return;
+
+    setSubmittingReceipt(true);
+    try {
+      const { error } = await supabase.rpc('fn_reject_transfer_receipt', {
+        p_transfer_id: transferId,
+        p_remarks: rejectRemarks.trim()
+      });
+
+      if (error) throw error;
+
+      showSuccess("Delivery receipt rejected and reverted back to in-transit status.");
+      setShowRejectDialog(false);
+      setShowViewModal(false);
+      loadData();
+    } catch (err: any) {
+      console.error(err);
+      showError(err.message || 'Failed to reject receipt.');
+    } finally {
+      setSubmittingReceipt(false);
     }
   };
 
@@ -827,42 +964,178 @@ export const Transfers: React.FC = () => {
                   <Badge variant={
                     selectedTransfer.status === 'completed' ? 'default' :
                     selectedTransfer.status === 'approved' ? 'default' :
+                    selectedTransfer.status === 'pending_receipt_approval' ? 'secondary' :
                     selectedTransfer.status === 'rejected' ? 'destructive' : 'secondary'
                   } className="uppercase mt-1 text-[10px]">
-                    {selectedTransfer.status === 'approved' ? 'In Transit' : selectedTransfer.status}
+                    {selectedTransfer.status === 'approved' ? 'In Transit' : 
+                     selectedTransfer.status === 'pending_receipt_approval' ? 'Pending Receipt Approval' : 
+                     selectedTransfer.status}
                   </Badge>
                 </div>
                 <div className="col-span-2">
                   <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Remarks</span>
                   <span className="font-medium">{selectedTransfer.remarks || 'No remarks'}</span>
                 </div>
+                {selectedTransfer.receipt_requested_by && (
+                  <div>
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Received/Checked By</span>
+                    <span className="font-medium font-mono text-xs">User ID: {selectedTransfer.receipt_requested_by.substring(0, 8)}</span>
+                  </div>
+                )}
+                {selectedTransfer.receipt_approved_by && (
+                  <div>
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Receipt Approved By</span>
+                    <span className="font-medium font-mono text-xs">User ID: {selectedTransfer.receipt_approved_by.substring(0, 8)}</span>
+                  </div>
+                )}
+                {selectedTransfer.receipt_remarks && (
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold text-red-500">Receipt Rejection Remarks</span>
+                    <span className="font-medium text-red-600 dark:text-red-400">{selectedTransfer.receipt_remarks}</span>
+                  </div>
+                )}
               </div>
 
               <div>
-                <h4 className="text-sm font-semibold mb-3">Requested Items</h4>
+                <h4 className="text-sm font-semibold mb-3">Transfer Items</h4>
                 <div className="border rounded-md">
                   <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item Name</TableHead>
-                        <TableHead className="text-right pr-4">Quantity</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {transferItems.map((item, idx) => {
-                        const name = item.inventory_items?.item_name || 'Deleted Item';
-                        const unit = item.inventory_items?.base_unit || 'unit';
-                        return (
-                          <TableRow key={idx}>
-                            <TableCell className="font-medium">{name}</TableCell>
-                            <TableCell className="text-right font-semibold pr-4">{item.quantity_base_unit} {unit}</TableCell>
-                          </TableRow>
+                    {(() => {
+                      const canReceive = profile && 
+                        profile.id !== selectedTransfer.approved_by && 
+                        profile.branch_id !== selectedTransfer.source_branch_id && (
+                          profile.role_name === 'super_admin' || 
+                          profile.role_name === 'inventory_manager' || 
+                          profile.branch_id === selectedTransfer.target_branch_id
                         );
-                      })}
-                    </TableBody>
+
+                      if (selectedTransfer.status === 'approved' && canReceive) {
+                        return (
+                          <>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Item Name</TableHead>
+                                <TableHead className="text-right">Sent Qty</TableHead>
+                                <TableHead className="text-right w-28">Arrived Qty</TableHead>
+                                <TableHead className="w-48">Discrepancy Note</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {transferItems.map((item, idx) => {
+                                const name = item.inventory_items?.item_name || 'Deleted Item';
+                                const unit = item.inventory_items?.base_unit || 'unit';
+                                const receivedVal = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
+                                const isMissing = receivedVal < item.quantity_base_unit;
+
+                                return (
+                                  <TableRow key={idx}>
+                                    <TableCell className="font-medium">{name}</TableCell>
+                                    <TableCell className="text-right font-semibold">{item.quantity_base_unit} {unit}</TableCell>
+                                    <TableCell className="text-right">
+                                      <Input 
+                                        type="number" 
+                                        min={0} 
+                                        max={item.quantity_base_unit} 
+                                        step="any"
+                                        value={receivedVal} 
+                                        onChange={(e) => {
+                                          const val = Number(e.target.value);
+                                          setReceivedQuantities(prev => ({ ...prev, [item.item_id]: val }));
+                                        }} 
+                                        className="w-20 text-right h-8" 
+                                      />
+                                    </TableCell>
+                                    <TableCell>
+                                      {isMissing ? (
+                                        <Input 
+                                          placeholder="Why is it missing?" 
+                                          value={missingReasons[item.item_id] || ''} 
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setMissingReasons(prev => ({ ...prev, [item.item_id]: val }));
+                                          }} 
+                                          className="w-full text-xs h-8 border-red-300 focus-visible:ring-red-400" 
+                                        />
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground italic">-</span>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </>
+                        );
+                      } else if (selectedTransfer.status === 'pending_receipt_approval' || selectedTransfer.status === 'completed') {
+                        return (
+                          <>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Item Name</TableHead>
+                                <TableHead className="text-right">Sent Qty</TableHead>
+                                <TableHead className="text-right">Arrived Qty</TableHead>
+                                <TableHead className="text-right">Missing Qty</TableHead>
+                                <TableHead>Reason for Discrepancy</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {transferItems.map((item, idx) => {
+                                const name = item.inventory_items?.item_name || 'Deleted Item';
+                                const unit = item.inventory_items?.base_unit || 'unit';
+                                const received = item.received_quantity_base_unit ?? item.quantity_base_unit;
+                                const missing = item.quantity_base_unit - received;
+
+                                return (
+                                  <TableRow key={idx}>
+                                    <TableCell className="font-medium">{name}</TableCell>
+                                    <TableCell className="text-right font-semibold">{item.quantity_base_unit} {unit}</TableCell>
+                                    <TableCell className="text-right font-semibold text-green-600">{received} {unit}</TableCell>
+                                    <TableCell className="text-right font-semibold text-red-500">
+                                      {missing > 0 ? `${missing} ${unit}` : '0'}
+                                    </TableCell>
+                                    <TableCell className="text-xs italic text-muted-foreground">
+                                      {missing > 0 ? (item.missing_reason || 'No reason provided') : '-'}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </>
+                        );
+                      } else {
+                        return (
+                          <>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Item Name</TableHead>
+                                <TableHead className="text-right pr-4">Quantity</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {transferItems.map((item, idx) => {
+                                const name = item.inventory_items?.item_name || 'Deleted Item';
+                                const unit = item.inventory_items?.base_unit || 'unit';
+                                return (
+                                  <TableRow key={idx}>
+                                    <TableCell className="font-medium">{name}</TableCell>
+                                    <TableCell className="text-right font-semibold pr-4">{item.quantity_base_unit} {unit}</TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </>
+                        );
+                      }
+                    })()}
                   </Table>
                 </div>
               </div>
+
+              {selectedTransfer.status === 'approved' && selectedTransfer.receipt_remarks && (
+                <div className="text-sm text-red-600 bg-red-50 border border-red-200 p-3 rounded-md text-center dark:bg-red-950/30 dark:border-red-900/50 dark:text-red-400 font-medium">
+                  ❌ Previous delivery receipt was rejected by admin: "{selectedTransfer.receipt_remarks}"
+                </div>
+              )}
 
               {selectedTransfer.status === 'approved' && (
                 <div className="text-sm text-yellow-600 bg-yellow-50 border border-yellow-200 p-3 rounded-md text-center dark:bg-yellow-950 dark:border-yellow-900/50 dark:text-yellow-500">
@@ -870,37 +1143,120 @@ export const Transfers: React.FC = () => {
                 </div>
               )}
 
-              <DialogFooter className="flex space-x-2 sm:space-x-0">
-                {selectedTransfer.status === 'requested' && canApprove ? (
-                  <>
-                    <Button variant="destructive" onClick={() => handleRejectTransfer(selectedTransfer.id)}>
-                      Reject
-                    </Button>
-                    <Button disabled={approving} onClick={() => handleApproveTransfer(selectedTransfer.id)}>
-                      {approving ? 'Dispatching...' : 'Approve & Dispatch'}
-                    </Button>
-                  </>
-                ) : selectedTransfer.status === 'approved' && 
-                    profile?.id !== selectedTransfer.approved_by && 
-                    profile?.id !== selectedTransfer.requested_by && 
-                    profile?.branch_id !== selectedTransfer.source_branch_id && (
-                      profile?.role_name === 'super_admin' || 
-                      profile?.role_name === 'inventory_manager' || 
-                      profile?.branch_id === selectedTransfer.target_branch_id
-                    ) ? (
-                  <>
-                    <Button variant="outline" onClick={() => setShowViewModal(false)}>
-                      Close
-                    </Button>
-                    <Button disabled={receiving} onClick={() => handleReceiveTransfer(selectedTransfer.id)}>
-                      {receiving ? 'Confirming...' : 'Confirm & Receive Items'}
-                    </Button>
-                  </>
-                ) : (
-                  <Button variant="outline" onClick={() => setShowViewModal(false)}>
-                    Close
-                  </Button>
-                )}
+              {selectedTransfer.status === 'pending_receipt_approval' && (
+                <div className="text-sm text-orange-600 bg-orange-50 border border-orange-200 p-3 rounded-md text-center dark:bg-orange-950/30 dark:border-orange-900/50 dark:text-orange-400 font-medium">
+                  ⚠️ Awaiting admin approval for delivery receipt discrepancies.
+                </div>
+              )}
+
+              <DialogFooter className="flex flex-col space-y-2 sm:space-y-0">
+                {(() => {
+                  const canReceive = profile && 
+                    profile.id !== selectedTransfer.approved_by && 
+                    profile.branch_id !== selectedTransfer.source_branch_id && (
+                      profile.role_name === 'super_admin' || 
+                      profile.role_name === 'inventory_manager' || 
+                      profile.branch_id === selectedTransfer.target_branch_id
+                    );
+
+                  const hasDiscrepancy = selectedTransfer.status === 'approved' && transferItems.some(item => {
+                    const received = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
+                    return received < item.quantity_base_unit;
+                  });
+
+                  if (selectedTransfer.status === 'requested' && canApprove) {
+                    return (
+                      <div className="flex justify-end space-x-2 w-full">
+                        <Button variant="destructive" onClick={() => handleRejectTransfer(selectedTransfer.id)}>
+                          Reject
+                        </Button>
+                        <Button disabled={approving} onClick={() => handleApproveTransfer(selectedTransfer.id)}>
+                          {approving ? 'Dispatching...' : 'Approve & Dispatch'}
+                        </Button>
+                      </div>
+                    );
+                  } else if (selectedTransfer.status === 'approved' && canReceive) {
+                    return (
+                      <div className="flex justify-end space-x-2 w-full">
+                        <Button variant="outline" onClick={() => setShowViewModal(false)}>
+                          Close
+                        </Button>
+                        {hasDiscrepancy ? (
+                          <Button 
+                            className="bg-orange-500 hover:bg-orange-600 text-white"
+                            disabled={submittingReceipt} 
+                            onClick={() => handleReceiveDiscrepancyTransfer(selectedTransfer.id)}
+                          >
+                            {submittingReceipt ? 'Submitting...' : 'Submit Receipt for Admin Approval'}
+                          </Button>
+                        ) : (
+                          <Button 
+                            disabled={receiving} 
+                            onClick={() => handleReceiveTransfer(selectedTransfer.id)}
+                          >
+                            {receiving ? 'Confirming...' : 'Confirm & Receive Items'}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  } else if (selectedTransfer.status === 'pending_receipt_approval' && 
+                             (profile?.role_name === 'super_admin' || profile?.role_name === 'inventory_manager')) {
+                    return (
+                      <div className="w-full space-y-4">
+                        {!showRejectDialog ? (
+                          <div className="flex justify-end space-x-2 w-full">
+                            <Button variant="outline" onClick={() => setShowViewModal(false)}>
+                              Close
+                            </Button>
+                            <Button variant="destructive" onClick={() => setShowRejectDialog(true)}>
+                              Reject Receipt
+                            </Button>
+                            <Button 
+                              disabled={submittingReceipt} 
+                              onClick={() => handleApproveReceipt(selectedTransfer.id)}
+                            >
+                              {submittingReceipt ? 'Approving...' : 'Approve Delivery Receipt'}
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="w-full space-y-3 border-t pt-4 text-left">
+                            <Label htmlFor="reject-remarks" className="text-xs font-semibold text-destructive uppercase tracking-wider block">
+                              Reason for Rejection *
+                            </Label>
+                            <Input 
+                              id="reject-remarks"
+                              placeholder="Describe why you are rejecting this delivery receipt..." 
+                              value={rejectRemarks} 
+                              onChange={(e) => setRejectRemarks(e.target.value)} 
+                              className="w-full"
+                            />
+                            <div className="flex justify-end space-x-2">
+                              <Button variant="outline" size="sm" onClick={() => setShowRejectDialog(false)}>
+                                Cancel Rejection
+                              </Button>
+                              <Button 
+                                variant="destructive" 
+                                size="sm" 
+                                disabled={submittingReceipt} 
+                                onClick={() => handleRejectReceipt(selectedTransfer.id)}
+                              >
+                                {submittingReceipt ? 'Rejecting...' : 'Confirm Reject Receipt'}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <div className="flex justify-end w-full">
+                        <Button variant="outline" onClick={() => setShowViewModal(false)}>
+                          Close
+                        </Button>
+                      </div>
+                    );
+                  }
+                })()}
               </DialogFooter>
             </div>
           )}

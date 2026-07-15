@@ -7,12 +7,45 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
     return;
   }
 
-  const itemsHtml = items.map(item => `
-    <tr style="border-bottom: 1px solid #e2e8f0;">
-      <td style="padding: 12px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
-      <td style="padding: 12px; text-align: right; font-weight: 700;">${item.quantity_base_unit} ${item.inventory_items?.base_unit || 'units'}</td>
-    </tr>
-  `).join('');
+  const displayStatus = transfer.status === 'pending_receipt_approval' 
+    ? 'PENDING APPROVAL' 
+    : transfer.status === 'approved' 
+    ? 'IN TRANSIT' 
+    : (transfer.status || 'PENDING');
+
+  const isCompletedOrPending = ['completed', 'pending_receipt_approval'].includes(transfer.status);
+  const hasDiscrepancies = isCompletedOrPending && items.some(
+    item => item.received_quantity_base_unit !== null && 
+            item.received_quantity_base_unit !== undefined && 
+            Number(item.received_quantity_base_unit) < Number(item.quantity_base_unit)
+  );
+
+  const itemsHtml = items.map(item => {
+    const unit = item.inventory_items?.base_unit || 'units';
+    const received = item.received_quantity_base_unit !== null && item.received_quantity_base_unit !== undefined 
+      ? Number(item.received_quantity_base_unit) 
+      : Number(item.quantity_base_unit);
+    const missing = Number(item.quantity_base_unit) - received;
+
+    if (hasDiscrepancies) {
+      return `
+        <tr style="border-bottom: 1px solid #e2e8f0;">
+          <td style="padding: 12px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
+          <td style="padding: 12px; text-align: right; font-weight: 600;">${item.quantity_base_unit} ${unit}</td>
+          <td style="padding: 12px; text-align: right; font-weight: 700; color: #16a34a;">${received} ${unit}</td>
+          <td style="padding: 12px; text-align: right; font-weight: 700; color: #dc2626;">${missing > 0 ? `${missing} ${unit}` : '0'}</td>
+          <td style="padding: 12px; text-align: left; font-size: 12px; font-style: italic; color: #64748b;">${missing > 0 ? (item.missing_reason || 'No reason provided') : '-'}</td>
+        </tr>
+      `;
+    } else {
+      return `
+        <tr style="border-bottom: 1px solid #e2e8f0;">
+          <td style="padding: 12px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
+          <td style="padding: 12px; text-align: right; font-weight: 700;">${item.quantity_base_unit} ${item.inventory_items?.base_unit || 'units'}</td>
+        </tr>
+      `;
+    }
+  }).join('');
 
   const logoHtml = template.logo_url
     ? `<img src="${template.logo_url}" style="max-height: 56px; max-width: 120px; object-fit: contain; border-radius: 4px;" />`
@@ -205,7 +238,7 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
             </div>
             <div style="text-align: right;">
               <div class="title">Delivery Slip / Transfer Receipt</div>
-              <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px;">Status: ${(transfer.status || 'PENDING').toUpperCase()}</div>
+              <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px;">Status: ${displayStatus.toUpperCase()}</div>
             </div>
           </div>
 
@@ -244,10 +277,20 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
 
           <table class="items-table">
             <thead>
-              <tr>
-                <th>Item Name</th>
-                <th style="text-align: right;">Quantity (Base Unit)</th>
-              </tr>
+              ${hasDiscrepancies ? `
+                <tr>
+                  <th style="text-align: left; padding: 12px;">Item Name</th>
+                  <th style="text-align: right; padding: 12px;">Sent Qty</th>
+                  <th style="text-align: right; padding: 12px;">Arrived Qty</th>
+                  <th style="text-align: right; padding: 12px;">Missing Qty</th>
+                  <th style="text-align: left; padding: 12px;">Discrepancy Reason</th>
+                </tr>
+              ` : `
+                <tr>
+                  <th>Item Name</th>
+                  <th style="text-align: right;">Quantity (Base Unit)</th>
+                </tr>
+              `}
             </thead>
             <tbody>
               ${itemsHtml}
