@@ -92,6 +92,15 @@ export const Inventory: React.FC = () => {
     return merged.filter(c => c && c.trim().length > 0);
   }, [items, isRestaurant]);
 
+  const [isCustomUnit, setIsCustomUnit] = useState(false);
+
+  const unitsList = useMemo(() => {
+    const defaults = ['g', 'kg', 'pc', 'ml', 'L'];
+    const dbUnits = items.map(i => i.base_unit);
+    const merged = Array.from(new Set([...defaults, ...dbUnits]));
+    return merged.filter(u => u && u.trim().length > 0);
+  }, [items]);
+
   // Stock In state
   const [stockInItem, setStockInItem] = useState<InventoryItem | null>(null);
   const [stockInQty, setStockInQty] = useState<number>(0);
@@ -135,6 +144,7 @@ export const Inventory: React.FC = () => {
     setCategory(isRestaurant ? 'Vegetables' : 'Parts');
     setIsCustomCategory(false);
     setBaseUnit(isRestaurant ? 'g' : 'pc');
+    setIsCustomUnit(false);
     setPurchaseUnit(isRestaurant ? 'g' : 'pc');
     setConversionFactor(1);
     setReorderLevel(isRestaurant ? 500 : 5);
@@ -153,6 +163,7 @@ export const Inventory: React.FC = () => {
     setCategory(item.category);
     setIsCustomCategory(false);
     setBaseUnit(item.base_unit);
+    setIsCustomUnit(false);
     setPurchaseUnit(item.purchase_unit);
     setConversionFactor(item.conversion_factor);
     setReorderLevel(item.reorder_level);
@@ -697,17 +708,63 @@ export const Inventory: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <Label>Unit of Measure *</Label>
-              <Select value={baseUnit} onValueChange={(v) => { setBaseUnit(v); setPurchaseUnit(v); setConversionFactor(1); }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="g">Grams (g)</SelectItem>
-                  <SelectItem value="kg">Kilograms (kg)</SelectItem>
-                  <SelectItem value="pc">Pieces (pc)</SelectItem>
-                  <SelectItem value="ml">Milliliters (ml)</SelectItem>
-                  <SelectItem value="L">Liters (L)</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between">
+                <Label>Unit of Measure *</Label>
+                {isCustomUnit ? (
+                  <Button 
+                    type="button" 
+                    variant="link" 
+                    className="h-auto p-0 text-xs text-primary" 
+                    onClick={() => {
+                      setIsCustomUnit(false);
+                      setBaseUnit(isRestaurant ? 'g' : 'pc');
+                      setPurchaseUnit(isRestaurant ? 'g' : 'pc');
+                      setConversionFactor(1);
+                    }}
+                  >
+                    Existing
+                  </Button>
+                ) : null}
+              </div>
+              {isCustomUnit ? (
+                <Input 
+                  required 
+                  value={baseUnit} 
+                  onChange={(e) => { 
+                    const val = e.target.value; 
+                    setBaseUnit(val); 
+                    setPurchaseUnit(val); 
+                    setConversionFactor(1); 
+                  }} 
+                  placeholder="e.g. box, pack, tray" 
+                />
+              ) : (
+                <Select 
+                  value={baseUnit} 
+                  onValueChange={(val) => { 
+                    if (val === 'ADD_CUSTOM') {
+                      setIsCustomUnit(true);
+                      setBaseUnit('');
+                      setPurchaseUnit('');
+                      setConversionFactor(1);
+                    } else {
+                      setBaseUnit(val); 
+                      setPurchaseUnit(val); 
+                      setConversionFactor(1); 
+                    }
+                  }}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {unitsList.map(u => (
+                      <SelectItem key={u} value={u}>{u}</SelectItem>
+                    ))}
+                    <SelectItem value="ADD_CUSTOM" className="text-primary font-semibold">
+                      + Add Custom Unit...
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {!editingItem && (
