@@ -28,6 +28,7 @@ import { SalesHistory } from './components/SalesHistory';
 import { ZReadHistory } from './components/ZReadHistory';
 import { Expenses } from './components/Expenses';
 import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen';
+import { KitchenReceipts } from './components/KitchenReceipts';
 import { Pig404 } from './components/Pig404';
 import { CustomerDisplay } from './components/CustomerDisplay';
 import { QueueCaller } from './components/QueueCaller';
@@ -623,6 +624,8 @@ const AppContent: React.FC = () => {
         return <Adjustments />;
       case 'transactions':
         return <Transactions />;
+      case 'kitchen-receipts':
+        return <KitchenReceipts />;
       case 'recipes':
         return <Recipes />;
       case 'branches':

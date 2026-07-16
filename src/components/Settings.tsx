@@ -199,6 +199,7 @@ export const Settings: React.FC = () => {
   const [transferSlip, setTransferSlip] = useState<TransferSlipTemplate>({ ...DEFAULT_TRANSFER_SLIP_TEMPLATE });
   const [salesInvoice, setSalesInvoice] = useState<SalesInvoiceTemplate>({ ...DEFAULT_SALES_INVOICE_TEMPLATE });
   const [promotions, setPromotions] = useState<CustomerPromotion[]>([]);
+  const [previewTab, setPreviewTab] = useState<'invoice' | 'kitchen' | 'queue'>('invoice');
 
   // UI States
   const [loading, setLoading] = useState(true);
@@ -1271,104 +1272,209 @@ WHERE email = 'your-email@example.com';`}</pre>
                   <CardHeader className="p-4 border-b bg-muted/30">
                     <CardTitle className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center space-x-1.5">
                       <Eye className="w-3.5 h-3.5 text-primary" />
-                      <span>Thermal Invoice Live Preview (58mm / 80mm Roll)</span>
+                      <span>Thermal Print Layouts Preview</span>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="p-6 flex justify-center">
-                    <div
-                      className="bg-white text-slate-950 p-4 border shadow-2xl transition-all duration-300 font-mono relative select-none"
-                      style={{
-                        width: salesInvoice.paper_width === '58mm' ? '192px' : '272px',
-                        fontSize: salesInvoice.font_size === 'small' ? '9px' : salesInvoice.font_size === 'large' ? '12px' : '10px',
-                        lineHeight: '1.2'
-                      }}
-                    >
-                      {/* Logo */}
-                      {salesInvoice.logo_url ? (
-                        <div className="text-center mb-2">
-                          <img src={salesInvoice.logo_url} className="max-h-10 max-w-[80px] object-contain mx-auto filter grayscale" />
-                        </div>
-                      ) : (
-                        <div className="text-center text-[7px] text-slate-400 border border-dashed py-1 mb-1.5">
-                          [ NO LOGO PLOTTED ]
-                        </div>
-                      )}
+                  <CardContent className="p-6">
+                    {/* Tab Switcher */}
+                    <div className="flex border-b border-border/40 mb-6">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewTab('invoice')}
+                        className={`flex-1 pb-2.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-b-2 ${
+                          previewTab === 'invoice' ? 'border-primary text-primary font-bold' : 'border-transparent text-muted-foreground hover:text-white'
+                        }`}
+                      >
+                        Sales Invoice
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewTab('kitchen')}
+                        className={`flex-1 pb-2.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-b-2 ${
+                          previewTab === 'kitchen' ? 'border-primary text-primary font-bold' : 'border-transparent text-muted-foreground hover:text-white'
+                        }`}
+                      >
+                        Kitchen Ticket
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewTab('queue')}
+                        className={`flex-1 pb-2.5 text-[10px] font-bold uppercase tracking-wider transition-colors border-b-2 ${
+                          previewTab === 'queue' ? 'border-primary text-primary font-bold' : 'border-transparent text-muted-foreground hover:text-white'
+                        }`}
+                      >
+                        Queue Ticket
+                      </button>
+                    </div>
 
-                      {/* Header */}
-                      <div className="text-center font-bold uppercase text-[11px]">
-                        {salesInvoice.merchant_name || 'Dr. Humba'}
-                      </div>
-                      <div className="text-center text-[8px] mt-0.5">
-                        {salesInvoice.merchant_address || '123 Main St, Metro Manila'}
-                      </div>
-                      <div className="text-center text-[8px]">
-                        {salesInvoice.merchant_contact || '+63 912 345 6789'}
-                      </div>
-                      <div className="text-center text-[8px] mb-1">
-                        {salesInvoice.merchant_tin || 'TIN: 000-123-456-000'}
-                      </div>
+                    <div className="flex justify-center">
+                      <div
+                        className="bg-white text-slate-950 p-4 border shadow-2xl transition-all duration-300 font-mono relative select-none"
+                        style={{
+                          width: salesInvoice.paper_width === '58mm' ? '192px' : '272px',
+                          fontSize: salesInvoice.font_size === 'small' ? '9px' : salesInvoice.font_size === 'large' ? '12px' : '10px',
+                          lineHeight: '1.2'
+                        }}
+                      >
+                        {previewTab === 'invoice' && (
+                          <>
+                            {/* Logo */}
+                            {salesInvoice.logo_url ? (
+                              <div className="text-center mb-2">
+                                <img src={salesInvoice.logo_url} className="max-h-10 max-w-[80px] object-contain mx-auto filter grayscale" />
+                              </div>
+                            ) : (
+                              <div className="text-center text-[7px] text-slate-400 border border-dashed py-1 mb-1.5">
+                                [ NO LOGO PLOTTED ]
+                              </div>
+                            )}
 
-                      <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+                            {/* Header */}
+                            <div className="text-center font-bold uppercase text-[11px]">
+                              {salesInvoice.merchant_name || 'Dr. Humba'}
+                            </div>
+                            <div className="text-center text-[8px] mt-0.5">
+                              {salesInvoice.merchant_address || '123 Main St, Metro Manila'}
+                            </div>
+                            <div className="text-center text-[8px]">
+                              {salesInvoice.merchant_contact || '+63 912 345 6789'}
+                            </div>
+                            <div className="text-center text-[8px] mb-1">
+                              {salesInvoice.merchant_tin || 'TIN: 000-123-456-000'}
+                            </div>
 
-                      <div className="text-center font-bold text-[10px] tracking-wide my-1">
-                        {salesInvoice.header_text || 'SALES INVOICE'}
-                      </div>
+                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
 
-                      <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+                            <div className="text-center font-bold text-[10px] tracking-wide my-1">
+                              {salesInvoice.header_text || 'SALES INVOICE'}
+                            </div>
 
-                      {/* Meta */}
-                      <div className="space-y-0.5 text-[8px] text-slate-700">
-                        <div className="flex justify-between">
-                          <span>DATE:</span>
-                          <span>06/06/2026, 11:16 PM</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>INVOICE:</span>
-                          <span>TS-2026-00095</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>CASHIER:</span>
-                          <span>admin</span>
-                        </div>
-                      </div>
+                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
 
-                      <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+                            {/* Meta */}
+                            <div className="space-y-0.5 text-[8px] text-slate-700">
+                              <div className="flex justify-between">
+                                <span>DATE:</span>
+                                <span>06/06/2026, 11:16 PM</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>INVOICE:</span>
+                                <span>TS-2026-00095</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>CASHIER:</span>
+                                <span>admin</span>
+                              </div>
+                            </div>
 
-                      {/* Items */}
-                      <div className="space-y-1 text-[8px] text-slate-800">
-                        <div>
-                          <div className="font-bold uppercase">CHEESEBURGER DELUXE</div>
-                          <div className="flex justify-between">
-                            <span>  2 x ₱180.00</span>
-                            <span>₱360.00</span>
+                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+
+                            {/* Items */}
+                            <div className="space-y-1 text-[8px] text-slate-800">
+                              <div>
+                                <div className="font-bold uppercase">CHEESEBURGER DELUXE</div>
+                                <div className="flex justify-between">
+                                  <span>  2 x ₱180.00</span>
+                                  <span>₱360.00</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+
+                            {/* Total */}
+                            <div className="flex justify-between font-bold text-[10px] text-indigo-600">
+                              <span>TOTAL:</span>
+                              <span>₱360.00</span>
+                            </div>
+
+                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+
+                            {/* Footer text */}
+                            <div className="text-center text-[8px] whitespace-pre-line text-slate-700 italic">
+                              {salesInvoice.footer_text || 'Thank you for dining with us!\nCome back again!'}
+                            </div>
+                          </>
+                        )}
+
+                        {previewTab === 'kitchen' && (
+                          <>
+                            <div className="text-center font-bold text-[12px] border-2 border-slate-950 p-1 uppercase mb-2">
+                              KITCHEN ORDER
+                            </div>
+                            
+                            <div className="space-y-0.5 text-[8px] text-slate-700">
+                              <div className="flex justify-between">
+                                <span>Date:</span>
+                                <span>06/06/2026, 11:16 PM</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Invoice No:</span>
+                                <span className="font-bold">TS-2026-00095</span>
+                              </div>
+                            </div>
+
+                            <div className="text-center text-[12px] font-black border-2 border-slate-950 p-1 my-2 uppercase">
+                              DINE IN
+                            </div>
+
+                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+
+                            {/* Items list */}
+                            <table className="w-full border-collapse">
+                              <tbody>
+                                <tr className="border-b border-slate-300 border-dashed">
+                                  <td className="py-1.5 font-bold text-[12px]">2 x CHEESEBURGER DELUXE</td>
+                                </tr>
+                              </tbody>
+                            </table>
+
+                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+                            
+                            <div className="text-center mt-3 text-[9px] text-slate-800 font-bold">
+                              * End of Kitchen Order *
+                            </div>
+                          </>
+                        )}
+
+                        {previewTab === 'queue' && (
+                          <div className="text-center">
+                            <div className="font-bold text-[11px]">QUEUE TICKET</div>
+                            <div className="text-[10px] mb-2">Guadalupe Branch</div>
+                            
+                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+                            
+                            <div className="text-[9px] font-bold mt-1">YOUR NUMBER IS:</div>
+                            <div className="border-2 border-slate-950 p-3 my-3 text-[24px] font-bold leading-none">
+                              095
+                            </div>
+                            
+                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+                            
+                            <div className="text-left text-[8px] space-y-0.5 text-slate-700">
+                              <div>Date: 06/06/2026, 11:16 PM</div>
+                              <div>Invoice: TS-2026-00095</div>
+                              <div>Type: DINE IN</div>
+                            </div>
+                            
+                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+                            
+                            <div className="text-[8px] text-slate-800 mt-2">
+                              Please wait for your number<br/>to be called. Thank you!
+                            </div>
                           </div>
+                        )}
+
+                        <div className="text-center text-[6.5px] text-slate-400 mt-3 pt-1 border-t border-slate-100">
+                          {salesInvoice.merchant_name || 'Dr. Humba'}
                         </div>
-                      </div>
 
-                      <div className="border-t border-slate-450 border-dashed my-1.5"></div>
-
-                      {/* Total */}
-                      <div className="flex justify-between font-bold text-[10px] text-indigo-600">
-                        <span>TOTAL:</span>
-                        <span>₱360.00</span>
-                      </div>
-
-                      <div className="border-t border-slate-450 border-dashed my-1.5"></div>
-
-                      {/* Footer text */}
-                      <div className="text-center text-[8px] whitespace-pre-line text-slate-700 italic">
-                        {salesInvoice.footer_text || 'Thank you for dining with us!\nCome back again!'}
-                      </div>
-
-                      <div className="text-center text-[6.5px] text-slate-400 mt-3 pt-1 border-t border-slate-100">
-                        Dr. Humba
-                      </div>
-
-                      {/* Thermal receipt jagged bottom decoration */}
-                      <div className="absolute left-0 right-0 -bottom-2 h-2 overflow-hidden flex">
-                        {Array.from({ length: 30 }).map((_, i) => (
-                          <div key={i} className="w-2 h-2 bg-slate-950 rotate-45 transform origin-top-left -mt-1 border-r border-b border-slate-800"></div>
-                        ))}
+                        {/* Thermal receipt jagged bottom decoration */}
+                        <div className="absolute left-0 right-0 -bottom-2 h-2 overflow-hidden flex">
+                          {Array.from({ length: 30 }).map((_, i) => (
+                            <div key={i} className="w-2 h-2 bg-slate-950 rotate-45 transform origin-top-left -mt-1 border-r border-b border-slate-800"></div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </CardContent>

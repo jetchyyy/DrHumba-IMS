@@ -45,6 +45,7 @@ const TAB_FEATURE_KEYS: Record<string, string> = {
   transfers: 'transfers', adjustments: 'adjustments', transactions: 'transactions',
   recipes: 'recipes', branches: 'branches', analytics: 'analytics',
   'audit-logs': 'audit_logs', users: 'users', settings: 'settings', expenses: 'expenses',
+  'kitchen-receipts': 'pos',
 };
 
 // The shared nav items list — used by both desktop sidebar & mobile components
@@ -75,6 +76,7 @@ export const useNavItems = () => {
     { id: 'transfers', name: 'Transfers', icon: ArrowLeftRight, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
     { id: 'adjustments', name: 'Adjustments', icon: ClipboardList, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
     { id: 'transactions', name: 'Transactions', icon: FileText, show: true },
+    { id: 'kitchen-receipts', name: 'Kitchen Orders', icon: ChefHat, show: isRestaurant },
     { id: 'recipes', name: isRestaurant ? 'Recipes' : 'Products & Services', icon: ChefHat, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
     { id: 'branches', name: 'Branches', icon: Store, show: ['super_admin', 'auditor'].includes(role) },
     { id: 'analytics', name: 'Analytics', icon: BarChart3, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
