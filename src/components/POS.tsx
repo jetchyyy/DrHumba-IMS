@@ -418,7 +418,7 @@ export const POS: React.FC<POSProps> = ({
   // Payment dialog
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
-  const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string; control_number?: string; queue_number?: string | null } | null>(null);
+  const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string; control_number?: string; queue_number?: string | null; items?: any[]; branch_name?: string; cashier_email?: string; total_amount?: number; created_at?: string; } | null>(null);
 
   // Offline and Terminal Sync states
   const [terminalConfig, setTerminalConfig] = useState<TerminalConfig | null>(null);
@@ -835,10 +835,21 @@ export const POS: React.FC<POSProps> = ({
     };
   };
 
-  const handlePrintThermal = async (saleId: string) => {
+  const handlePrintThermal = async (saleResult: any) => {
     try {
       await ensureBluetoothPrinter();
-      const mappedSale = await getSaleForPrinting(saleId);
+      const mappedSale = {
+        id: saleResult.id,
+        control_number: saleResult.control_number || saleResult.id.substring(0, 8),
+        branch_name: saleResult.branch_name,
+        cashier_email: saleResult.cashier_email,
+        total_amount: saleResult.total_amount,
+        created_at: saleResult.created_at,
+        sale_category: saleResult.sale_category || 'Dine in',
+        reference_number: saleResult.reference_number || '',
+        queue_number: saleResult.queue_number,
+        items: saleResult.items
+      };
       const settings = await settingsService.getSettings();
       await printBluetoothThermalInvoice(mappedSale, settings.sales_invoice);
     } catch (err) {
@@ -847,10 +858,21 @@ export const POS: React.FC<POSProps> = ({
     }
   };
 
-  const handlePrintKitchen = async (saleId: string) => {
+  const handlePrintKitchen = async (saleResult: any) => {
     try {
       await ensureBluetoothPrinter();
-      const mappedSale = await getSaleForPrinting(saleId);
+      const mappedSale = {
+        id: saleResult.id,
+        control_number: saleResult.control_number || saleResult.id.substring(0, 8),
+        branch_name: saleResult.branch_name,
+        cashier_email: saleResult.cashier_email,
+        total_amount: saleResult.total_amount,
+        created_at: saleResult.created_at,
+        sale_category: saleResult.sale_category || 'Dine in',
+        reference_number: saleResult.reference_number || '',
+        queue_number: saleResult.queue_number,
+        items: saleResult.items
+      };
       await printBluetoothKitchenReceipt(mappedSale);
     } catch (err) {
       console.error('Failed to load and print kitchen receipt:', err);
@@ -967,7 +989,19 @@ export const POS: React.FC<POSProps> = ({
           method,
           sale_category: saleCategory,
           reference_number: referenceNumber,
-          queue_number: queueNumber || null
+          queue_number: queueNumber || null,
+          items: payload.map((p, idx) => ({
+            id: String(idx),
+            quantity: p.quantity,
+            unit_price: p.price,
+            subtotal: p.price * p.quantity,
+            item_name: p.name,
+            sku: ''
+          })),
+          branch_name: selectedBranch.name,
+          cashier_email: profile?.email || 'System',
+          total_amount: cartTotal,
+          created_at: new Date().toISOString()
         });
         setCart([]);
         setPaymentOpen(false);
@@ -1005,7 +1039,19 @@ export const POS: React.FC<POSProps> = ({
           sale_category: saleCategory,
           reference_number: referenceNumber,
           control_number: offlineSale.control_number,
-          queue_number: queueNumber || null
+          queue_number: queueNumber || null,
+          items: offlineSale.items.map((item, idx) => ({
+            id: String(idx),
+            quantity: item.quantity,
+            unit_price: item.price || 0,
+            subtotal: (item.price || 0) * item.quantity,
+            item_name: item.name || 'Unknown Item',
+            sku: ''
+          })),
+          branch_name: selectedBranch.name,
+          cashier_email: profile?.email || 'System',
+          total_amount: cartTotal,
+          created_at: new Date().toISOString()
         });
 
         setCart([]);
@@ -1515,7 +1561,7 @@ export const POS: React.FC<POSProps> = ({
                     if (lastSaleResult) {
                       try {
                         await ensureBluetoothPrinter();
-                        await handlePrintKitchen(lastSaleResult.id);
+                        await handlePrintKitchen(lastSaleResult);
                       } catch (err: any) {
                         console.error('Kitchen Print failed:', err);
                       }
@@ -1532,7 +1578,7 @@ export const POS: React.FC<POSProps> = ({
                   if (lastSaleResult) {
                     try {
                       await ensureBluetoothPrinter();
-                      await handlePrintThermal(lastSaleResult.id);
+                      await handlePrintThermal(lastSaleResult);
                     } catch (err: any) {
                       console.error('Thermal Print failed:', err);
                     }
