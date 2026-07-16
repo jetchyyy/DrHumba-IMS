@@ -1511,9 +1511,14 @@ export const POS: React.FC<POSProps> = ({
                 <Button
                   variant="secondary"
                   className="w-full font-bold"
-                  onClick={() => {
+                  onClick={async () => {
                     if (lastSaleResult) {
-                      handlePrintKitchen(lastSaleResult.id);
+                      try {
+                        await ensureBluetoothPrinter();
+                        await handlePrintKitchen(lastSaleResult.id);
+                      } catch (err: any) {
+                        console.error('Kitchen Print failed:', err);
+                      }
                     }
                   }}
                 >
@@ -1523,9 +1528,14 @@ export const POS: React.FC<POSProps> = ({
               )}
               <Button
                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-                onClick={() => {
+                onClick={async () => {
                   if (lastSaleResult) {
-                    handlePrintThermal(lastSaleResult.id);
+                    try {
+                      await ensureBluetoothPrinter();
+                      await handlePrintThermal(lastSaleResult.id);
+                    } catch (err: any) {
+                      console.error('Thermal Print failed:', err);
+                    }
                   }
                 }}
               >
