@@ -7,10 +7,10 @@ import { settingsService } from '../lib/settingsService';
 import type { SalesInvoiceTemplate } from '../lib/settingsService';
 import {
   printTransferSlip,
-  printThermalInvoice,
   printStockInReceipt,
   printAdjustmentSlip
 } from '../lib/printService';
+import { printBluetoothThermalInvoice } from '../lib/bluetoothPrinter';
 import {
   EyeOpenIcon as Eye,
   ReloadIcon as RefreshCw,
@@ -934,9 +934,9 @@ export const Transactions: React.FC = () => {
               Cancel
             </Button>
             <Button
-              onClick={() => {
+              onClick={async () => {
                 if (previewSale && salesInvoiceTemplate) {
-                  printThermalInvoice(previewSale, salesInvoiceTemplate);
+                  await printBluetoothThermalInvoice(previewSale, salesInvoiceTemplate);
                   setShowThermalPreview(false);
                 }
               }}

@@ -5,7 +5,8 @@ import { useBusinessVocab } from '../hooks/useBusinessVocab';
 import { useTenant } from '../contexts/TenantContext';
 import { CountdownTimerIcon as History, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, CalendarIcon as Calendar, BackpackIcon as ShoppingBag, ValueIcon as DollarSign, EyeOpenIcon as Eye, ActivityLogIcon as TrendingUp, FileTextIcon as Printer, FileTextIcon as FileIcon } from '@radix-ui/react-icons';
 import { settingsService, DEFAULT_SALES_INVOICE_TEMPLATE, DEFAULT_TRANSFER_SLIP_TEMPLATE } from '../lib/settingsService';
-import { printThermalInvoice, printEndOfDayReport, printEndOfDayPDFReport } from '../lib/printService';
+import { printEndOfDayReport, printEndOfDayPDFReport } from '../lib/printService';
+import { printBluetoothThermalInvoice } from '../lib/bluetoothPrinter';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
@@ -648,10 +649,10 @@ export const SalesHistory: React.FC = () => {
   const handlePrintThermalReceipt = async (sale: SaleRecord) => {
     try {
       const settings = await settingsService.getSettings();
-      printThermalInvoice(sale, settings.sales_invoice);
+      await printBluetoothThermalInvoice(sale, settings.sales_invoice);
     } catch (err) {
       console.error('Failed to print thermal receipt:', err);
-      printThermalInvoice(sale, DEFAULT_SALES_INVOICE_TEMPLATE);
+      await printBluetoothThermalInvoice(sale, DEFAULT_SALES_INVOICE_TEMPLATE);
     }
   };
 

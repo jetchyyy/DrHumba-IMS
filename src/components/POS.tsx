@@ -20,7 +20,8 @@ import {
 } from '../lib/offlineService';
 import type { TerminalConfig } from '../lib/offlineService';
 import { settingsService } from '../lib/settingsService';
-import { printThermalInvoice, printKitchenReceipt, printXZReport, printQueueNumberTicket } from '../lib/printService';
+import { printXZReport, printQueueNumberTicket } from '../lib/printService';
+import { printBluetoothThermalInvoice, printBluetoothKitchenReceipt } from '../lib/bluetoothPrinter';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
@@ -838,7 +839,7 @@ export const POS: React.FC<POSProps> = ({
     try {
       const mappedSale = await getSaleForPrinting(saleId);
       const settings = await settingsService.getSettings();
-      printThermalInvoice(mappedSale, settings.sales_invoice);
+      await printBluetoothThermalInvoice(mappedSale, settings.sales_invoice);
     } catch (err) {
       console.error('Failed to load and print thermal invoice:', err);
       showError('Failed to print receipt. Please reprint from Sales History.');
@@ -848,8 +849,7 @@ export const POS: React.FC<POSProps> = ({
   const handlePrintKitchen = async (saleId: string) => {
     try {
       const mappedSale = await getSaleForPrinting(saleId);
-      const settings = await settingsService.getSettings();
-      printKitchenReceipt(mappedSale, settings.sales_invoice);
+      await printBluetoothKitchenReceipt(mappedSale);
     } catch (err) {
       console.error('Failed to load and print kitchen receipt:', err);
       showError('Failed to print kitchen receipt.');
