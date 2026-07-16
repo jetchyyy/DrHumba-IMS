@@ -10,7 +10,7 @@ import {
   printStockInReceipt,
   printAdjustmentSlip
 } from '../lib/printService';
-import { printBluetoothThermalInvoice } from '../lib/bluetoothPrinter';
+import { printBluetoothThermalInvoice, ensureBluetoothPrinter } from '../lib/bluetoothPrinter';
 import {
   EyeOpenIcon as Eye,
   ReloadIcon as RefreshCw,
@@ -936,8 +936,13 @@ export const Transactions: React.FC = () => {
             <Button
               onClick={async () => {
                 if (previewSale && salesInvoiceTemplate) {
-                  await printBluetoothThermalInvoice(previewSale, salesInvoiceTemplate);
-                  setShowThermalPreview(false);
+                  try {
+                    await ensureBluetoothPrinter();
+                    await printBluetoothThermalInvoice(previewSale, salesInvoiceTemplate);
+                    setShowThermalPreview(false);
+                  } catch (err: any) {
+                    alert(`Failed to print: ${err.message}`);
+                  }
                 }
               }}
             >

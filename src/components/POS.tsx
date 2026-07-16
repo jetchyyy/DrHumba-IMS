@@ -21,7 +21,7 @@ import {
 import type { TerminalConfig } from '../lib/offlineService';
 import { settingsService } from '../lib/settingsService';
 import { printXZReport, printQueueNumberTicket } from '../lib/printService';
-import { printBluetoothThermalInvoice, printBluetoothKitchenReceipt } from '../lib/bluetoothPrinter';
+import { printBluetoothThermalInvoice, printBluetoothKitchenReceipt, ensureBluetoothPrinter } from '../lib/bluetoothPrinter';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
@@ -837,6 +837,7 @@ export const POS: React.FC<POSProps> = ({
 
   const handlePrintThermal = async (saleId: string) => {
     try {
+      await ensureBluetoothPrinter();
       const mappedSale = await getSaleForPrinting(saleId);
       const settings = await settingsService.getSettings();
       await printBluetoothThermalInvoice(mappedSale, settings.sales_invoice);
@@ -848,6 +849,7 @@ export const POS: React.FC<POSProps> = ({
 
   const handlePrintKitchen = async (saleId: string) => {
     try {
+      await ensureBluetoothPrinter();
       const mappedSale = await getSaleForPrinting(saleId);
       await printBluetoothKitchenReceipt(mappedSale);
     } catch (err) {
