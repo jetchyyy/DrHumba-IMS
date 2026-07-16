@@ -46,8 +46,9 @@ const formatPHP = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n);
 
 export const ZReadHistory: React.FC = () => {
-  const { selectedBranch, branches } = useAuth();
+  const { profile, selectedBranch, branches } = useAuth();
   const { showError } = useModal();
+  const isAdminRole = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name);
 
   const [sessions, setSessions] = useState<CashierSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,7 +75,9 @@ export const ZReadHistory: React.FC = () => {
         .eq('status', 'closed')
         .order('closed_at', { ascending: false });
 
-      if (filterBranchId !== 'All') {
+      if (!isAdminRole && profile?.branch_id) {
+        query = query.eq('branch_id', profile.branch_id);
+      } else if (filterBranchId !== 'All') {
         query = query.eq('branch_id', filterBranchId);
       }
 
@@ -90,12 +93,14 @@ export const ZReadHistory: React.FC = () => {
   };
 
   useEffect(() => {
-    if (selectedBranch?.id) {
+    if (!isAdminRole && profile?.branch_id) {
+      setFilterBranchId(profile.branch_id);
+    } else if (selectedBranch?.id) {
       setFilterBranchId(selectedBranch.id);
     } else {
       setFilterBranchId('All');
     }
-  }, [selectedBranch?.id]);
+  }, [selectedBranch?.id, profile, isAdminRole]);
 
   useEffect(() => {
     loadSessions();
@@ -191,17 +196,23 @@ export const ZReadHistory: React.FC = () => {
           </div>
           <div className="w-full md:w-52 space-y-1">
             <Label className="text-xs font-semibold text-muted-foreground uppercase">Branch Location</Label>
-            <Select value={filterBranchId} onValueChange={val => { setFilterBranchId(val); setCurrentPage(1); }}>
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="All Branches" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="All">All Branches</SelectItem>
-                {branches.filter(b => !b.parent_id).map(b => (
-                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {isAdminRole ? (
+              <Select value={filterBranchId} onValueChange={val => { setFilterBranchId(val); setCurrentPage(1); }}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="All Branches" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Branches</SelectItem>
+                  {branches.filter(b => !b.parent_id).map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="text-sm font-semibold bg-muted/40 border rounded-lg h-9 px-3 py-2 leading-none flex items-center">
+                {branches.find(b => b.id === filterBranchId)?.name || 'My Branch'}
+              </div>
+            )}
           </div>
           <div className="w-full md:w-44 space-y-1">
             <Label className="text-xs font-semibold text-muted-foreground uppercase">Start Date</Label>

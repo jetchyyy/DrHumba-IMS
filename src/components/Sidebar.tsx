@@ -118,17 +118,17 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
     checkTerminal();
   }, []);
 
+  const isTerminalLocked = !!(terminalConfig && profile && profile.role_name !== 'super_admin' && profile.role_name !== 'auditor');
+  const canSwitchBranch = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name) && !isTerminalLocked;
+
   React.useEffect(() => {
-    if (terminalConfig && branches.length > 0) {
+    if (terminalConfig && branches.length > 0 && isTerminalLocked) {
       const targetBranch = branches.find(b => b.id === terminalConfig.branch_id);
       if (targetBranch && selectedBranch?.id !== targetBranch.id) {
         setSelectedBranch(targetBranch);
       }
     }
-  }, [terminalConfig, branches, selectedBranch]);
-
-  const isTerminalLocked = terminalConfig && profile?.role_name !== 'super_admin' && profile?.role_name !== 'auditor';
-  const canSwitchBranch = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name) && !isTerminalLocked;
+  }, [terminalConfig, branches, selectedBranch, isTerminalLocked]);
 
   const handleSignOut = async () => {
     if (await confirm('Sign Out', 'Are you sure you want to log out?')) {
@@ -322,7 +322,7 @@ export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }
     checkTerminal();
   }, []);
 
-  const isTerminalLocked = terminalConfig && profile?.role_name !== 'super_admin' && profile?.role_name !== 'auditor';
+  const isTerminalLocked = !!(terminalConfig && profile && profile.role_name !== 'super_admin' && profile.role_name !== 'auditor');
   const canSwitchBranch = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name) && !isTerminalLocked;
 
   return (

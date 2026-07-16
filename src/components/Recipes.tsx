@@ -41,7 +41,14 @@ interface MenuItem {
       item_id: string;
       quantity_base_unit: number;
     }[];
-  }[];
+  }[] | {
+    id: string;
+    instructions: string | null;
+    recipe_ingredients: {
+      item_id: string;
+      quantity_base_unit: number;
+    }[];
+  } | null;
 }
 
 interface InventoryCatalogItem {
@@ -140,9 +147,9 @@ export const Recipes: React.FC = () => {
 
   const calculateItemCost = (item: MenuItem) => {
     if (item.type === 'restaurant') {
-      const recipe = item.recipes?.[0];
+      const recipe = Array.isArray(item.recipes) ? item.recipes?.[0] : (item.recipes as any);
       if (!recipe || !recipe.recipe_ingredients) return 0;
-      return recipe.recipe_ingredients.reduce((total, ing) => {
+      return recipe.recipe_ingredients.reduce((total: number, ing: any) => {
         const catalogItem = catalog.find(c => c.id === ing.item_id);
         const cost = catalogItem ? Number(catalogItem.cost_per_base_unit) : 0;
         return total + (Number(ing.quantity_base_unit) * cost);

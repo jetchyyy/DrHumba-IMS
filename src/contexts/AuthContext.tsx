@@ -74,21 +74,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setProfile(profileData);
 
-      // Auto-select branch: prefer user's assigned branch, then warehouse, then first available.
-      // For single-branch tenants (e.g. Starter plan) this ensures POS always has context.
-      if (profileData.branch_id) {
-        const branchObj = currentBranches.find(b => b.id === profileData.branch_id);
-        let userBranch = branchObj;
-        if (branchObj && branchObj.parent_id) {
-          const parent = currentBranches.find(p => p.id === branchObj.parent_id);
-          if (parent) userBranch = parent;
+      // Keep existing selected branch context if it's still valid
+      const existingBranchObj = selectedBranch ? currentBranches.find(b => b.id === selectedBranch.id) : null;
+      if (existingBranchObj) {
+        setSelectedBranchState(existingBranchObj);
+      } else {
+        // Auto-select branch: prefer user's assigned branch, then warehouse, then first available.
+        // For single-branch tenants (e.g. Starter plan) this ensures POS always has context.
+        if (profileData.branch_id) {
+          const branchObj = currentBranches.find(b => b.id === profileData.branch_id);
+          let userBranch = branchObj;
+          if (branchObj && branchObj.parent_id) {
+            const parent = currentBranches.find(p => p.id === branchObj.parent_id);
+            if (parent) userBranch = parent;
+          }
+          setSelectedBranchState(userBranch || currentBranches[0] || null);
+        } else if (currentBranches.length > 0) {
+          // For super admins / corporate roles with no fixed branch:
+          // pick warehouse first, otherwise fall back to first branch
+          const warehouse = currentBranches.filter(b => !b.parent_id).find(b => b.is_warehouse);
+          setSelectedBranchState(warehouse || currentBranches.filter(b => !b.parent_id)[0] || currentBranches[0]);
         }
-        setSelectedBranchState(userBranch || currentBranches[0] || null);
-      } else if (currentBranches.length > 0) {
-        // For super admins / corporate roles with no fixed branch:
-        // pick warehouse first, otherwise fall back to first branch
-        const warehouse = currentBranches.filter(b => !b.parent_id).find(b => b.is_warehouse);
-        setSelectedBranchState(warehouse || currentBranches.filter(b => !b.parent_id)[0] || currentBranches[0]);
       }
     } catch (err) {
       console.error('Error fetching profile:', err);

@@ -11,8 +11,10 @@ export const ActiveBranchSplashScreen: React.FC = () => {
   const prevBranchId = useRef<string | null>(null);
 
   useEffect(() => {
+    console.log('[ActiveBranchSplashScreen] selectedBranch:', selectedBranch?.name, 'ID:', selectedBranch?.id, 'prevBranchId:', prevBranchId.current);
     if (selectedBranch?.id) {
       if (prevBranchId.current && prevBranchId.current !== selectedBranch.id) {
+        console.log('[ActiveBranchSplashScreen] Triggering splash screen for:', selectedBranch.name);
         // Trigger splash screen
         setBranchName(selectedBranch.name);
         setIsWarehouse(!!selectedBranch.is_warehouse);
@@ -29,6 +31,7 @@ export const ActiveBranchSplashScreen: React.FC = () => {
           }, 500);
         }, 1500);
 
+        prevBranchId.current = selectedBranch.id;
         return () => clearTimeout(timer);
       }
       prevBranchId.current = selectedBranch.id;

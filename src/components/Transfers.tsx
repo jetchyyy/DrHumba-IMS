@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { settingsService } from '../lib/settingsService';
 import { printTransferSlip } from '../lib/printService';
-import { EyeOpenIcon as Eye, ReloadIcon as RefreshCw, SymbolIcon as ArrowRightLeft, TrashIcon as Trash2, FileTextIcon as Printer } from '@radix-ui/react-icons';
+import { EyeOpenIcon as Eye, ReloadIcon as RefreshCw, SymbolIcon as ArrowRightLeft, TrashIcon as Trash2, FileTextIcon as Printer, CaretSortIcon, MagnifyingGlassIcon } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -95,6 +95,8 @@ export const Transfers: React.FC = () => {
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState(50);
   const [sourceInventory, setSourceInventory] = useState<Record<string, number>>({});
+  const [itemSearchTerm, setItemSearchTerm] = useState('');
+  const [itemPopoverOpen, setItemPopoverOpen] = useState(false);
   
   const [approving, setApproving] = useState(false);
   const [receiving, setReceiving] = useState(false);
@@ -188,6 +190,8 @@ export const Transfers: React.FC = () => {
       setCurrentSelectedItemId(catalog[0].id);
       setCurrentQty(100);
     }
+    setItemSearchTerm('');
+    setItemPopoverOpen(false);
     setShowCreateModal(true);
   };
 
@@ -219,6 +223,7 @@ export const Transfers: React.FC = () => {
         qty: qtyToAdd
       }
     ]);
+    setItemSearchTerm('');
   };
 
   const handleRemoveItem = (index: number) => {
@@ -831,21 +836,75 @@ export const Transfers: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                   <div className="md:col-span-2 space-y-2">
                     <Label>Select Item</Label>
-                    <Select value={currentSelectedItemId} onValueChange={setCurrentSelectedItemId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select an item" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {catalog.map(item => {
-                          const qty = sourceInventory[item.id] || 0;
-                          return (
-                            <SelectItem key={item.id} value={item.id}>
-                              {item.item_name} (Available: {qty} {item.base_unit})
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
+                    <Popover open={itemPopoverOpen} onOpenChange={setItemPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button 
+                          variant="outline" 
+                          role="combobox" 
+                          aria-expanded={itemPopoverOpen} 
+                          className="w-full justify-between text-left font-normal bg-background h-10 border-input"
+                        >
+                          {currentSelectedItemId ? (
+                            (() => {
+                              const item = catalog.find(c => c.id === currentSelectedItemId);
+                              const qty = sourceInventory[currentSelectedItemId] || 0;
+                              return item ? `${item.item_name} (Available: ${qty} ${item.base_unit})` : "Select an item";
+                            })()
+                          ) : (
+                            <span className="text-muted-foreground">Select an item</span>
+                          )}
+                          <CaretSortIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                        <div className="flex flex-col h-[300px]">
+                          <div className="flex items-center border-b px-3 py-2 sticky top-0 bg-background z-10">
+                            <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                            <Input
+                              placeholder="Search catalog items..."
+                              value={itemSearchTerm}
+                              onChange={(e) => setItemSearchTerm(e.target.value)}
+                              className="h-8 w-full bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0 py-0 text-sm outline-none"
+                            />
+                          </div>
+                          <div className="flex-1 overflow-y-auto p-1">
+                            {(() => {
+                              const filtered = catalog.filter(item => 
+                                item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())
+                              );
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="py-6 text-center text-sm text-muted-foreground">
+                                    No items found.
+                                  </div>
+                                );
+                              }
+                              return filtered.map(item => {
+                                const qty = sourceInventory[item.id] || 0;
+                                const isSelected = currentSelectedItemId === item.id;
+                                return (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setCurrentSelectedItemId(item.id);
+                                      setItemPopoverOpen(false);
+                                      setItemSearchTerm('');
+                                    }}
+                                    className={`w-full text-left px-3 py-2 rounded-sm text-sm transition-colors hover:bg-accent hover:text-accent-foreground flex items-center justify-between ${isSelected ? 'bg-accent/50 font-medium' : ''}`}
+                                  >
+                                    <span className="truncate">{item.item_name}</span>
+                                    <span className="text-xs text-muted-foreground shrink-0 pl-2">
+                                      {qty} {item.base_unit}
+                                    </span>
+                                  </button>
+                                );
+                              });
+                            })()}
+                          </div>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                     {currentSelectedItemId && (
                       <p className="text-xs text-muted-foreground mt-1">
                         Current stock at source: <span className="font-semibold text-foreground">
