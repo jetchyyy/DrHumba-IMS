@@ -3,7 +3,12 @@
  * This prevents the user from having to select the printer for every single button click.
  */
 let globalConnectedPrinter: any = null;
-const SPP_SERVICE_UUID = '00001101-0000-1000-8000-00805f9b34fb';
+const COMMON_PRINTER_SERVICES = [
+  'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Dothantech / Deli
+  '000018f0-0000-1000-8000-00805f9b34fb', // Generic ESC/POS
+  '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISDC / Serial
+  '0000fee7-0000-1000-8000-00805f9b34fb'  // Generic
+];
 
 /**
  * Core Global Controller. Call this single function inside EVERY print button
@@ -23,33 +28,49 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array): Pr
           { namePrefix: 'Deli' },
           { namePrefix: 'POS' }
         ],
-        optionalServices: [SPP_SERVICE_UUID]
+        optionalServices: COMMON_PRINTER_SERVICES
       });
     }
 
     console.log(`Waking up printer from "Saved" state: ${globalConnectedPrinter.name}`);
 
-    // 2. Open live RFCOMM pipe to execute the print job
+    // 2. Open live RFCOMM/GATT pipe to execute the print job
     if (!globalConnectedPrinter.gatt) {
         throw new Error("GATT server not found on device.");
     }
 
     const server = await globalConnectedPrinter.gatt.connect();
-    const service = await server.getPrimaryService(SPP_SERVICE_UUID);
-    const characteristics = await service.getCharacteristics();
     
-    if (!characteristics || characteristics.length === 0) {
-      throw new Error("No available write characteristic pipelines found.");
+    // Find a valid service and write characteristic
+    let writePipe: any = null;
+    const services = await server.getPrimaryServices();
+    
+    for (const service of services) {
+      const characteristics = await service.getCharacteristics();
+      for (const char of characteristics) {
+        if (char.properties.write || char.properties.writeWithoutResponse) {
+          writePipe = char;
+          break;
+        }
+      }
+      if (writePipe) break;
     }
     
-    // Use the first available characteristic for writing
-    const writePipe = characteristics[0];
+    if (!writePipe) {
+      throw new Error("No available write characteristic pipelines found.");
+    }
 
     // 3. Stream the button's specific payload
-    // Split into chunks if necessary (some BLE devices have MTU limits, usually ~20-512 bytes)
-    // For Dothantech/S423 it might accept the whole array or might need chunking.
-    // Dothantech profiles usually accept up to a few KB if the OS supports it.
-    await writePipe.writeValueWithResponse(rawEscPosBytes);
+    // Split into chunks to prevent MTU limits (max 512 bytes per chunk is safe for most BLE)
+    const chunkSize = 512;
+    for (let i = 0; i < rawEscPosBytes.length; i += chunkSize) {
+      const chunk = rawEscPosBytes.slice(i, i + chunkSize);
+      if (writePipe.properties.write) {
+        await writePipe.writeValueWithResponse(chunk);
+      } else {
+        await writePipe.writeValueWithoutResponse(chunk);
+      }
+    }
     console.log("Print job completed successfully.");
     
     // 4. Disconnect instantly to free the hardware channel and return to "Saved" mode
