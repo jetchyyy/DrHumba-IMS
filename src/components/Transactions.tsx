@@ -600,7 +600,7 @@ export const Transactions: React.FC = () => {
                           }
                           className="uppercase text-[9px]"
                         >
-                          {tx.status === 'approved' ? 'In Transit' : tx.status}
+                          {tx.type === 'transfer' && tx.status === 'approved' ? 'In Transit' : tx.status === 'approved' ? 'completed' : tx.status}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right pr-6">
@@ -705,7 +705,7 @@ export const Transactions: React.FC = () => {
                     }
                     className="uppercase mt-1 text-[10px]"
                   >
-                    {selectedTx.status === 'approved' ? 'In Transit' : selectedTx.status}
+                    {selectedTx.type === 'transfer' && selectedTx.status === 'approved' ? 'In Transit' : selectedTx.status === 'approved' ? 'completed' : selectedTx.status}
                   </Badge>
                 </div>
               </div>
