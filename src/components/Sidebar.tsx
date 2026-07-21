@@ -40,12 +40,24 @@ interface SidebarProps {
 
 // Feature key map for plan gating
 const TAB_FEATURE_KEYS: Record<string, string> = {
-  pos: 'pos', 'sales-history': 'sales_history', 'z-read-history': 'pos', inventory: 'inventory',
-  'global-inventory': 'global_inventory', receiving: 'receiving',
-  transfers: 'transfers', adjustments: 'adjustments', transactions: 'transactions',
-  recipes: 'recipes', branches: 'branches', analytics: 'analytics',
-  'audit-logs': 'audit_logs', users: 'users', settings: 'settings', expenses: 'expenses',
-  'kitchen-receipts': 'pos',
+  pos: 'pos',
+  'queue-caller': 'queue_caller',
+  'sales-history': 'sales_history',
+  'z-read-history': 'z_read_history',
+  inventory: 'inventory',
+  'global-inventory': 'global_inventory',
+  receiving: 'receiving',
+  transfers: 'transfers',
+  adjustments: 'adjustments',
+  transactions: 'transactions',
+  'kitchen-receipts': 'kitchen_receipts',
+  recipes: 'recipes',
+  branches: 'branches',
+  analytics: 'analytics',
+  'audit-logs': 'audit_logs',
+  users: 'users',
+  settings: 'settings',
+  expenses: 'expenses',
 };
 
 // The shared nav items list — used by both desktop sidebar & mobile components
