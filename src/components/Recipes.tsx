@@ -98,6 +98,17 @@ export const Recipes: React.FC = () => {
     return Array.from(new Set([...defaults, ...fromItems, ...sessionCategories]));
   }, [menuItems, sessionCategories, isRestaurant]);
 
+  // Keep track of which inventory items are already linked to catalog items
+  const linkedItemIds = useMemo(() => {
+    const ids = new Set<string>();
+    menuItems.forEach((item: MenuItem) => {
+      if (item.inventory_item_id && item.id !== selectedItem?.id) {
+        ids.add(item.inventory_item_id);
+      }
+    });
+    return ids;
+  }, [menuItems, selectedItem]);
+
   // Recipe Form state
   const [instructions, setInstructions] = useState('');
   const [recipeIngredients, setRecipeIngredients] = useState<{ item_id: string; qty: number }[]>([]);
@@ -393,7 +404,11 @@ export const Recipes: React.FC = () => {
       setShowItemModal(false);
     } catch (err: any) {
       console.error(err);
-      showError(err.message || (isRestaurant ? 'Error saving menu item and recipe' : 'Error saving catalog item'));
+      if (err.message?.includes('menu_items_inventory_item_id_key')) {
+        showError('This inventory stock item is already linked to another product/service. Please select a different stock item.');
+      } else {
+        showError(err.message || (isRestaurant ? 'Error saving menu item and recipe' : 'Error saving catalog item'));
+      }
     } finally {
       setIsSaving(false);
     }
@@ -641,7 +656,7 @@ export const Recipes: React.FC = () => {
                       <Select 
                         value={inventoryItemId || ''} 
                         onValueChange={(val) => {
-                          setInventoryItemId(val);
+                          setInventoryItemId(val || null);
                           const catalogItem = catalog.find(c => c.id === val);
                           if (catalogItem) {
                             setCostPrice(Number(catalogItem.cost_per_base_unit) || 0);
@@ -653,11 +668,13 @@ export const Recipes: React.FC = () => {
                       >
                         <SelectTrigger><SelectValue placeholder="Search or select stock item" /></SelectTrigger>
                         <SelectContent>
-                          {catalog.map(item => (
-                            <SelectItem key={item.id} value={item.id}>
-                              {item.item_name} ({item.base_unit})
-                            </SelectItem>
-                          ))}
+                          {catalog
+                            .filter(item => !linkedItemIds.has(item.id))
+                            .map(item => (
+                              <SelectItem key={item.id} value={item.id}>
+                                {item.item_name} ({item.base_unit})
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                       <p className="text-[10px] text-muted-foreground">When sold, 1 unit will be deducted from this linked stock item.</p>
