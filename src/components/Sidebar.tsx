@@ -66,14 +66,8 @@ export const useNavItems = () => {
   const { tenant } = useTenant();
   if (!profile) return [];
   const role = profile.role_name;
-  const isRestaurant = tenant?.is_restaurant ?? true;
+  const isRestaurant = tenant?.is_restaurant ?? (tenant?.is_retail || tenant?.is_service ? false : true);
   const features = (tenant?.features ?? {}) as Record<string, boolean>;
-
-  const isFeatureLocked = (tabId: string) => {
-    const key = TAB_FEATURE_KEYS[tabId];
-    if (!key || !tenant?.features) return false;
-    return features[key] === false;
-  };
 
   const tabs = [
     { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, show: true },
@@ -97,18 +91,31 @@ export const useNavItems = () => {
     { id: 'settings', name: 'Settings', icon: SettingsIcon, show: true },
   ];
 
-  // Filter by role/allowed_tabs — locked features are kept but flagged
+  // Filter by business model rules & SuperAdmin feature flags
   const filtered = tabs.filter(tab => {
+    // 1. Business model requirement (e.g. Kitchen Orders is only shown for restaurants)
+    if (!tab.show) return false;
+
+    // 2. Feature flag set by SuperAdmin in SuperAdmin Dashboard
+    const key = TAB_FEATURE_KEYS[tab.id];
+    if (key && tenant?.features && features[key] === false) {
+      return false;
+    }
+
+    // 3. System tabs always available to allowed roles
     if (['dashboard', 'settings'].includes(tab.id)) return true;
+
+    // 4. Super Admin gets all business-valid & feature-enabled tabs
     if (role === 'super_admin') return true;
+
+    // 5. Staff tab permission overrides
     if (profile.allowed_tabs && Array.isArray(profile.allowed_tabs)) {
       return profile.allowed_tabs.includes(tab.id);
     }
-    return tab.show;
+    return true;
   });
 
-  // Attach locked flag so nav can show lock icon
-  return filtered.map(tab => ({ ...tab, locked: isFeatureLocked(tab.id) }));
+  return filtered.map(tab => ({ ...tab, locked: false }));
 };
 
 // ── Inner nav content (shared between desktop sidebar & mobile sheet) ─────────
