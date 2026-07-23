@@ -36,6 +36,9 @@ interface InventoryItem {
   cost_per_base_unit: number;
   status: 'active' | 'inactive';
   selling_price?: number | null;
+  available_branches?: string[] | null;
+  foodpanda_price?: number | null;
+  grab_price?: number | null;
 }
 
 interface Balance {
@@ -44,7 +47,7 @@ interface Balance {
 }
 
 export const Inventory: React.FC = () => {
-  const { profile, selectedBranch } = useAuth();
+  const { profile, selectedBranch, branches } = useAuth();
   const { confirm, showSuccess, showError } = useModal();
   const { tenant } = useTenant();
   
@@ -77,8 +80,13 @@ export const Inventory: React.FC = () => {
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [initialQty, setInitialQty] = useState<number>(0);
   const [sellingPrice, setSellingPrice] = useState<number | ''>('');
+  const [foodpandaPrice, setFoodpandaPrice] = useState<number | ''>('');
+  const [grabPrice, setGrabPrice] = useState<number | ''>('');
+  const [branchPriceOverrides, setBranchPriceOverrides] = useState<Record<string, { price: string; foodpanda_price: string; grab_price: string }>>({});
   const [directPOS, setDirectPOS] = useState(false);
   const [isCustomCategory, setIsCustomCategory] = useState(false);
+  const [allBranches, setAllBranches] = useState(true);
+  const [availableBranches, setAvailableBranches] = useState<string[]>([]);
 
   const isRestaurant = tenant?.is_restaurant ?? true;
 
@@ -113,10 +121,15 @@ export const Inventory: React.FC = () => {
 
   const loadInventoryData = async () => {
     try {
-      const { data: itemsData, error: itemsError } = await supabase
+      let query = supabase
         .from('inventory_items')
-        .select('*')
-        .order('item_name');
+        .select('*');
+
+      if (selectedBranch?.id) {
+        query = query.or(`available_branches.is.null,available_branches.cs.{"${selectedBranch.id}"}`);
+      }
+
+      const { data: itemsData, error: itemsError } = await query.order('item_name');
       if (itemsError) throw itemsError;
       setItems(itemsData || []);
 
@@ -152,11 +165,16 @@ export const Inventory: React.FC = () => {
     setStatus('active');
     setInitialQty(0);
     setSellingPrice('');
+    setFoodpandaPrice('');
+    setGrabPrice('');
     setDirectPOS(false);
+    setBranchPriceOverrides({});
+    setAllBranches(true);
+    setAvailableBranches([]);
     setShowForm(true);
   };
 
-  const handleOpenEditForm = (item: InventoryItem) => {
+  const handleOpenEditForm = async (item: InventoryItem) => {
     setEditingItem(item);
     setSku(item.sku);
     setItemName(item.item_name);
@@ -170,8 +188,34 @@ export const Inventory: React.FC = () => {
     setCostPerBaseUnit(item.cost_per_base_unit);
     setStatus(item.status);
     setSellingPrice(item.selling_price || '');
+    setFoodpandaPrice(item.foodpanda_price || '');
+    setGrabPrice(item.grab_price || '');
     setDirectPOS(item.selling_price !== null && item.selling_price !== undefined && item.selling_price > 0);
+    const itemAvailableBranches = item.available_branches || null;
+    setAllBranches(!itemAvailableBranches || itemAvailableBranches.length === 0);
+    setAvailableBranches(itemAvailableBranches || []);
     setShowForm(true);
+
+    if (item.id) {
+      const { data: bpData } = await supabase
+        .from('item_branch_prices')
+        .select('branch_id, price, foodpanda_price, grab_price')
+        .eq('inventory_item_id', item.id);
+
+      if (bpData) {
+        const bpMap: Record<string, { price: string; foodpanda_price: string; grab_price: string }> = {};
+        bpData.forEach(bp => {
+          bpMap[bp.branch_id] = {
+            price: bp.price !== null && bp.price !== undefined ? String(bp.price) : '',
+            foodpanda_price: bp.foodpanda_price !== null && bp.foodpanda_price !== undefined ? String(bp.foodpanda_price) : '',
+            grab_price: bp.grab_price !== null && bp.grab_price !== undefined ? String(bp.grab_price) : ''
+          };
+        });
+        setBranchPriceOverrides(bpMap);
+      } else {
+        setBranchPriceOverrides({});
+      }
+    }
   };
 
   const handleSaveItem = async (e: React.FormEvent) => {
@@ -188,7 +232,11 @@ export const Inventory: React.FC = () => {
     }
 
     try {
-      const finalSellingPrice = directPOS && sellingPrice !== '' ? Number(sellingPrice) : null;
+      const hasAnyBranchPrice = Object.values(branchPriceOverrides).some(bp => bp.price !== '' || bp.foodpanda_price !== '' || bp.grab_price !== '');
+      const isPOSListed = directPOS || hasAnyBranchPrice;
+      const finalSellingPrice = isPOSListed && sellingPrice !== '' ? Number(sellingPrice) : (hasAnyBranchPrice && sellingPrice === '' ? 0.01 : null);
+      const finalFoodpandaPrice = foodpandaPrice !== '' ? Number(foodpandaPrice) : null;
+      const finalGrabPrice = grabPrice !== '' ? Number(grabPrice) : null;
       const itemPayload = {
         sku: sku.trim(),
         item_name: itemName.trim(),
@@ -199,9 +247,13 @@ export const Inventory: React.FC = () => {
         reorder_level: Number(reorderLevel),
         cost_per_base_unit: Number(costPerBaseUnit),
         status,
-        selling_price: finalSellingPrice
+        selling_price: finalSellingPrice,
+        available_branches: allBranches ? null : availableBranches,
+        foodpanda_price: finalFoodpandaPrice,
+        grab_price: finalGrabPrice
       };
 
+      let savedItemId = editingItem ? editingItem.id : null;
       if (editingItem) {
         const { error } = await supabase
           .from('inventory_items')
@@ -210,7 +262,7 @@ export const Inventory: React.FC = () => {
         if (error) throw error;
         showSuccess("Item updated successfully!");
       } else {
-        const { error } = await supabase.rpc('fn_create_inventory_item', {
+        const { data: newItemId, error } = await supabase.rpc('fn_create_inventory_item', {
           p_sku: sku.trim(),
           p_item_name: itemName.trim(),
           p_category: category,
@@ -222,10 +274,44 @@ export const Inventory: React.FC = () => {
           p_initial_quantity: Number(initialQty),
           p_branch_id: selectedBranch ? selectedBranch.id : null,
           p_created_by: profile ? profile.id : null,
-          p_selling_price: finalSellingPrice
+          p_selling_price: finalSellingPrice,
+          p_available_branches: allBranches ? null : availableBranches,
+          p_foodpanda_price: finalFoodpandaPrice,
+          p_grab_price: finalGrabPrice
         });
         if (error) throw error;
+        savedItemId = newItemId as string;
         showSuccess("Item created successfully!");
+      }
+
+      if (savedItemId) {
+        const { data: linkedMenuItem } = await supabase
+          .from('menu_items')
+          .select('id')
+          .eq('inventory_item_id', savedItemId)
+          .maybeSingle();
+
+        const linkedMenuItemId = linkedMenuItem?.id || null;
+
+        for (const [bId, bp] of Object.entries(branchPriceOverrides)) {
+          const pVal = bp.price !== '' ? Number(bp.price) : null;
+          const fpVal = bp.foodpanda_price !== '' ? Number(bp.foodpanda_price) : null;
+          const gVal = bp.grab_price !== '' ? Number(bp.grab_price) : null;
+
+          if (pVal !== null || fpVal !== null || gVal !== null) {
+            await supabase.from('item_branch_prices').upsert({
+              branch_id: bId,
+              inventory_item_id: savedItemId,
+              menu_item_id: linkedMenuItemId,
+              tenant_id: tenant?.id,
+              price: pVal,
+              foodpanda_price: fpVal,
+              grab_price: gVal
+            }, { onConflict: 'tenant_id,branch_id,inventory_item_id' });
+          } else {
+            await supabase.from('item_branch_prices').delete().match({ branch_id: bId, inventory_item_id: savedItemId });
+          }
+        }
       }
 
       await loadInventoryData();
@@ -448,7 +534,23 @@ export const Inventory: React.FC = () => {
                     return (
                       <TableRow key={item.id}>
                         <TableCell className="pl-6 font-semibold flex items-center space-x-2">
-                          <span>{item.item_name}</span>
+                          <div className="flex flex-col">
+                            <span className="font-semibold">{item.item_name}</span>
+                            {(item.foodpanda_price || item.grab_price) && (
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                {item.foodpanda_price && (
+                                  <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 font-medium">
+                                    FP: ₱{Number(item.foodpanda_price).toFixed(2)}
+                                  </span>
+                                )}
+                                {item.grab_price && (
+                                  <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-600 font-medium">
+                                    Grab: ₱{Number(item.grab_price).toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
                           {isLow && item.status === 'active' && (
                             <Badge variant="destructive" className="h-5 px-1.5 text-[9px] animate-pulse">
                               <AlertTriangle className="w-2.5 h-2.5 mr-1" />
@@ -567,7 +669,30 @@ export const Inventory: React.FC = () => {
                   {paginatedItems.map(item => (
                     <TableRow key={item.id}>
                       <TableCell className="pl-6 font-mono text-primary font-medium">{item.sku}</TableCell>
-                      <TableCell className="font-bold">{item.item_name}</TableCell>
+                      <TableCell className="font-bold">
+                        <div className="flex flex-col">
+                          <span>{item.item_name}</span>
+                          {(item.selling_price || item.foodpanda_price || item.grab_price) && (
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1 font-normal">
+                              {item.selling_price && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-bold">
+                                  POS: ₱{Number(item.selling_price).toFixed(2)}
+                                </span>
+                              )}
+                              {item.foodpanda_price && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 font-bold">
+                                  FP: ₱{Number(item.foodpanda_price).toFixed(2)}
+                                </span>
+                              )}
+                              {item.grab_price && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 font-bold">
+                                  Grab: ₱{Number(item.grab_price).toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-muted-foreground">{item.category}</TableCell>
                       <TableCell className="font-semibold">{item.base_unit}</TableCell>
                       <TableCell className="text-muted-foreground">{item.purchase_unit}</TableCell>
@@ -642,177 +767,332 @@ export const Inventory: React.FC = () => {
 
       {/* Item Form Modal */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit Catalog Item' : 'New Catalog Item'}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSaveItem} className="space-y-4 pt-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>SKU *</Label>
-                <Input required value={sku} onChange={(e) => setSku(e.target.value)} className="font-mono" />
-              </div>
-              <div className="space-y-2">
-                <Label>Category *</Label>
-                {isCustomCategory ? (
-                  <div className="flex space-x-2">
-                    <Input
-                      required
-                      value={category}
-                      onChange={(e) => setCategory(e.target.value)}
-                      placeholder="Custom category"
-                      className="flex-1 h-9"
+          <form onSubmit={handleSaveItem} className="space-y-6 pt-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* LEFT COLUMN: Basic Item Info & POS Pricing */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>SKU *</Label>
+                    <Input required value={sku} onChange={(e) => setSku(e.target.value)} className="font-mono" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Category *</Label>
+                    {isCustomCategory ? (
+                      <div className="flex space-x-2">
+                        <Input
+                          required
+                          value={category}
+                          onChange={(e) => setCategory(e.target.value)}
+                          placeholder="Custom category"
+                          className="flex-1 h-9"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-9"
+                          onClick={() => {
+                            setIsCustomCategory(false);
+                            setCategory(isRestaurant ? 'Vegetables' : 'Parts');
+                          }}
+                        >
+                          Existing
+                        </Button>
+                      </div>
+                    ) : (
+                      <Select
+                        value={category}
+                        onValueChange={(val) => {
+                          if (val === 'ADD_CUSTOM') {
+                            setIsCustomCategory(true);
+                            setCategory('');
+                          } else {
+                            setCategory(val);
+                          }
+                        }}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {categoriesList.map(cat => (
+                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                          ))}
+                          <SelectItem value="ADD_CUSTOM" className="text-primary font-semibold">
+                            + Add Custom Category...
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Item Name *</Label>
+                  <Input required value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="e.g. White Onion" />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Unit of Measure *</Label>
+                    {isCustomUnit ? (
+                      <Button 
+                        type="button" 
+                        variant="link" 
+                        className="h-auto p-0 text-xs text-primary" 
+                        onClick={() => {
+                          setIsCustomUnit(false);
+                          setBaseUnit(isRestaurant ? 'g' : 'pc');
+                          setPurchaseUnit(isRestaurant ? 'g' : 'pc');
+                          setConversionFactor(1);
+                        }}
+                      >
+                        Existing
+                      </Button>
+                    ) : null}
+                  </div>
+                  {isCustomUnit ? (
+                    <Input 
+                      required 
+                      value={baseUnit} 
+                      onChange={(e) => { 
+                        const val = e.target.value; 
+                        setBaseUnit(val); 
+                        setPurchaseUnit(val); 
+                        setConversionFactor(1); 
+                      }} 
+                      placeholder="e.g. box, pack, tray" 
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-9"
-                      onClick={() => {
-                        setIsCustomCategory(false);
-                        setCategory(isRestaurant ? 'Vegetables' : 'Parts');
+                  ) : (
+                    <Select 
+                      value={baseUnit} 
+                      onValueChange={(val) => { 
+                        if (val === 'ADD_CUSTOM') {
+                          setIsCustomUnit(true);
+                          setBaseUnit('');
+                          setPurchaseUnit('');
+                          setConversionFactor(1);
+                        } else {
+                          setBaseUnit(val); 
+                          setPurchaseUnit(val); 
+                          setConversionFactor(1); 
+                        }
                       }}
                     >
-                      Existing
-                    </Button>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {unitsList.map(u => (
+                          <SelectItem key={u} value={u}>{u}</SelectItem>
+                        ))}
+                        <SelectItem value="ADD_CUSTOM" className="text-primary font-semibold">
+                          + Add Custom Unit...
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+
+                {!editingItem && (
+                  <div className="space-y-2">
+                    <Label>Initial Stock Quantity ({baseUnit}) *</Label>
+                    <Input type="number" required min="0" step="any" value={initialQty} onChange={(e) => setInitialQty(Number(e.target.value))} />
                   </div>
-                ) : (
-                  <Select
-                    value={category}
-                    onValueChange={(val) => {
-                      if (val === 'ADD_CUSTOM') {
-                        setIsCustomCategory(true);
-                        setCategory('');
-                      } else {
-                        setCategory(val);
-                      }
-                    }}
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {categoriesList.map(cat => (
-                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                      ))}
-                      <SelectItem value="ADD_CUSTOM" className="text-primary font-semibold">
-                        + Add Custom Category...
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Reorder Min ({baseUnit})</Label>
+                    <Input type="number" required value={reorderLevel} onChange={(e) => setReorderLevel(Number(e.target.value))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Est. Cost per {baseUnit} (₱)</Label>
+                    <Input type="number" step="0.0001" required value={costPerBaseUnit} onChange={(e) => setCostPerBaseUnit(Number(e.target.value))} />
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2 pt-2 pb-1">
+                  <Checkbox
+                    id="direct_pos"
+                    checked={directPOS}
+                    onCheckedChange={(checked) => setDirectPOS(!!checked)}
+                  />
+                  <Label htmlFor="direct_pos" className="text-xs font-bold cursor-pointer select-none">
+                    Directly list on POS (No Recipe Required)
+                  </Label>
+                </div>
+
+                {directPOS && (
+                  <div className="space-y-4 border border-border/50 bg-muted/20 p-3 rounded-lg">
+                    <div className="space-y-2">
+                      <Label>POS Selling Price (Standard ₱)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        required
+                        value={sellingPrice}
+                        onChange={(e) => setSellingPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="e.g. 150.00"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-amber-500 font-semibold">Foodpanda Price (₱)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={foodpandaPrice}
+                          onChange={(e) => setFoodpandaPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                          placeholder="Optional e.g. 180.00"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-emerald-500 font-semibold">GrabFood Price (₱)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={grabPrice}
+                          onChange={(e) => setGrabPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                          placeholder="Optional e.g. 185.00"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Setting a selling price automatically lists this item on the POS catalog. Platform prices are used when punching sales under Foodpanda or Grab modes.
+                    </p>
+                  </div>
                 )}
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label>Item Name *</Label>
-              <Input required value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="e.g. White Onion" />
-            </div>
+              {/* RIGHT COLUMN: Branch Dynamic Pricing & Availability */}
+              <div className="space-y-4 border-l border-border/40 pl-0 md:pl-6">
+                {/* Branch-Specific Custom Price Overrides */}
+                <div className="space-y-3">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-primary block">
+                    Branch Dynamic Price Overrides (Optional)
+                  </Label>
+                  <p className="text-[10px] text-muted-foreground">
+                    Configure custom pricing for specific branch locations if selling price differs by store.
+                  </p>
+                  <div className="space-y-2.5 max-h-64 overflow-y-auto p-2 bg-background/50 rounded-lg border border-border/40">
+                    {(branches || []).filter(b => !b.parent_id).map(branch => {
+                      const bp = branchPriceOverrides[branch.id] || { price: '', foodpanda_price: '', grab_price: '' };
+                      return (
+                        <div key={branch.id} className="p-2 border border-border/30 rounded bg-muted/10 space-y-1.5">
+                          <span className="text-xs font-bold text-foreground block">{branch.name}</span>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <Label className="text-[10px]">Standard (₱)</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                className="h-7 text-xs"
+                                value={bp.price}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setBranchPriceOverrides(prev => ({
+                                    ...prev,
+                                    [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), price: val }
+                                  }));
+                                }}
+                                placeholder="Default"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-amber-500 font-semibold">FP (₱)</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                className="h-7 text-xs"
+                                value={bp.foodpanda_price}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setBranchPriceOverrides(prev => ({
+                                    ...prev,
+                                    [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), foodpanda_price: val }
+                                  }));
+                                }}
+                                placeholder="Default"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-emerald-500 font-semibold">Grab (₱)</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                className="h-7 text-xs"
+                                value={bp.grab_price}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setBranchPriceOverrides(prev => ({
+                                    ...prev,
+                                    [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), grab_price: val }
+                                  }));
+                                }}
+                                placeholder="Default"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Unit of Measure *</Label>
-                {isCustomUnit ? (
-                  <Button 
-                    type="button" 
-                    variant="link" 
-                    className="h-auto p-0 text-xs text-primary" 
-                    onClick={() => {
-                      setIsCustomUnit(false);
-                      setBaseUnit(isRestaurant ? 'g' : 'pc');
-                      setPurchaseUnit(isRestaurant ? 'g' : 'pc');
-                      setConversionFactor(1);
-                    }}
-                  >
-                    Existing
-                  </Button>
-                ) : null}
+                {/* Branch Restrictions Checklist */}
+                <div className="space-y-3 pt-3 border-t border-border/40">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="all_branches_limit"
+                      checked={allBranches}
+                      onCheckedChange={(checked) => {
+                        setAllBranches(!!checked);
+                        if (checked) {
+                          setAvailableBranches([]);
+                        }
+                      }}
+                    />
+                    <Label htmlFor="all_branches_limit" className="text-xs font-bold cursor-pointer select-none">
+                      Available in All Branches
+                    </Label>
+                  </div>
+
+                  {!allBranches && (
+                    <div className="space-y-2 pl-6">
+                      <Label className="text-[11px] text-muted-foreground uppercase font-bold tracking-wider">Select Branches</Label>
+                      <div className="grid grid-cols-2 gap-2 border border-border/40 bg-muted/20 p-3 rounded-lg max-h-36 overflow-y-auto">
+                        {branches.filter(b => !b.parent_id).map(branch => {
+                          const isChecked = availableBranches.includes(branch.id);
+                          return (
+                            <div key={branch.id} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`branch_check_${branch.id}`}
+                                checked={isChecked}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setAvailableBranches(prev => [...prev, branch.id]);
+                                  } else {
+                                    setAvailableBranches(prev => prev.filter(id => id !== branch.id));
+                                  }
+                                }}
+                              />
+                              <Label htmlFor={`branch_check_${branch.id}`} className="text-xs cursor-pointer select-none truncate">
+                                {branch.name}
+                              </Label>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              {isCustomUnit ? (
-                <Input 
-                  required 
-                  value={baseUnit} 
-                  onChange={(e) => { 
-                    const val = e.target.value; 
-                    setBaseUnit(val); 
-                    setPurchaseUnit(val); 
-                    setConversionFactor(1); 
-                  }} 
-                  placeholder="e.g. box, pack, tray" 
-                />
-              ) : (
-                <Select 
-                  value={baseUnit} 
-                  onValueChange={(val) => { 
-                    if (val === 'ADD_CUSTOM') {
-                      setIsCustomUnit(true);
-                      setBaseUnit('');
-                      setPurchaseUnit('');
-                      setConversionFactor(1);
-                    } else {
-                      setBaseUnit(val); 
-                      setPurchaseUnit(val); 
-                      setConversionFactor(1); 
-                    }
-                  }}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {unitsList.map(u => (
-                      <SelectItem key={u} value={u}>{u}</SelectItem>
-                    ))}
-                    <SelectItem value="ADD_CUSTOM" className="text-primary font-semibold">
-                      + Add Custom Unit...
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
             </div>
-
-            {!editingItem && (
-              <div className="space-y-2">
-                <Label>Initial Stock Quantity ({baseUnit}) *</Label>
-                <Input type="number" required min="0" step="any" value={initialQty} onChange={(e) => setInitialQty(Number(e.target.value))} />
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Reorder Min ({baseUnit})</Label>
-                <Input type="number" required value={reorderLevel} onChange={(e) => setReorderLevel(Number(e.target.value))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Est. Cost per {baseUnit} (₱)</Label>
-                <Input type="number" step="0.0001" required value={costPerBaseUnit} onChange={(e) => setCostPerBaseUnit(Number(e.target.value))} />
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2 pt-2 pb-1">
-              <Checkbox
-                id="direct_pos"
-                checked={directPOS}
-                onCheckedChange={(checked) => setDirectPOS(!!checked)}
-              />
-              <Label htmlFor="direct_pos" className="text-xs font-bold cursor-pointer select-none">
-                Directly list on POS (No Recipe Required)
-              </Label>
-            </div>
-
-            {directPOS && (
-              <div className="space-y-2">
-                <Label>POS Selling Price (₱)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  required
-                  value={sellingPrice}
-                  onChange={(e) => setSellingPrice(e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="e.g. 150.00"
-                />
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  Setting a selling price automatically lists this item on the POS catalog. When sold, the system will deduct stock 1:1 directly from this inventory item.
-                </p>
-              </div>
-            )}
 
             {editingItem && (
               <div className="space-y-2">

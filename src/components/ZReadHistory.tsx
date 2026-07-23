@@ -422,6 +422,15 @@ export const ZReadHistory: React.FC = () => {
                   <div className="flex justify-between"><span>Card:</span><span>{formatPHP(summary.cardSales)}</span></div>
                   <div className="flex justify-between"><span>Other:</span><span>{formatPHP(summary.otherSales)}</span></div>
                   <div className="border-t border-dashed my-2" />
+                  <div className="font-bold text-center">SALES CHANNEL BREAKDOWN</div>
+                  <div className="flex justify-between"><span>Dine-in / Store:</span><span>{formatPHP(summary.dineInSales || 0)}</span></div>
+                  <div className="flex justify-between"><span>Take-out:</span><span>{formatPHP(summary.takeOutSales || 0)}</span></div>
+                  <div className="flex justify-between text-amber-500 font-bold"><span>FoodPanda:</span><span>{formatPHP(summary.foodpandaSales || 0)}</span></div>
+                  <div className="flex justify-between text-emerald-500 font-bold"><span>GrabFood:</span><span>{formatPHP(summary.grabSales || 0)}</span></div>
+                  {summary.otherChannelSales > 0 && (
+                    <div className="flex justify-between"><span>Other Channels:</span><span>{formatPHP(summary.otherChannelSales)}</span></div>
+                  )}
+                  <div className="border-t border-dashed my-2" />
                   <div className="font-bold text-center">VOIDS & REFUNDS</div>
                   <div className="flex justify-between"><span>Void Count:</span><span>{summary.voidCount}</span></div>
                   <div className="flex justify-between"><span>Void Amount:</span><span>{formatPHP(summary.voidAmount)}</span></div>

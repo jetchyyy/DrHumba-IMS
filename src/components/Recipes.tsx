@@ -4,6 +4,7 @@ import { useTenant } from '../contexts/TenantContext';
 import { supabase } from '../lib/supabase';
 import { PlusIcon as Plus, Pencil2Icon as Edit2, ReaderIcon as BookOpen, ReloadIcon as RefreshCw, TrashIcon as Trash2, MagicWandIcon as ChefHat } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
+import { Checkbox } from './ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -34,6 +35,9 @@ interface MenuItem {
   is_available: boolean;
   type?: 'restaurant' | 'retail' | 'service';
   inventory_item_id?: string | null;
+  available_branches?: string[] | null;
+  foodpanda_price?: number | null;
+  grab_price?: number | null;
   recipes?: {
     id: string;
     instructions: string | null;
@@ -60,7 +64,7 @@ interface InventoryCatalogItem {
 }
 
 export const Recipes: React.FC = () => {
-  const { profile } = useAuth();
+  const { profile, selectedBranch, branches } = useAuth();
   const { tenant } = useTenant();
   const { confirm, showSuccess, showError } = useModal();
 
@@ -78,6 +82,11 @@ export const Recipes: React.FC = () => {
   const [itemName, setItemName] = useState('');
   const [sku, setSku] = useState('');
   const [category, setCategory] = useState(isRestaurant ? 'Burgers' : 'General');
+  const [foodpandaPrice, setFoodpandaPrice] = useState<number | ''>('');
+  const [grabPrice, setGrabPrice] = useState<number | ''>('');
+  const [branchPriceOverrides, setBranchPriceOverrides] = useState<Record<string, { price: string; foodpanda_price: string; grab_price: string }>>({});
+  const [allBranches, setAllBranches] = useState(true);
+  const [availableBranches, setAvailableBranches] = useState<string[]>([]);
   const [price, setPrice] = useState(9.99);
   const [costPrice, setCostPrice] = useState(0);
   const [itemStatus, setItemStatus] = useState<'active' | 'inactive'>('active');
@@ -126,10 +135,10 @@ export const Recipes: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const { data: menuData, error: menuError } = await supabase
+      let menuQuery = supabase
         .from('menu_items')
         .select(`
-          *,
+          id, name, sku, category, price, cost_price, status, is_available, type, inventory_item_id, available_branches, foodpanda_price, grab_price,
           recipes (
             id,
             instructions,
@@ -138,16 +147,26 @@ export const Recipes: React.FC = () => {
               quantity_base_unit
             )
           )
-        `)
-        .order('name');
+        `);
+
+      if (selectedBranch?.id) {
+        menuQuery = menuQuery.or(`available_branches.is.null,available_branches.cs.{"${selectedBranch.id}"}`);
+      }
+
+      const { data: menuData, error: menuError } = await menuQuery.order('name');
       if (menuError) throw menuError;
       setMenuItems(menuData || []);
 
-      const { data: catData, error: catError } = await supabase
+      let catQuery = supabase
         .from('inventory_items')
-        .select('id, item_name, base_unit, cost_per_base_unit, selling_price')
-        .eq('status', 'active')
-        .order('item_name');
+        .select('id, item_name, base_unit, cost_per_base_unit, selling_price, available_branches, foodpanda_price, grab_price')
+        .eq('status', 'active');
+
+      if (selectedBranch?.id) {
+        catQuery = catQuery.or(`available_branches.is.null,available_branches.cs.{"${selectedBranch.id}"}`);
+      }
+
+      const { data: catData, error: catError } = await catQuery.order('item_name');
       if (catError) throw catError;
       setCatalog(catData || []);
     } catch (err) {
@@ -191,7 +210,7 @@ export const Recipes: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [selectedBranch]);
 
   const handleOpenItemCreate = () => {
     setSelectedItem(null);
@@ -203,6 +222,11 @@ export const Recipes: React.FC = () => {
     setCostPrice(0);
     setItemStatus('active');
     setIsAvailable(true);
+    setFoodpandaPrice('');
+    setGrabPrice('');
+    setBranchPriceOverrides({});
+    setAllBranches(true);
+    setAvailableBranches([]);
     setProductType(isRestaurant ? 'restaurant' : isRetail ? 'retail' : 'service');
     setInventoryItemId(null);
     setInstructions('');
@@ -227,6 +251,11 @@ export const Recipes: React.FC = () => {
     setCostPrice(item.cost_price || 0);
     setItemStatus(item.status);
     setIsAvailable(item.is_available);
+    setFoodpandaPrice(item.foodpanda_price || '');
+    setGrabPrice(item.grab_price || '');
+    const itemAvailableBranches = item.available_branches || null;
+    setAllBranches(!itemAvailableBranches || itemAvailableBranches.length === 0);
+    setAvailableBranches(itemAvailableBranches || []);
     setProductType(item.type || 'restaurant');
     setInventoryItemId(item.inventory_item_id || null);
     setInstructions('');
@@ -272,6 +301,27 @@ export const Recipes: React.FC = () => {
           }))
         );
       }
+
+      if (item.id) {
+        const { data: bpData } = await supabase
+          .from('item_branch_prices')
+          .select('branch_id, price, foodpanda_price, grab_price')
+          .eq('menu_item_id', item.id);
+
+        if (bpData) {
+          const bpMap: Record<string, { price: string; foodpanda_price: string; grab_price: string }> = {};
+          bpData.forEach(bp => {
+            bpMap[bp.branch_id] = {
+              price: bp.price !== null && bp.price !== undefined ? String(bp.price) : '',
+              foodpanda_price: bp.foodpanda_price !== null && bp.foodpanda_price !== undefined ? String(bp.foodpanda_price) : '',
+              grab_price: bp.grab_price !== null && bp.grab_price !== undefined ? String(bp.grab_price) : ''
+            };
+          });
+          setBranchPriceOverrides(bpMap);
+        } else {
+          setBranchPriceOverrides({});
+        }
+      }
     } catch (err) {
       console.error('Error fetching recipe:', err);
       showError("Error fetching recipe information");
@@ -295,6 +345,8 @@ export const Recipes: React.FC = () => {
 
     setIsSaving(true);
     try {
+      const finalFoodpandaPrice = foodpandaPrice !== '' ? Number(foodpandaPrice) : null;
+      const finalGrabPrice = grabPrice !== '' ? Number(grabPrice) : null;
       const payload = {
         name: itemName.trim(),
         sku: sku.trim(),
@@ -305,6 +357,9 @@ export const Recipes: React.FC = () => {
         is_available: isAvailable,
         type: productType,
         inventory_item_id: productType === 'retail' ? inventoryItemId : null,
+        available_branches: allBranches ? null : availableBranches,
+        foodpanda_price: finalFoodpandaPrice,
+        grab_price: finalGrabPrice,
         tenant_id: tenant?.id
       };
 
@@ -391,15 +446,33 @@ export const Recipes: React.FC = () => {
         }
       }
 
-      showSuccess(selectedItem 
-        ? (isRestaurant ? 'Menu item and recipe updated!' : 'Catalog item updated!') 
-        : (isRestaurant ? 'Menu item and recipe created!' : 'Catalog item created!'));
-
       // Save category to session Categories if it is not already in the main list
       if (!categoriesList.includes(trimmedCategory)) {
         setSessionCategories(prev => [...prev, trimmedCategory]);
       }
+      
+      if (menuItemId) {
+        for (const [bId, bp] of Object.entries(branchPriceOverrides)) {
+          const pVal = bp.price !== '' ? Number(bp.price) : null;
+          const fpVal = bp.foodpanda_price !== '' ? Number(bp.foodpanda_price) : null;
+          const gVal = bp.grab_price !== '' ? Number(bp.grab_price) : null;
 
+          if (pVal !== null || fpVal !== null || gVal !== null) {
+            await supabase.from('item_branch_prices').upsert({
+              branch_id: bId,
+              menu_item_id: menuItemId,
+              tenant_id: tenant?.id,
+              price: pVal,
+              foodpanda_price: fpVal,
+              grab_price: gVal
+            }, { onConflict: 'tenant_id,branch_id,menu_item_id' });
+          } else {
+            await supabase.from('item_branch_prices').delete().match({ branch_id: bId, menu_item_id: menuItemId });
+          }
+        }
+      }
+
+      showSuccess(selectedItem ? "Item updated!" : "Item created!");
       await loadData();
       setShowItemModal(false);
     } catch (err: any) {
@@ -517,7 +590,25 @@ export const Recipes: React.FC = () => {
 
                 return (
                   <TableRow key={item.id}>
-                    <TableCell className="pl-6 font-bold">{item.name}</TableCell>
+                    <TableCell className="pl-6 font-bold">
+                      <div className="flex flex-col">
+                        <span>{item.name}</span>
+                        {(item.foodpanda_price || item.grab_price) && (
+                          <div className="flex items-center gap-1.5 mt-0.5 font-normal">
+                            {item.foodpanda_price && (
+                              <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 font-medium">
+                                FP: ₱{Number(item.foodpanda_price).toFixed(2)}
+                              </span>
+                            )}
+                            {item.grab_price && (
+                              <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-600 font-medium">
+                                Grab: ₱{Number(item.grab_price).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-muted-foreground font-mono">{item.sku}</TableCell>
                     <TableCell>
                       <Badge variant="secondary" className="text-[10px] uppercase">
@@ -764,6 +855,110 @@ export const Recipes: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Platform Prices (Foodpanda / Grab) */}
+                  <div className="p-3 border border-border/40 bg-muted/20 rounded-lg space-y-3 mt-3">
+                    <Label className="text-xs font-bold uppercase text-muted-foreground tracking-wider block">
+                      Third-Party Platform Pricing (Optional Reference)
+                    </Label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-amber-500 font-semibold">Foodpanda Price (₱)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={foodpandaPrice}
+                          onChange={(e) => setFoodpandaPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                          placeholder="e.g. 180.00"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-emerald-500 font-semibold">GrabFood Price (₱)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={grabPrice}
+                          onChange={(e) => setGrabPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                          placeholder="e.g. 185.00"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Branch Dynamic Price Overrides */}
+                  <div className="p-3 border border-border/40 bg-muted/20 rounded-lg space-y-3 mt-3">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                      Branch Dynamic Price Overrides (Optional)
+                    </Label>
+                    <p className="text-[10px] text-muted-foreground">
+                      Override default prices for specific branch locations if dish price differs by store.
+                    </p>
+                    <div className="space-y-2.5 max-h-48 overflow-y-auto p-2 bg-background/50 rounded-lg border border-border/40">
+                      {(branches || []).filter(b => !b.parent_id).map(branch => {
+                        const bp = branchPriceOverrides[branch.id] || { price: '', foodpanda_price: '', grab_price: '' };
+                        return (
+                          <div key={branch.id} className="p-2 border border-border/30 rounded bg-muted/10 space-y-1.5">
+                            <span className="text-xs font-bold text-primary block">{branch.name}</span>
+                            <div className="grid grid-cols-3 gap-2">
+                              <div>
+                                <Label className="text-[10px]">Standard (₱)</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  className="h-7 text-xs"
+                                  value={bp.price}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setBranchPriceOverrides(prev => ({
+                                      ...prev,
+                                      [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), price: val }
+                                    }));
+                                  }}
+                                  placeholder="Default"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-[10px] text-amber-500 font-semibold">FP (₱)</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  className="h-7 text-xs"
+                                  value={bp.foodpanda_price}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setBranchPriceOverrides(prev => ({
+                                      ...prev,
+                                      [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), foodpanda_price: val }
+                                    }));
+                                  }}
+                                  placeholder="Default"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-[10px] text-emerald-500 font-semibold">Grab (₱)</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  className="h-7 text-xs"
+                                  value={bp.grab_price}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setBranchPriceOverrides(prev => ({
+                                      ...prev,
+                                      [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), grab_price: val }
+                                    }));
+                                  }}
+                                  placeholder="Default"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {productType !== 'restaurant' && (
                     <div className="space-y-2 pt-2">
                       <Label>
@@ -798,6 +993,54 @@ export const Recipes: React.FC = () => {
                     <Label htmlFor="isAvailable" className="cursor-pointer font-normal">
                       Available for Sale (POS check)
                     </Label>
+                  </div>
+
+                  {/* Branch Restrictions Checklist */}
+                  <div className="space-y-3 pt-4 border-t border-border/40">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="menu_all_branches_limit"
+                        checked={allBranches}
+                        onCheckedChange={(checked) => {
+                          setAllBranches(!!checked);
+                          if (checked) {
+                            setAvailableBranches([]);
+                          }
+                        }}
+                      />
+                      <Label htmlFor="menu_all_branches_limit" className="text-xs font-bold cursor-pointer select-none">
+                        Available in All Branches
+                      </Label>
+                    </div>
+
+                    {!allBranches && (
+                      <div className="space-y-2 pl-6">
+                        <Label className="text-[11px] text-muted-foreground uppercase font-bold tracking-wider">Select Branches</Label>
+                        <div className="grid grid-cols-2 gap-2 border border-border/40 bg-muted/20 p-3 rounded-lg max-h-36 overflow-y-auto">
+                          {(branches || []).filter(b => !b.parent_id).map(branch => {
+                            const isChecked = availableBranches.includes(branch.id);
+                            return (
+                              <div key={branch.id} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`menu_branch_check_${branch.id}`}
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setAvailableBranches(prev => [...prev, branch.id]);
+                                    } else {
+                                      setAvailableBranches(prev => prev.filter(id => id !== branch.id));
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor={`menu_branch_check_${branch.id}`} className="text-xs cursor-pointer select-none truncate">
+                                  {branch.name}
+                                </Label>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 

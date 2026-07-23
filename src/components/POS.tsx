@@ -47,6 +47,8 @@ interface MenuItem {
   category: string;
   price: number;
   is_available: boolean;
+  foodpanda_price?: number | null;
+  grab_price?: number | null;
 }
 
 interface CartItem {
@@ -412,6 +414,9 @@ export const POS: React.FC<POSProps> = ({
   }, [selectedBranch?.id, branches, profile?.branch_id]);
 
   // Cart
+  type PriceChannel = 'standard' | 'foodpanda' | 'grab';
+  const [priceChannel, setPriceChannel] = useState<PriceChannel>('standard');
+  const [branchPrices, setBranchPrices] = useState<Record<string, { price?: number; foodpanda_price?: number; grab_price?: number }>>({});
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
 
@@ -699,14 +704,51 @@ export const POS: React.FC<POSProps> = ({
   const loadMenuItems = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('menu_items')
         .select('*')
         .eq('status', 'active')
-        .eq('is_available', true)
-        .order('name');
+        .eq('is_available', true);
+
+      if (selectedBranch?.id) {
+        query = query.or(`available_branches.is.null,available_branches.cs.{"${selectedBranch.id}"}`);
+      }
+
+      const { data, error } = await query.order('name');
       if (error) throw error;
       setItems(data || []);
+
+      if (selectedBranch?.id) {
+        const { data: bpData } = await supabase
+          .from('item_branch_prices')
+          .select('menu_item_id, inventory_item_id, price, foodpanda_price, grab_price')
+          .eq('branch_id', selectedBranch.id);
+
+        if (bpData) {
+          const bpMap: Record<string, { price?: number; foodpanda_price?: number; grab_price?: number }> = {};
+          bpData.forEach(bp => {
+            const overrideObj = {
+              price: bp.price !== null && bp.price !== undefined ? Number(bp.price) : undefined,
+              foodpanda_price: bp.foodpanda_price !== null && bp.foodpanda_price !== undefined ? Number(bp.foodpanda_price) : undefined,
+              grab_price: bp.grab_price !== null && bp.grab_price !== undefined ? Number(bp.grab_price) : undefined,
+            };
+
+            if (bp.menu_item_id) {
+              bpMap[bp.menu_item_id] = overrideObj;
+            }
+            if (bp.inventory_item_id) {
+              bpMap[bp.inventory_item_id] = overrideObj;
+              const targetMenuItem = (data || []).find(mi => mi.inventory_item_id === bp.inventory_item_id);
+              if (targetMenuItem) {
+                bpMap[targetMenuItem.id] = overrideObj;
+              }
+            }
+          });
+          setBranchPrices(bpMap);
+        }
+      } else {
+        setBranchPrices({});
+      }
     } catch (err) {
       console.error('Error loading menu items for POS:', err);
     } finally {
@@ -714,7 +756,7 @@ export const POS: React.FC<POSProps> = ({
     }
   };
 
-  useEffect(() => { loadMenuItems(); }, []);
+  useEffect(() => { loadMenuItems(); }, [selectedBranch]);
 
   const getSaleForPrinting = async (saleId: string) => {
     if (!isOnline || saleId.startsWith('OFF-') || (saleId && saleId.length < 36)) {
@@ -893,12 +935,40 @@ export const POS: React.FC<POSProps> = ({
 
   // ─── Cart Helpers ──────────────────────────────────────────
 
+  const getItemPrice = (item: MenuItem, channel: PriceChannel = priceChannel): number => {
+    const bp = branchPrices[item.id];
+    if (channel === 'foodpanda') {
+      if (bp?.foodpanda_price && bp.foodpanda_price > 0) return bp.foodpanda_price;
+      if (item.foodpanda_price && Number(item.foodpanda_price) > 0) return Number(item.foodpanda_price);
+    }
+    if (channel === 'grab') {
+      if (bp?.grab_price && bp.grab_price > 0) return bp.grab_price;
+      if (item.grab_price && Number(item.grab_price) > 0) return Number(item.grab_price);
+    }
+    if (bp?.price && bp.price > 0) return bp.price;
+    return Number(item.price);
+  };
+
+  useEffect(() => {
+    if (cart.length > 0) {
+      setCart(prev =>
+        prev.map(ci => {
+          const item = items.find(i => i.id === ci.menu_item_id);
+          if (!item) return ci;
+          const newPrice = getItemPrice(item, priceChannel);
+          return { ...ci, price: newPrice };
+        })
+      );
+    }
+  }, [priceChannel]);
+
   const addToCart = (item: MenuItem, qty = 1) => {
     if (!activeSession || activeSession.status !== 'open') {
       showError('Please open your register session before processing sales.');
       setOpenSessionOpen(true);
       return;
     }
+    const unitPrice = getItemPrice(item);
     setCart(prev => {
       const exists = prev.find(ci => ci.menu_item_id === item.id);
       if (exists) {
@@ -906,9 +976,9 @@ export const POS: React.FC<POSProps> = ({
           ci.menu_item_id === item.id ? { ...ci, quantity: ci.quantity + qty } : ci
         );
       }
-      return [...prev, { menu_item_id: item.id, name: item.name, price: Number(item.price), quantity: qty }];
+      return [...prev, { menu_item_id: item.id, name: item.name, price: unitPrice, quantity: qty }];
     });
-    showSuccess(`${qty}× ${item.name} added to cart.`);
+    showSuccess(`${qty}× ${item.name} added to cart (${priceChannel === 'standard' ? 'Standard' : priceChannel === 'foodpanda' ? 'Foodpanda' : 'Grab'}).`);
   };
 
   const updateCartQty = (menuItemId: string, amount: number) => {
@@ -970,7 +1040,7 @@ export const POS: React.FC<POSProps> = ({
       if (isOnline) {
         const { data: saleId, error } = await supabase.rpc('fn_process_sale', {
           p_branch_id:        selectedBranch.id,
-          p_items:            payload.map(p => ({ menu_item_id: p.menu_item_id, quantity: p.quantity })),
+          p_items:            payload.map(p => ({ menu_item_id: p.menu_item_id, quantity: p.quantity, price: p.price })),
           p_payment_method:   method,
           p_amount_tendered:  tendered,
           p_sale_category:    saleCategory,
@@ -1219,6 +1289,42 @@ export const POS: React.FC<POSProps> = ({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {/* Pricing Channel Selector */}
+              <div className="flex items-center bg-muted/60 p-1 rounded-lg border border-border/40">
+                <button
+                  type="button"
+                  onClick={() => setPriceChannel('standard')}
+                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${
+                    priceChannel === 'standard'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Standard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPriceChannel('foodpanda')}
+                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${
+                    priceChannel === 'foodpanda'
+                      ? 'bg-amber-500 text-white shadow-sm'
+                      : 'text-amber-500 hover:bg-amber-500/10'
+                  }`}
+                >
+                  Foodpanda
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPriceChannel('grab')}
+                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${
+                    priceChannel === 'grab'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-emerald-500 hover:bg-emerald-500/10'
+                  }`}
+                >
+                  Grab
+                </button>
+              </div>
               {selectedBranch && (
                 <Badge variant="outline" className="px-3.5 py-1.5 text-xs font-semibold bg-primary/10 text-primary border-primary/20">
                   Checkout: <span className="underline font-bold ml-1">{selectedBranch.name}</span>
@@ -1420,7 +1526,14 @@ export const POS: React.FC<POSProps> = ({
                       <span className="text-[10px] text-muted-foreground font-mono mt-0.5 block">{item.sku}</span>
                     </div>
                     <div className="flex items-center justify-between mt-2">
-                      <span className="text-sm font-bold">{formatPHP(Number(item.price))}</span>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold">{formatPHP(getItemPrice(item))}</span>
+                        {priceChannel !== 'standard' && (
+                          <span className={`text-[9px] font-semibold ${priceChannel === 'foodpanda' ? 'text-amber-500' : 'text-emerald-500'}`}>
+                            {priceChannel === 'foodpanda' ? 'Foodpanda' : 'Grab'} Price
+                          </span>
+                        )}
+                      </div>
                       <Button variant="secondary" size="sm" className="h-7 text-xs font-bold group-hover:bg-primary group-hover:text-primary-foreground transition-all">
                         Add
                       </Button>
@@ -1478,7 +1591,7 @@ export const POS: React.FC<POSProps> = ({
         processing={checkingOut}
         onStateChange={setPaymentState}
         saleCategories={vocab.saleCategories}
-        defaultSaleCategory={vocab.defaultSaleCategory}
+        defaultSaleCategory={priceChannel === 'foodpanda' ? 'FoodPanda' : priceChannel === 'grab' ? 'GrabFood' : vocab.defaultSaleCategory}
         subStores={subStores}
         initialSubStore={selectedSubStore}
       />
@@ -1690,6 +1803,15 @@ export const POS: React.FC<POSProps> = ({
                 <div className="flex justify-between"><span>Card:</span><span>{formatPHP(sessionSummary.cardSales)}</span></div>
                 <div className="flex justify-between"><span>Other:</span><span>{formatPHP(sessionSummary.otherSales)}</span></div>
                 <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">SALES CHANNEL BREAKDOWN</div>
+                <div className="flex justify-between"><span>Dine-in / Store:</span><span>{formatPHP(sessionSummary.dineInSales || 0)}</span></div>
+                <div className="flex justify-between"><span>Take-out:</span><span>{formatPHP(sessionSummary.takeOutSales || 0)}</span></div>
+                <div className="flex justify-between text-amber-500 font-bold"><span>FoodPanda:</span><span>{formatPHP(sessionSummary.foodpandaSales || 0)}</span></div>
+                <div className="flex justify-between text-emerald-500 font-bold"><span>GrabFood:</span><span>{formatPHP(sessionSummary.grabSales || 0)}</span></div>
+                {sessionSummary.otherChannelSales > 0 && (
+                  <div className="flex justify-between"><span>Other Channels:</span><span>{formatPHP(sessionSummary.otherChannelSales)}</span></div>
+                )}
+                <div className="border-t border-dashed my-2" />
                 <div className="font-bold text-center">VOIDS & REFUNDS</div>
                 <div className="flex justify-between"><span>Void Count:</span><span>{sessionSummary.voidCount}</span></div>
                 <div className="flex justify-between"><span>Void Amount:</span><span>{formatPHP(sessionSummary.voidAmount)}</span></div>
@@ -1798,6 +1920,15 @@ export const POS: React.FC<POSProps> = ({
                 <div className="flex justify-between"><span>Maya:</span><span>{formatPHP(viewingClosedSummary.mayaSales)}</span></div>
                 <div className="flex justify-between"><span>Card:</span><span>{formatPHP(viewingClosedSummary.cardSales)}</span></div>
                 <div className="flex justify-between"><span>Other:</span><span>{formatPHP(viewingClosedSummary.otherSales)}</span></div>
+                <div className="border-t border-dashed my-2" />
+                <div className="font-bold text-center">SALES CHANNEL BREAKDOWN</div>
+                <div className="flex justify-between"><span>Dine-in / Store:</span><span>{formatPHP(viewingClosedSummary.dineInSales || 0)}</span></div>
+                <div className="flex justify-between"><span>Take-out:</span><span>{formatPHP(viewingClosedSummary.takeOutSales || 0)}</span></div>
+                <div className="flex justify-between text-amber-500 font-bold"><span>FoodPanda:</span><span>{formatPHP(viewingClosedSummary.foodpandaSales || 0)}</span></div>
+                <div className="flex justify-between text-emerald-500 font-bold"><span>GrabFood:</span><span>{formatPHP(viewingClosedSummary.grabSales || 0)}</span></div>
+                {viewingClosedSummary.otherChannelSales > 0 && (
+                  <div className="flex justify-between"><span>Other Channels:</span><span>{formatPHP(viewingClosedSummary.otherChannelSales)}</span></div>
+                )}
                 <div className="border-t border-dashed my-2" />
                 <div className="font-bold text-center">VOIDS & REFUNDS</div>
                 <div className="flex justify-between"><span>Void Count:</span><span>{viewingClosedSummary.voidCount}</span></div>

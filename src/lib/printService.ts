@@ -1901,6 +1901,36 @@ export const printXZReport = (report: any, isZRead: boolean, merchantName: strin
 
           <div style="font-family: monospace;">
             <div class="flex-between bold">
+              <span>SALES CHANNEL BREAKDOWN:</span>
+            </div>
+            <div class="flex-between">
+              <span>Dine-in / Store:</span>
+              <span>₱${Number(report.dineInSales || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>Take-out:</span>
+              <span>₱${Number(report.takeOutSales || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between bold">
+              <span>FoodPanda:</span>
+              <span>₱${Number(report.foodpandaSales || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between bold">
+              <span>GrabFood:</span>
+              <span>₱${Number(report.grabSales || 0).toFixed(2)}</span>
+            </div>
+            ${report.otherChannelSales > 0 ? `
+            <div class="flex-between">
+              <span>Other Channels:</span>
+              <span>₱${Number(report.otherChannelSales || 0).toFixed(2)}</span>
+            </div>
+            ` : ''}
+          </div>
+
+          <div class="separator"></div>
+
+          <div style="font-family: monospace;">
+            <div class="flex-between bold">
               <span>REFUNDS & VOIDS:</span>
             </div>
             <div class="flex-between">
