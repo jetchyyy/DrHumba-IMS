@@ -105,13 +105,19 @@ export const SalesHistory: React.FC = () => {
 
   const getCategoryBadge = (category: string | null) => {
     const cat = (category || vocab.defaultSaleCategory).toLowerCase();
+    if (cat.includes('foodpanda') || cat.includes('food panda')) {
+      return <Badge className="bg-amber-500/15 text-amber-600 border border-amber-500/30 hover:bg-amber-500/25 text-[10px] font-bold uppercase">FoodPanda</Badge>;
+    }
+    if (cat.includes('grab')) {
+      return <Badge className="bg-emerald-500/15 text-emerald-600 border border-emerald-500/30 hover:bg-emerald-500/25 text-[10px] font-bold uppercase">GrabFood</Badge>;
+    }
     if (cat === 'dine in' || cat === 'walk-in') {
       return <Badge className="bg-blue-500/10 text-blue-500 border border-blue-500/20 hover:bg-blue-500/20 text-[10px] font-bold uppercase">{category || vocab.defaultSaleCategory}</Badge>;
     }
-    if (cat === 'grab' || cat === 'appointment' || cat === 'online order') {
+    if (cat === 'appointment' || cat === 'online order') {
       return <Badge className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20 text-[10px] font-bold uppercase">{category || 'Online'}</Badge>;
     }
-    if (cat === 'foodpanda' || cat === 'take out' || cat === 'delivery' || cat === 'pick-up') {
+    if (cat === 'take out' || cat === 'delivery' || cat === 'pick-up') {
       return <Badge className="bg-pink-500/10 text-pink-500 border border-pink-500/20 hover:bg-pink-500/20 text-[10px] font-bold uppercase">{category || 'Delivery'}</Badge>;
     }
     return <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500/20 text-[10px] font-bold uppercase capitalize">{category || 'Other'}</Badge>;
@@ -661,9 +667,17 @@ export const SalesHistory: React.FC = () => {
     }
   };
 
-  const totalRevenue = filteredSales.reduce((sum, s) => sum + s.total_amount, 0);
+  const totalRevenue = filteredSales.reduce((sum, s) => sum + Number(s.total_amount), 0);
   const totalTransactions = filteredSales.length;
   const avgOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
+
+  const foodpandaRevenue = filteredSales
+    .filter(s => s.status === 'completed' && s.sale_category && (s.sale_category.toLowerCase().includes('foodpanda') || s.sale_category.toLowerCase().includes('food panda')))
+    .reduce((sum, s) => sum + Number(s.total_amount), 0);
+
+  const grabRevenue = filteredSales
+    .filter(s => s.status === 'completed' && s.sale_category && s.sale_category.toLowerCase().includes('grab'))
+    .reduce((sum, s) => sum + Number(s.total_amount), 0);
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
@@ -693,8 +707,8 @@ export const SalesHistory: React.FC = () => {
         </div>
       </div>
 
-      {/* Summary Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      {/* Top Level Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-6">
         <Card className="glass-dark border-border/50">
           <CardContent className="p-6 flex items-center space-x-4">
             <div className="p-3 bg-emerald-500/10 rounded-lg text-emerald-500 border border-emerald-500/20">
@@ -727,6 +741,30 @@ export const SalesHistory: React.FC = () => {
             <div>
               <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider block">Average Ticket Size</span>
               <span className="text-2xl font-bold">{formatPHP(avgOrderValue)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-dark border-amber-500/30 bg-amber-500/5">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-amber-500/10 rounded-lg text-amber-600 border border-amber-500/20">
+              <ShoppingBag className="w-5 h-5 text-amber-500" />
+            </div>
+            <div>
+              <span className="text-xs text-amber-600 dark:text-amber-400 font-bold uppercase tracking-wider block">FoodPanda Sales</span>
+              <span className="text-2xl font-bold text-amber-600 dark:text-amber-400">{formatPHP(foodpandaRevenue)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-dark border-emerald-500/30 bg-emerald-500/5">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-emerald-500/10 rounded-lg text-emerald-600 border border-emerald-500/20">
+              <ShoppingBag className="w-5 h-5 text-emerald-500" />
+            </div>
+            <div>
+              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider block">GrabFood Sales</span>
+              <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{formatPHP(grabRevenue)}</span>
             </div>
           </CardContent>
         </Card>

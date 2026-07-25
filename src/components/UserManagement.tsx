@@ -86,22 +86,39 @@ export const UserManagement: React.FC = () => {
   };
 
   const TAB_FEATURE_KEYS: Record<string, string> = {
-    pos: 'pos', 'sales-history': 'sales_history', inventory: 'inventory',
-    'global-inventory': 'global_inventory', receiving: 'receiving',
-    adjustments: 'adjustments', recipes: 'recipes', branches: 'branches',
-    analytics: 'analytics', 'audit-logs': 'audit_logs', users: 'users',
+    pos: 'pos',
+    'queue-caller': 'queue_caller',
+    'sales-history': 'sales_history',
+    'z-read-history': 'z_read_history',
     expenses: 'expenses',
+    inventory: 'inventory',
+    'global-inventory': 'global_inventory',
+    receiving: 'receiving',
+    transfers: 'transfers',
+    adjustments: 'adjustments',
+    transactions: 'transactions',
+    'kitchen-receipts': 'kitchen_receipts',
+    recipes: 'recipes',
+    branches: 'branches',
+    analytics: 'analytics',
+    'audit-logs': 'audit_logs',
+    users: 'users',
   };
 
   const planFeatures = (tenant?.features ?? {}) as Record<string, boolean>;
   const ALL_AVAILABLE_TABS = [
     { id: 'pos', name: 'POS (Sales)' },
+    { id: 'queue-caller', name: 'Queue Caller' },
     { id: 'sales-history', name: 'Sales History' },
+    { id: 'z-read-history', name: 'Z-Read History' },
     { id: 'expenses', name: 'Expense Tracker' },
     { id: 'inventory', name: 'Inventory Items' },
     { id: 'global-inventory', name: 'Overall Stock' },
     { id: 'receiving', name: 'Stock Receiving' },
+    { id: 'transfers', name: 'Transfers' },
     { id: 'adjustments', name: 'Adjustments' },
+    { id: 'transactions', name: 'Transactions' },
+    { id: 'kitchen-receipts', name: 'Kitchen Orders' },
     { id: 'recipes', name: 'Recipes' },
     { id: 'branches', name: 'Branches' },
     { id: 'analytics', name: 'Analytics' },

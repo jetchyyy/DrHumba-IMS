@@ -186,13 +186,17 @@ export const SuperAdminDashboard: React.FC = () => {
 
   const FEATURE_LABELS: Record<string, string> = {
     pos: 'Point of Sale (POS)',
+    queue_caller: 'Queue Caller Display',
     sales_history: 'Sales History Log',
+    z_read_history: 'Z-Read Compliance Reports',
+    expenses: 'Expense Tracker',
     inventory: 'Inventory Catalog',
     global_inventory: 'Global Stock Ledger',
     receiving: 'Receiving Sheets',
     transfers: 'Store Transfers',
     adjustments: 'Stock Adjustments',
     transactions: 'Stock Ledgers',
+    kitchen_receipts: 'Kitchen Orders Queue',
     recipes: 'Menu Recipes & Deductions',
     branches: 'Branch Management',
     analytics: 'Analytics Charts',
