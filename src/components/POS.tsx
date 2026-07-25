@@ -20,7 +20,7 @@ import {
 } from '../lib/offlineService';
 import type { TerminalConfig } from '../lib/offlineService';
 import { settingsService } from '../lib/settingsService';
-import { printXZReport, printQueueNumberTicket } from '../lib/printService';
+import { printXZReport, printQueueNumberTicket, printThermalInvoice, printKitchenReceipt } from '../lib/printService';
 import { printBluetoothThermalInvoice, printBluetoothKitchenReceipt, ensureBluetoothPrinter } from '../lib/bluetoothPrinter';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -835,48 +835,57 @@ export const POS: React.FC<POSProps> = ({
     };
   };
 
-  const handlePrintThermal = async (saleResult: any) => {
+  const getMappedSale = (saleResult: any) => ({
+    id: saleResult.id,
+    control_number: saleResult.control_number || saleResult.id.substring(0, 8),
+    branch_name: saleResult.branch_name,
+    cashier_email: saleResult.cashier_email,
+    total_amount: saleResult.total_amount,
+    created_at: saleResult.created_at,
+    sale_category: saleResult.sale_category || 'Dine in',
+    reference_number: saleResult.reference_number || '',
+    queue_number: saleResult.queue_number,
+    items: saleResult.items
+  });
+
+  const handlePrintThermalBluetooth = async (saleResult: any) => {
     try {
       await ensureBluetoothPrinter();
-      const mappedSale = {
-        id: saleResult.id,
-        control_number: saleResult.control_number || saleResult.id.substring(0, 8),
-        branch_name: saleResult.branch_name,
-        cashier_email: saleResult.cashier_email,
-        total_amount: saleResult.total_amount,
-        created_at: saleResult.created_at,
-        sale_category: saleResult.sale_category || 'Dine in',
-        reference_number: saleResult.reference_number || '',
-        queue_number: saleResult.queue_number,
-        items: saleResult.items
-      };
       const settings = await settingsService.getSettings();
-      await printBluetoothThermalInvoice(mappedSale, settings.sales_invoice);
+      await printBluetoothThermalInvoice(getMappedSale(saleResult), settings.sales_invoice);
     } catch (err) {
-      console.error('Failed to load and print thermal invoice:', err);
-      showError('Failed to print receipt. Please reprint from Sales History.');
+      console.error('Failed to print thermal invoice via Bluetooth:', err);
+      showError('Failed to print receipt via Bluetooth.');
     }
   };
 
-  const handlePrintKitchen = async (saleResult: any) => {
+  const handlePrintThermalSystem = async (saleResult: any) => {
+    try {
+      const settings = await settingsService.getSettings();
+      printThermalInvoice(getMappedSale(saleResult), settings.sales_invoice);
+    } catch (err) {
+      console.error('Failed to print thermal invoice via System:', err);
+      showError('Failed to print receipt via System Drivers.');
+    }
+  };
+
+  const handlePrintKitchenBluetooth = async (saleResult: any) => {
     try {
       await ensureBluetoothPrinter();
-      const mappedSale = {
-        id: saleResult.id,
-        control_number: saleResult.control_number || saleResult.id.substring(0, 8),
-        branch_name: saleResult.branch_name,
-        cashier_email: saleResult.cashier_email,
-        total_amount: saleResult.total_amount,
-        created_at: saleResult.created_at,
-        sale_category: saleResult.sale_category || 'Dine in',
-        reference_number: saleResult.reference_number || '',
-        queue_number: saleResult.queue_number,
-        items: saleResult.items
-      };
-      await printBluetoothKitchenReceipt(mappedSale);
+      await printBluetoothKitchenReceipt(getMappedSale(saleResult));
     } catch (err) {
-      console.error('Failed to load and print kitchen receipt:', err);
-      showError('Failed to print kitchen receipt.');
+      console.error('Failed to print kitchen receipt via Bluetooth:', err);
+      showError('Failed to print kitchen receipt via Bluetooth.');
+    }
+  };
+
+  const handlePrintKitchenSystem = async (saleResult: any) => {
+    try {
+      const settings = await settingsService.getSettings();
+      printKitchenReceipt(getMappedSale(saleResult), settings.sales_invoice);
+    } catch (err) {
+      console.error('Failed to print kitchen receipt via System:', err);
+      showError('Failed to print kitchen receipt via System Drivers.');
     }
   };
 
@@ -1551,42 +1560,58 @@ export const POS: React.FC<POSProps> = ({
             </div>
           )}
 
-          <DialogFooter className="flex flex-col gap-2 w-full sm:flex-col sm:space-x-0">
-            <div className={isRestaurant ? "grid grid-cols-2 gap-2 w-full" : "w-full"}>
-              {isRestaurant && (
+          <DialogFooter className="flex flex-col sm:flex-col sm:space-x-0 gap-3 w-full">
+            {isRestaurant && (
+              <div className="grid grid-cols-2 gap-2 w-full">
                 <Button
                   variant="secondary"
-                  className="w-full font-bold"
+                  className="w-full font-bold text-xs"
                   onClick={async () => {
                     if (lastSaleResult) {
-                      try {
-                        await ensureBluetoothPrinter();
-                        await handlePrintKitchen(lastSaleResult);
-                      } catch (err: any) {
-                        console.error('Kitchen Print failed:', err);
-                      }
+                      await handlePrintKitchenBluetooth(lastSaleResult);
                     }
                   }}
                 >
                   <Printer className="w-4 h-4 mr-2" />
-                  Print Kitchen
+                  Print Kitchen (Bluetooth)
                 </Button>
-              )}
+                <Button
+                  variant="secondary"
+                  className="w-full font-bold text-xs"
+                  onClick={async () => {
+                    if (lastSaleResult) {
+                      await handlePrintKitchenSystem(lastSaleResult);
+                    }
+                  }}
+                >
+                  <Printer className="w-4 h-4 mr-2" />
+                  Print Kitchen (System)
+                </Button>
+              </div>
+            )}
+            
+            <div className="grid grid-cols-2 gap-2 w-full">
               <Button
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
                 onClick={async () => {
                   if (lastSaleResult) {
-                    try {
-                      await ensureBluetoothPrinter();
-                      await handlePrintThermal(lastSaleResult);
-                    } catch (err: any) {
-                      console.error('Thermal Print failed:', err);
-                    }
+                    await handlePrintThermalBluetooth(lastSaleResult);
                   }
                 }}
               >
                 <Printer className="w-4 h-4 mr-2" />
-                Print Receipt
+                Print Receipt (Bluetooth)
+              </Button>
+              <Button
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs"
+                onClick={async () => {
+                  if (lastSaleResult) {
+                    await handlePrintThermalSystem(lastSaleResult);
+                  }
+                }}
+              >
+                <Printer className="w-4 h-4 mr-2" />
+                Print Receipt (System)
               </Button>
             </div>
             {lastSaleResult?.queue_number && (

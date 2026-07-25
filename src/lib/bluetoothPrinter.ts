@@ -26,12 +26,12 @@ export const ensureBluetoothPrinter = async () => {
   if (nav.bluetooth.getDevices) {
     try {
       const devices = await nav.bluetooth.getDevices();
-      for (const device of devices) {
-        if (device.name && (device.name.startsWith('S423') || device.name.startsWith('Deli') || device.name.startsWith('POS'))) {
-          console.log("Found previously paired device via getDevices():", device.name);
-          globalConnectedPrinter = device;
-          return globalConnectedPrinter;
-        }
+      if (devices && devices.length > 0) {
+        // Just pick the first previously permitted device. 
+        // The user explicitly granted it access to this site, so it's their intended printer.
+        console.log("Found previously paired device via getDevices():", devices[0].name);
+        globalConnectedPrinter = devices[0];
+        return globalConnectedPrinter;
       }
     } catch (err) {
       console.warn("getDevices() failed or not permitted:", err);
@@ -41,11 +41,7 @@ export const ensureBluetoothPrinter = async () => {
   // 3. Fallback: Request device explicitly (shows pairing popup)
   console.log("No printer active in state. Initializing device discovery popup...");
   globalConnectedPrinter = await nav.bluetooth.requestDevice({
-    filters: [
-      { namePrefix: 'S423' },
-      { namePrefix: 'Deli' },
-      { namePrefix: 'POS' }
-    ],
+    acceptAllDevices: true,
     optionalServices: COMMON_PRINTER_SERVICES
   });
   
