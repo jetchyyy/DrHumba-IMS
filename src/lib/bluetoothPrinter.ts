@@ -7,7 +7,9 @@ const COMMON_PRINTER_SERVICES = [
   'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Dothantech / Deli
   '000018f0-0000-1000-8000-00805f9b34fb', // Generic ESC/POS
   '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISDC / Serial
-  '0000fee7-0000-1000-8000-00805f9b34fb'  // Generic
+  '0000fee7-0000-1000-8000-00805f9b34fb', // Generic
+  '0000ffe0-0000-1000-8000-00805f9b34fb', // Generic BLE Serial (often used by JK-5802H)
+  '0000ff00-0000-1000-8000-00805f9b34fb'  // Another generic BLE Serial
 ];
 
 /**
@@ -65,6 +67,9 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array): Pr
     }
 
     const server = await globalConnectedPrinter.gatt.connect();
+    
+    // Give the generic printer a moment to settle its GATT server before requesting services
+    await new Promise(resolve => setTimeout(resolve, 500));
     
     // Find a valid service and write characteristic
     let writePipe: any = null;
