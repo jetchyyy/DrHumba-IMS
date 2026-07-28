@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { useModal } from '../contexts/ModalContext';
 import { printXZReport } from '../lib/printService';
+import { printBluetoothXZReport, ensureBluetoothPrinter } from '../lib/bluetoothPrinter';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
@@ -57,6 +58,7 @@ export const ZReadHistory: React.FC = () => {
   const [endDate, setEndDate] = useState('');
   const [selectedSession, setSelectedSession] = useState<CashierSession | null>(null);
   const [filterBranchId, setFilterBranchId] = useState('All');
+  const [isPrintingXZBluetooth, setIsPrintingXZBluetooth] = useState(false);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -144,6 +146,19 @@ export const ZReadHistory: React.FC = () => {
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
       setCurrentPage(page);
+    }
+  };
+
+  const handlePrintXZBluetooth = async (summary: any, isZRead: boolean, branchName: string) => {
+    try {
+      setIsPrintingXZBluetooth(true);
+      await ensureBluetoothPrinter();
+      await printBluetoothXZReport(summary, isZRead, branchName);
+    } catch (err) {
+      console.error('Failed to print Z-Read via Bluetooth:', err);
+      showError('Failed to print report via Bluetooth.');
+    } finally {
+      setIsPrintingXZBluetooth(false);
     }
   };
 
@@ -449,19 +464,30 @@ export const ZReadHistory: React.FC = () => {
             );
           })()}
 
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setSelectedSession(null)}>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
+            <Button variant="outline" onClick={() => setSelectedSession(null)} className="sm:flex-1">
               Close Dialog
+            </Button>
+            <Button
+              onClick={() => {
+                const summary = getSummaryObject(selectedSession!);
+                handlePrintXZBluetooth(summary, true, selectedSession!.branches?.name || 'TERMINAL');
+              }}
+              disabled={isPrintingXZBluetooth}
+              className="sm:flex-1 font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {isPrintingXZBluetooth ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+              Print Bluetooth
             </Button>
             <Button
               onClick={() => {
                 const summary = getSummaryObject(selectedSession!);
                 printXZReport(summary, true, selectedSession!.branches?.name || 'TERMINAL');
               }}
-              className="font-bold gap-1.5"
+              className="sm:flex-1 font-bold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
             >
               <Printer className="w-4 h-4" />
-              Reprint Thermal Z-Read
+              Print System
             </Button>
           </DialogFooter>
         </DialogContent>

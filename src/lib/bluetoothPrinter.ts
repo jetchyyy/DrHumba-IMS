@@ -316,7 +316,7 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
         }
     }
     
-    payload.push(...encoder.encode('\nDr. Humba\n\n\n'));
+    payload.push(...encoder.encode(`\n${merchantName}\n\n\n`));
 
     // Cut
     payload.push(...CUT);
@@ -378,6 +378,134 @@ export async function printBluetoothKitchenReceipt(sale: any) {
     payload.push(...encoder.encode('\n\n\n'));
     payload.push(...CUT);
 
+    await sendToGlobalThermalPrinter(new Uint8Array(payload));
+}
+
+export async function printBluetoothXZReport(summary: any, isZRead: boolean, terminalName: string) {
+    const encoder = new TextEncoder();
+    const payload: number[] = [];
+    const INIT = [0x1B, 0x40];
+    const ALIGN_CENTER = [0x1B, 0x61, 0x01];
+    const ALIGN_LEFT = [0x1B, 0x61, 0x00];
+    const BOLD_ON = [0x1B, 0x45, 0x01];
+    const BOLD_OFF = [0x1B, 0x45, 0x00];
+    const CUT = [0x1D, 0x56, 0x42, 0x00];
+    
+    const formatPHP = (val: number) => 'P' + (val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    
+    payload.push(...INIT);
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode(`${terminalName.toUpperCase()}\n`));
+    payload.push(...encoder.encode(`${isZRead ? 'Z-READ CLOSED REPORT' : 'X-READ SUMMARY'}\n`));
+    payload.push(...BOLD_OFF);
+    payload.push(...encoder.encode('--------------------------------\n'));
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Status:', (summary.status || '').toUpperCase(), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Z-Counter:', `#${String(summary.zCounter || 0).padStart(5, '0')}`, 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Opened:', new Date(summary.openedAt).toLocaleString('en-US', { hour12: false }), 32) + '\n'));
+    if (isZRead && summary.closedAt) {
+        payload.push(...encoder.encode(formatKeyValueLine('Closed:', new Date(summary.closedAt).toLocaleString('en-US', { hour12: false }), 32) + '\n'));
+    }
+    payload.push(...encoder.encode('--------------------------------\n'));
+    
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode('SALES SUMMARY\n'));
+    payload.push(...BOLD_OFF);
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Gross Sales:', formatPHP(summary.grossSales), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Net Sales:', formatPHP(summary.netSales), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('VAT (12%):', formatPHP(summary.vatAmount), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Tx Count:', String(summary.transactionCount), 32) + '\n'));
+    
+    payload.push(...encoder.encode('--------------------------------\n'));
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode('PAYMENTS\n'));
+    payload.push(...BOLD_OFF);
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Cash:', formatPHP(summary.cashSales), 32) + '\n'));
+    if (summary.gcashSales > 0) payload.push(...encoder.encode(formatKeyValueLine('GCash:', formatPHP(summary.gcashSales), 32) + '\n'));
+    if (summary.mayaSales > 0) payload.push(...encoder.encode(formatKeyValueLine('Maya:', formatPHP(summary.mayaSales), 32) + '\n'));
+    if (summary.cardSales > 0) payload.push(...encoder.encode(formatKeyValueLine('Card:', formatPHP(summary.cardSales), 32) + '\n'));
+    if (summary.otherSales > 0) payload.push(...encoder.encode(formatKeyValueLine('Other:', formatPHP(summary.otherSales), 32) + '\n'));
+    
+    payload.push(...encoder.encode('--------------------------------\n'));
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode('DRAWER FLOW\n'));
+    payload.push(...BOLD_OFF);
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Float:', formatPHP(summary.openingBalance), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Exp Cash:', formatPHP(summary.cashSales), 32) + '\n'));
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode(formatKeyValueLine('Exp Drawer:', formatPHP(summary.openingBalance + summary.cashSales), 32) + '\n'));
+    if (isZRead) {
+        payload.push(...encoder.encode(formatKeyValueLine('Act Drawer:', formatPHP(summary.actualCash), 32) + '\n'));
+        payload.push(...encoder.encode(formatKeyValueLine('Discrepancy:', formatPHP(summary.discrepancy), 32) + '\n'));
+    }
+    payload.push(...BOLD_OFF);
+    
+    payload.push(...encoder.encode('\n\n\n'));
+    payload.push(...CUT);
+    await sendToGlobalThermalPrinter(new Uint8Array(payload));
+}
+
+export async function printBluetoothEODReport(report: any) {
+    const encoder = new TextEncoder();
+    const payload: number[] = [];
+    const INIT = [0x1B, 0x40];
+    const ALIGN_CENTER = [0x1B, 0x61, 0x01];
+    const ALIGN_LEFT = [0x1B, 0x61, 0x00];
+    const BOLD_ON = [0x1B, 0x45, 0x01];
+    const BOLD_OFF = [0x1B, 0x45, 0x00];
+    const CUT = [0x1D, 0x56, 0x42, 0x00];
+    
+    const formatPHP = (val: number) => 'P' + (val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    
+    payload.push(...INIT);
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode(`${(report.branchName || 'UNKNOWN BRANCH').toUpperCase()}\n`));
+    payload.push(...encoder.encode(`END OF DAY REPORT\n`));
+    payload.push(...BOLD_OFF);
+    payload.push(...encoder.encode('--------------------------------\n'));
+    
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Z-No:', report.controlNumber, 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Open:', report.shiftOpenTime, 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Close:', report.shiftCloseTime, 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Printed:', report.reportDate, 32) + '\n'));
+    
+    payload.push(...encoder.encode('--------------------------------\n'));
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode('SALES & REFUNDS\n'));
+    payload.push(...BOLD_OFF);
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Gross:', formatPHP(report.salesSummary?.salesAmt), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Refunds:', formatPHP(report.salesSummary?.refundsAmt), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Net:', formatPHP(report.salesSummary?.netAmt), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('VAT:', formatPHP(report.vatAmount), 32) + '\n'));
+    
+    payload.push(...encoder.encode('--------------------------------\n'));
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode('DRAWER RECONCILIATION\n'));
+    payload.push(...BOLD_OFF);
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Opening Cash:', formatPHP(report.openingCash), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Cash Sales:', formatPHP(report.cashSales), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Cash Refunds:', formatPHP(report.cashRefunds), 32) + '\n'));
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode(formatKeyValueLine('Expected Drawer:', formatPHP(report.expectedDrawer), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Actual Drawer:', formatPHP(report.actualDrawer), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Over/Short:', formatPHP(report.overShort), 32) + '\n'));
+    payload.push(...BOLD_OFF);
+    
+    payload.push(...encoder.encode('\n\n\n'));
+    payload.push(...CUT);
     await sendToGlobalThermalPrinter(new Uint8Array(payload));
 }
 

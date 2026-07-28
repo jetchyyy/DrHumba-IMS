@@ -6,7 +6,7 @@ import { useTenant } from '../contexts/TenantContext';
 import { CountdownTimerIcon as History, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, CalendarIcon as Calendar, BackpackIcon as ShoppingBag, ValueIcon as DollarSign, EyeOpenIcon as Eye, ActivityLogIcon as TrendingUp, FileTextIcon as Printer, FileTextIcon as FileIcon } from '@radix-ui/react-icons';
 import { settingsService, DEFAULT_SALES_INVOICE_TEMPLATE, DEFAULT_TRANSFER_SLIP_TEMPLATE } from '../lib/settingsService';
 import { printEndOfDayReport, printEndOfDayPDFReport } from '../lib/printService';
-import { printBluetoothThermalInvoice, ensureBluetoothPrinter } from '../lib/bluetoothPrinter';
+import { printBluetoothThermalInvoice, ensureBluetoothPrinter, printBluetoothEODReport } from '../lib/bluetoothPrinter';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
@@ -81,6 +81,7 @@ export const SalesHistory: React.FC = () => {
   
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isPrintingEODBluetooth, setIsPrintingEODBluetooth] = useState(false);
   
   // Filtering States
   const [searchTerm, setSearchTerm] = useState('');
@@ -347,6 +348,20 @@ export const SalesHistory: React.FC = () => {
     } catch (err) {
       console.error('Failed to load EOD template:', err);
       printEndOfDayReport(eodReportData, DEFAULT_SALES_INVOICE_TEMPLATE);
+    }
+  };
+
+  const handlePrintEODBluetooth = async () => {
+    if (!eodReportData) return;
+    try {
+      setIsPrintingEODBluetooth(true);
+      await ensureBluetoothPrinter();
+      await printBluetoothEODReport(eodReportData);
+    } catch (err) {
+      console.error('Failed to print EOD via Bluetooth:', err);
+      showError('Failed to print EOD via Bluetooth.');
+    } finally {
+      setIsPrintingEODBluetooth(false);
     }
   };
 
@@ -1557,12 +1572,21 @@ export const SalesHistory: React.FC = () => {
               Print PDF
             </Button>
             <Button
-              onClick={handlePrintEOD}
-              disabled={!eodReportData}
+              onClick={handlePrintEODBluetooth}
+              disabled={!eodReportData || isPrintingEODBluetooth}
               className="sm:flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
             >
+              {isPrintingEODBluetooth ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Printer className="w-4 h-4 mr-2" />}
+              Print Bluetooth
+            </Button>
+            <Button
+              onClick={handlePrintEOD}
+              disabled={!eodReportData}
+              className="sm:flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold"
+            >
               <Printer className="w-4 h-4 mr-2" />
-              Print Thermal
+              Print System
+
             </Button>
           </DialogFooter>
         </DialogContent>

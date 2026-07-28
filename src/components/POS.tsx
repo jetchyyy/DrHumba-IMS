@@ -21,7 +21,7 @@ import {
 import type { TerminalConfig } from '../lib/offlineService';
 import { settingsService } from '../lib/settingsService';
 import { printXZReport, printQueueNumberTicket, printThermalInvoice, printKitchenReceipt } from '../lib/printService';
-import { printBluetoothThermalInvoice, printBluetoothKitchenReceipt, ensureBluetoothPrinter } from '../lib/bluetoothPrinter';
+import { printBluetoothThermalInvoice, printBluetoothKitchenReceipt, ensureBluetoothPrinter, printBluetoothXZReport } from '../lib/bluetoothPrinter';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
@@ -426,6 +426,7 @@ export const POS: React.FC<POSProps> = ({
   const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string; control_number?: string; queue_number?: string | null; items?: any[]; branch_name?: string; cashier_email?: string; total_amount?: number; created_at?: string; } | null>(null);
   const [isPrintingReceiptBluetooth, setIsPrintingReceiptBluetooth] = useState(false);
   const [isPrintingKitchenBluetooth, setIsPrintingKitchenBluetooth] = useState(false);
+  const [isPrintingXZBluetooth, setIsPrintingXZBluetooth] = useState(false);
 
   // Offline and Terminal Sync states
   const [terminalConfig, setTerminalConfig] = useState<TerminalConfig | null>(null);
@@ -936,6 +937,19 @@ export const POS: React.FC<POSProps> = ({
     } catch (err) {
       console.error('Failed to print kitchen receipt via System:', err);
       showError('Failed to print kitchen receipt via System Drivers.');
+    }
+  };
+
+  const handlePrintXZBluetooth = async (summary: any, isZRead: boolean) => {
+    try {
+      setIsPrintingXZBluetooth(true);
+      await ensureBluetoothPrinter();
+      await printBluetoothXZReport(summary, isZRead, selectedBranch?.name || 'TERMINAL');
+    } catch (err) {
+      console.error('Failed to print report via Bluetooth:', err);
+      showError('Failed to print report via Bluetooth.');
+    } finally {
+      setIsPrintingXZBluetooth(false);
     }
   };
 
@@ -1867,16 +1881,24 @@ export const POS: React.FC<POSProps> = ({
             </div>
           )}
 
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setXReadOpen(false)}>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
+            <Button variant="outline" onClick={() => setXReadOpen(false)} className="sm:flex-1">
               Close
             </Button>
             <Button
+              onClick={() => handlePrintXZBluetooth(sessionSummary, false)}
+              disabled={isPrintingXZBluetooth}
+              className="sm:flex-1 font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {isPrintingXZBluetooth ? <Spinner className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+              Print Bluetooth
+            </Button>
+            <Button
               onClick={() => printXZReport(sessionSummary, false, selectedBranch?.name || 'TERMINAL')}
-              className="font-bold gap-1.5"
+              className="sm:flex-1 font-bold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
             >
               <Printer className="w-4 h-4" />
-              Print X-Read Receipt
+              Print System
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1990,16 +2012,24 @@ export const POS: React.FC<POSProps> = ({
             </div>
           )}
 
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setViewingClosedSummary(null)}>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
+            <Button variant="outline" onClick={() => setViewingClosedSummary(null)} className="sm:flex-1">
               Close & Lock POS
             </Button>
             <Button
+              onClick={() => handlePrintXZBluetooth(viewingClosedSummary, true)}
+              disabled={isPrintingXZBluetooth}
+              className="sm:flex-1 font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {isPrintingXZBluetooth ? <Spinner className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+              Print Bluetooth
+            </Button>
+            <Button
               onClick={() => printXZReport(viewingClosedSummary, true, selectedBranch?.name || 'TERMINAL')}
-              className="font-bold gap-1.5"
+              className="sm:flex-1 font-bold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
             >
               <Printer className="w-4 h-4" />
-              Print Z-Report Receipt
+              Print System
             </Button>
           </DialogFooter>
         </DialogContent>
