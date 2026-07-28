@@ -56,18 +56,16 @@ export const ensureBluetoothPrinter = async () => {
  * Core Global Controller. Call this single function inside EVERY print button
  * to send raw ESC/POS bytes to the remembered device.
  */
-export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array): Promise<void> {
-  if (isPrinting) {
+export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array, isRetry = false): Promise<void> {
+  if (isPrinting && !isRetry) {
     console.warn("A print job is already in progress. Please wait a moment.");
     return;
   }
-  isPrinting = true;
+  if (!isRetry) isPrinting = true;
 
   try {
     // 1. Ensure printer is connected (uses existing if available)
     await ensureBluetoothPrinter();
-
-    console.log(`Waking up printer from "Saved" state: ${globalConnectedPrinter.name}`);
 
     // 2. Open live RFCOMM/GATT pipe to execute the print job
     if (!globalConnectedPrinter.gatt) {
@@ -75,15 +73,40 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array): Pr
     }
 
     if (!globalConnectedPrinter.gatt.connected || !globalWritePipe) {
-        const server = await globalConnectedPrinter.gatt.connect();
+        console.log(`Connecting to GATT Server: ${globalConnectedPrinter.name}`);
         
-        // Give the generic printer a moment to settle its GATT server before requesting services
-        await new Promise(resolve => setTimeout(resolve, 500));
+        let server: any;
+        let services: any[] = [];
+        let connectionAttempts = 3;
+        
+        while (connectionAttempts > 0) {
+            try {
+                // Prevent infinite hang on Windows Web Bluetooth zombie objects
+                server = await Promise.race([
+                    globalConnectedPrinter.gatt.connect(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("GATT connect timeout. Device may be asleep.")), 4000))
+                ]);
+                
+                // Crucial delay: Windows/Chrome needs time before GATT tables are accessible after a reconnect
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                services = await Promise.race([
+                    server.getPrimaryServices(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("GATT services timeout. Device unresponsive.")), 4000))
+                ]);
+                
+                break; // Success
+            } catch (connErr: any) {
+                console.warn(`GATT Services fetch failed (${connectionAttempts} attempts left):`, connErr.message);
+                connectionAttempts--;
+                if (connectionAttempts === 0) throw connErr;
+                // Wait and let the OS settle before trying again
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+        }
         
         // Find a valid service and write characteristic
         let writePipe: any = null;
-        const services = await server.getPrimaryServices();
-        
         for (const service of services) {
           const characteristics = await service.getCharacteristics();
           for (const char of characteristics) {
@@ -102,34 +125,49 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array): Pr
     }
 
     // 3. Stream the button's specific payload
-    // Split into chunks to prevent MTU limits (max 512 bytes per chunk is safe for most BLE)
-    const chunkSize = 512;
+    // Decrease chunk size and increase delay to prevent cheap printers (like JK-5802H) from overflowing and disconnecting.
+    const chunkSize = 128;
     for (let i = 0; i < rawEscPosBytes.length; i += chunkSize) {
       const chunk = rawEscPosBytes.slice(i, i + chunkSize);
       if (globalWritePipe.properties.write) {
         await globalWritePipe.writeValueWithResponse(chunk);
       } else {
         await globalWritePipe.writeValueWithoutResponse(chunk);
-        // Small delay when writing without response to prevent overwhelming the GATT server
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // Larger delay to prevent buffer overflow on cheap thermal printers
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
     console.log("Print job completed successfully.");
     
-    // 4. Do NOT disconnect here. Keep the GATT channel open for subsequent prints.
-    // This avoids the "GATT operation already in progress" error caused by rapid connect/disconnect cycles.
+    // We intentionally DO NOT disconnect here. 
+    // High-quality printers (like Deli) can maintain the connection for fast consecutive prints.
+    // If a cheap printer (like JK-5802H) drops the connection, the catch block will cleanly reset the state.
 
   } catch (error: any) {
-    console.error("[CRITICAL] Global Printing Engine Failure:", error);
+    console.warn("[WARN] GATT Operation failed:", error.message);
+    
+    // Clean up the dead/flaky connection
     if (globalConnectedPrinter && globalConnectedPrinter.gatt && globalConnectedPrinter.gatt.connected) {
         try { globalConnectedPrinter.gatt.disconnect(); } catch (e) {}
     }
+    globalWritePipe = null;
+    
+    // Auto-retry exactly once if this wasn't already a retry
+    if (!isRetry) {
+        console.log("Attempting automatic retry to recover Bluetooth connection...");
+        // Wait a tiny bit for OS to clean up the disconnect
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        return await sendToGlobalThermalPrinter(rawEscPosBytes, true);
+    }
+
+    console.error("[CRITICAL] Global Printing Engine Failure after retry:", error);
     // Reset state on failure so the next button click lets the user re-select the hardware
     globalConnectedPrinter = null; 
-    globalWritePipe = null;
     alert(`Printing Failed: ${error.message}`);
   } finally {
-    isPrinting = false;
+    if (!isRetry) {
+        isPrinting = false;
+    }
   }
 }
 
@@ -248,8 +286,9 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
     // Items
     if (sale.items && Array.isArray(sale.items)) {
         for (const item of sale.items) {
+            const itemName = item.item_name || item.name || 'Unknown Item';
             payload.push(...BOLD_ON);
-            payload.push(...encoder.encode(item.item_name.toUpperCase() + '\n'));
+            payload.push(...encoder.encode(String(itemName).toUpperCase() + '\n'));
             payload.push(...BOLD_OFF);
             const qtyStr = `  ${item.quantity} x P${Number(item.unit_price).toFixed(2)}`;
             const subtotalStr = `P${Number(item.subtotal).toFixed(2)}`;
@@ -320,7 +359,8 @@ export async function printBluetoothKitchenReceipt(sale: any) {
     payload.push(...BOLD_ON);
     if (sale.items && Array.isArray(sale.items)) {
         for (const item of sale.items) {
-            const line = `${item.quantity} x ${item.item_name}`;
+            const itemName = item.item_name || item.name || 'Unknown Item';
+            const line = `${item.quantity} x ${itemName}`;
             for (const wrapped of wrapText(line, 32)) {
                 payload.push(...encoder.encode(wrapped + '\n'));
             }
