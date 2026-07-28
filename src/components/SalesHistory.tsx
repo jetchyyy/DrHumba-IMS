@@ -125,6 +125,7 @@ export const SalesHistory: React.FC = () => {
   
   // UI States
   const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null);
+  const [isPrintingBluetooth, setIsPrintingBluetooth] = useState(false);
 
   // Void / Refund dialog
   const [voidTarget, setVoidTarget] = useState<SaleRecord | null>(null);
@@ -654,6 +655,7 @@ export const SalesHistory: React.FC = () => {
 
   const handlePrintThermalReceipt = async (sale: SaleRecord) => {
     try {
+      setIsPrintingBluetooth(true);
       await ensureBluetoothPrinter();
       const settings = await settingsService.getSettings();
       await printBluetoothThermalInvoice(sale, settings.sales_invoice);
@@ -664,6 +666,8 @@ export const SalesHistory: React.FC = () => {
       } catch (innerErr) {
         console.error('Failed fallback print:', innerErr);
       }
+    } finally {
+      setIsPrintingBluetooth(false);
     }
   };
 
@@ -1155,9 +1159,14 @@ export const SalesHistory: React.FC = () => {
                   variant="outline"
                   size="sm"
                   className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-450 border-emerald-550/25"
+                  disabled={isPrintingBluetooth}
                   onClick={() => handlePrintThermalReceipt(selectedSale)}
                 >
-                  <Printer className="mr-2 h-4 w-4 text-emerald-600" />
+                  {isPrintingBluetooth ? (
+                    <RefreshCw className="mr-2 h-4 w-4 text-emerald-600 animate-spin" />
+                  ) : (
+                    <Printer className="mr-2 h-4 w-4 text-emerald-600" />
+                  )}
                   Print Thermal
                 </Button>
               </div>

@@ -99,6 +99,7 @@ export const Transactions: React.FC = () => {
   const [showThermalPreview, setShowThermalPreview] = useState(false);
   const [previewSale, setPreviewSale] = useState<any | null>(null);
   const [salesInvoiceTemplate, setSalesInvoiceTemplate] = useState<SalesInvoiceTemplate | null>(null);
+  const [isPrintingBluetooth, setIsPrintingBluetooth] = useState(false);
 
   const isAdminRole = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name);
 
@@ -934,18 +935,23 @@ export const Transactions: React.FC = () => {
               Cancel
             </Button>
             <Button
+              disabled={isPrintingBluetooth}
               onClick={async () => {
                 if (previewSale && salesInvoiceTemplate) {
                   try {
+                    setIsPrintingBluetooth(true);
                     await ensureBluetoothPrinter();
                     await printBluetoothThermalInvoice(previewSale, salesInvoiceTemplate);
                     setShowThermalPreview(false);
                   } catch (err: any) {
                     alert(`Failed to print: ${err.message}`);
+                  } finally {
+                    setIsPrintingBluetooth(false);
                   }
                 }
               }}
             >
+              {isPrintingBluetooth ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : null}
               Print
             </Button>
           </DialogFooter>

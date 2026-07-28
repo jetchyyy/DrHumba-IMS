@@ -424,6 +424,8 @@ export const POS: React.FC<POSProps> = ({
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string; control_number?: string; queue_number?: string | null; items?: any[]; branch_name?: string; cashier_email?: string; total_amount?: number; created_at?: string; } | null>(null);
+  const [isPrintingReceiptBluetooth, setIsPrintingReceiptBluetooth] = useState(false);
+  const [isPrintingKitchenBluetooth, setIsPrintingKitchenBluetooth] = useState(false);
 
   // Offline and Terminal Sync states
   const [terminalConfig, setTerminalConfig] = useState<TerminalConfig | null>(null);
@@ -892,12 +894,15 @@ export const POS: React.FC<POSProps> = ({
 
   const handlePrintThermalBluetooth = async (saleResult: any) => {
     try {
+      setIsPrintingReceiptBluetooth(true);
       await ensureBluetoothPrinter();
       const settings = await settingsService.getSettings();
       await printBluetoothThermalInvoice(getMappedSale(saleResult), settings.sales_invoice);
     } catch (err) {
       console.error('Failed to print thermal invoice via Bluetooth:', err);
       showError('Failed to print receipt via Bluetooth.');
+    } finally {
+      setIsPrintingReceiptBluetooth(false);
     }
   };
 
@@ -913,11 +918,14 @@ export const POS: React.FC<POSProps> = ({
 
   const handlePrintKitchenBluetooth = async (saleResult: any) => {
     try {
+      setIsPrintingKitchenBluetooth(true);
       await ensureBluetoothPrinter();
       await printBluetoothKitchenReceipt(getMappedSale(saleResult));
     } catch (err) {
       console.error('Failed to print kitchen receipt via Bluetooth:', err);
       showError('Failed to print kitchen receipt via Bluetooth.');
+    } finally {
+      setIsPrintingKitchenBluetooth(false);
     }
   };
 
@@ -1679,13 +1687,18 @@ export const POS: React.FC<POSProps> = ({
                 <Button
                   variant="secondary"
                   className="w-full font-bold text-xs"
+                  disabled={isPrintingKitchenBluetooth}
                   onClick={async () => {
                     if (lastSaleResult) {
                       await handlePrintKitchenBluetooth(lastSaleResult);
                     }
                   }}
                 >
-                  <Printer className="w-4 h-4 mr-2" />
+                  {isPrintingKitchenBluetooth ? (
+                    <Spinner className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Printer className="w-4 h-4 mr-2" />
+                  )}
                   Print Kitchen (Bluetooth)
                 </Button>
                 <Button
@@ -1706,13 +1719,18 @@ export const POS: React.FC<POSProps> = ({
             <div className="grid grid-cols-2 gap-2 w-full">
               <Button
                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
+                disabled={isPrintingReceiptBluetooth}
                 onClick={async () => {
                   if (lastSaleResult) {
                     await handlePrintThermalBluetooth(lastSaleResult);
                   }
                 }}
               >
-                <Printer className="w-4 h-4 mr-2" />
+                {isPrintingReceiptBluetooth ? (
+                  <Spinner className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Printer className="w-4 h-4 mr-2" />
+                )}
                 Print Receipt (Bluetooth)
               </Button>
               <Button

@@ -3,6 +3,8 @@
  * This prevents the user from having to select the printer for every single button click.
  */
 let globalConnectedPrinter: any = null;
+let globalWritePipe: any = null;
+let isPrinting = false;
 const COMMON_PRINTER_SERVICES = [
   'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Dothantech / Deli
   '000018f0-0000-1000-8000-00805f9b34fb', // Generic ESC/POS
@@ -55,6 +57,12 @@ export const ensureBluetoothPrinter = async () => {
  * to send raw ESC/POS bytes to the remembered device.
  */
 export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array): Promise<void> {
+  if (isPrinting) {
+    console.warn("A print job is already in progress. Please wait a moment.");
+    return;
+  }
+  isPrinting = true;
+
   try {
     // 1. Ensure printer is connected (uses existing if available)
     await ensureBluetoothPrinter();
@@ -66,28 +74,31 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array): Pr
         throw new Error("GATT server not found on device.");
     }
 
-    const server = await globalConnectedPrinter.gatt.connect();
-    
-    // Give the generic printer a moment to settle its GATT server before requesting services
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Find a valid service and write characteristic
-    let writePipe: any = null;
-    const services = await server.getPrimaryServices();
-    
-    for (const service of services) {
-      const characteristics = await service.getCharacteristics();
-      for (const char of characteristics) {
-        if (char.properties.write || char.properties.writeWithoutResponse) {
-          writePipe = char;
-          break;
+    if (!globalConnectedPrinter.gatt.connected || !globalWritePipe) {
+        const server = await globalConnectedPrinter.gatt.connect();
+        
+        // Give the generic printer a moment to settle its GATT server before requesting services
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Find a valid service and write characteristic
+        let writePipe: any = null;
+        const services = await server.getPrimaryServices();
+        
+        for (const service of services) {
+          const characteristics = await service.getCharacteristics();
+          for (const char of characteristics) {
+            if (char.properties.write || char.properties.writeWithoutResponse) {
+              writePipe = char;
+              break;
+            }
+          }
+          if (writePipe) break;
         }
-      }
-      if (writePipe) break;
-    }
-    
-    if (!writePipe) {
-      throw new Error("No available write characteristic pipelines found.");
+        
+        if (!writePipe) {
+          throw new Error("No available write characteristic pipelines found.");
+        }
+        globalWritePipe = writePipe;
     }
 
     // 3. Stream the button's specific payload
@@ -95,22 +106,30 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array): Pr
     const chunkSize = 512;
     for (let i = 0; i < rawEscPosBytes.length; i += chunkSize) {
       const chunk = rawEscPosBytes.slice(i, i + chunkSize);
-      if (writePipe.properties.write) {
-        await writePipe.writeValueWithResponse(chunk);
+      if (globalWritePipe.properties.write) {
+        await globalWritePipe.writeValueWithResponse(chunk);
       } else {
-        await writePipe.writeValueWithoutResponse(chunk);
+        await globalWritePipe.writeValueWithoutResponse(chunk);
+        // Small delay when writing without response to prevent overwhelming the GATT server
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
     }
     console.log("Print job completed successfully.");
     
-    // 4. Disconnect instantly to free the hardware channel and return to "Saved" mode
-    await globalConnectedPrinter.gatt.disconnect();
+    // 4. Do NOT disconnect here. Keep the GATT channel open for subsequent prints.
+    // This avoids the "GATT operation already in progress" error caused by rapid connect/disconnect cycles.
 
   } catch (error: any) {
     console.error("[CRITICAL] Global Printing Engine Failure:", error);
+    if (globalConnectedPrinter && globalConnectedPrinter.gatt && globalConnectedPrinter.gatt.connected) {
+        try { globalConnectedPrinter.gatt.disconnect(); } catch (e) {}
+    }
     // Reset state on failure so the next button click lets the user re-select the hardware
     globalConnectedPrinter = null; 
+    globalWritePipe = null;
     alert(`Printing Failed: ${error.message}`);
+  } finally {
+    isPrinting = false;
   }
 }
 
