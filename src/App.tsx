@@ -143,6 +143,34 @@ const AppContent: React.FC = () => {
     loadAssets();
   }, [tenant]);
 
+  useEffect(() => {
+    if (user && profile?.is_platform_admin) {
+      if (tenant && profile.tenant_id !== tenant.id) {
+        const syncTenant = async () => {
+          const { error } = await supabase
+            .from('profiles')
+            .update({ tenant_id: tenant.id })
+            .eq('id', user.id);
+          if (!error) {
+            refreshProfile();
+          }
+        };
+        syncTenant();
+      } else if (!tenant && window.location.pathname === '/odc' && profile.tenant_id !== '00000000-0000-0000-0000-000000000000') {
+        const resetTenant = async () => {
+          const { error } = await supabase
+            .from('profiles')
+            .update({ tenant_id: '00000000-0000-0000-0000-000000000000' })
+            .eq('id', user.id);
+          if (!error) {
+            refreshProfile();
+          }
+        };
+        resetTenant();
+      }
+    }
+  }, [user, profile, tenant, refreshProfile]);
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
