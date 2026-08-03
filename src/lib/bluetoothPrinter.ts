@@ -3,11 +3,15 @@
  * This prevents the user from having to select the printer for every single button click.
  */
 let globalConnectedPrinter: any = null;
+let globalWritePipe: any = null;
+let isPrinting = false;
 const COMMON_PRINTER_SERVICES = [
   'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Dothantech / Deli
   '000018f0-0000-1000-8000-00805f9b34fb', // Generic ESC/POS
   '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISDC / Serial
-  '0000fee7-0000-1000-8000-00805f9b34fb'  // Generic
+  '0000fee7-0000-1000-8000-00805f9b34fb', // Generic
+  '0000ffe0-0000-1000-8000-00805f9b34fb', // Generic BLE Serial (often used by JK-5802H)
+  '0000ff00-0000-1000-8000-00805f9b34fb'  // Another generic BLE Serial
 ];
 
 /**
@@ -26,12 +30,12 @@ export const ensureBluetoothPrinter = async () => {
   if (nav.bluetooth.getDevices) {
     try {
       const devices = await nav.bluetooth.getDevices();
-      for (const device of devices) {
-        if (device.name && (device.name.startsWith('S423') || device.name.startsWith('Deli') || device.name.startsWith('POS'))) {
-          console.log("Found previously paired device via getDevices():", device.name);
-          globalConnectedPrinter = device;
-          return globalConnectedPrinter;
-        }
+      if (devices && devices.length > 0) {
+        // Just pick the first previously permitted device. 
+        // The user explicitly granted it access to this site, so it's their intended printer.
+        console.log("Found previously paired device via getDevices():", devices[0].name);
+        globalConnectedPrinter = devices[0];
+        return globalConnectedPrinter;
       }
     } catch (err) {
       console.warn("getDevices() failed or not permitted:", err);
@@ -41,11 +45,7 @@ export const ensureBluetoothPrinter = async () => {
   // 3. Fallback: Request device explicitly (shows pairing popup)
   console.log("No printer active in state. Initializing device discovery popup...");
   globalConnectedPrinter = await nav.bluetooth.requestDevice({
-    filters: [
-      { namePrefix: 'S423' },
-      { namePrefix: 'Deli' },
-      { namePrefix: 'POS' }
-    ],
+    acceptAllDevices: true,
     optionalServices: COMMON_PRINTER_SERVICES
   });
   
@@ -56,60 +56,118 @@ export const ensureBluetoothPrinter = async () => {
  * Core Global Controller. Call this single function inside EVERY print button
  * to send raw ESC/POS bytes to the remembered device.
  */
-export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array): Promise<void> {
+export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array, isRetry = false): Promise<void> {
+  if (isPrinting && !isRetry) {
+    console.warn("A print job is already in progress. Please wait a moment.");
+    return;
+  }
+  if (!isRetry) isPrinting = true;
+
   try {
     // 1. Ensure printer is connected (uses existing if available)
     await ensureBluetoothPrinter();
-
-    console.log(`Waking up printer from "Saved" state: ${globalConnectedPrinter.name}`);
 
     // 2. Open live RFCOMM/GATT pipe to execute the print job
     if (!globalConnectedPrinter.gatt) {
         throw new Error("GATT server not found on device.");
     }
 
-    const server = await globalConnectedPrinter.gatt.connect();
-    
-    // Find a valid service and write characteristic
-    let writePipe: any = null;
-    const services = await server.getPrimaryServices();
-    
-    for (const service of services) {
-      const characteristics = await service.getCharacteristics();
-      for (const char of characteristics) {
-        if (char.properties.write || char.properties.writeWithoutResponse) {
-          writePipe = char;
-          break;
+    if (!globalConnectedPrinter.gatt.connected || !globalWritePipe) {
+        console.log(`Connecting to GATT Server: ${globalConnectedPrinter.name}`);
+        
+        let server: any;
+        let services: any[] = [];
+        let connectionAttempts = 3;
+        
+        while (connectionAttempts > 0) {
+            try {
+                // Prevent infinite hang on Windows Web Bluetooth zombie objects
+                server = await Promise.race([
+                    globalConnectedPrinter.gatt.connect(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("GATT connect timeout. Device may be asleep.")), 4000))
+                ]);
+                
+                // Crucial delay: Windows/Chrome needs time before GATT tables are accessible after a reconnect
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                services = await Promise.race([
+                    server.getPrimaryServices(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("GATT services timeout. Device unresponsive.")), 4000))
+                ]);
+                
+                break; // Success
+            } catch (connErr: any) {
+                console.warn(`GATT Services fetch failed (${connectionAttempts} attempts left):`, connErr.message);
+                connectionAttempts--;
+                if (connectionAttempts === 0) throw connErr;
+                // Wait and let the OS settle before trying again
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
         }
-      }
-      if (writePipe) break;
-    }
-    
-    if (!writePipe) {
-      throw new Error("No available write characteristic pipelines found.");
+        
+        // Find a valid service and write characteristic
+        let writePipe: any = null;
+        for (const service of services) {
+          const characteristics = await service.getCharacteristics();
+          for (const char of characteristics) {
+            if (char.properties.write || char.properties.writeWithoutResponse) {
+              writePipe = char;
+              break;
+            }
+          }
+          if (writePipe) break;
+        }
+        
+        if (!writePipe) {
+          throw new Error("No available write characteristic pipelines found.");
+        }
+        globalWritePipe = writePipe;
     }
 
     // 3. Stream the button's specific payload
-    // Split into chunks to prevent MTU limits (max 512 bytes per chunk is safe for most BLE)
-    const chunkSize = 512;
+    // Decrease chunk size and increase delay to prevent cheap printers (like JK-5802H) from overflowing and disconnecting.
+    const chunkSize = 128;
     for (let i = 0; i < rawEscPosBytes.length; i += chunkSize) {
       const chunk = rawEscPosBytes.slice(i, i + chunkSize);
-      if (writePipe.properties.write) {
-        await writePipe.writeValueWithResponse(chunk);
+      if (globalWritePipe.properties.write) {
+        await globalWritePipe.writeValueWithResponse(chunk);
       } else {
-        await writePipe.writeValueWithoutResponse(chunk);
+        await globalWritePipe.writeValueWithoutResponse(chunk);
+        // Larger delay to prevent buffer overflow on cheap thermal printers
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
     console.log("Print job completed successfully.");
     
-    // 4. Disconnect instantly to free the hardware channel and return to "Saved" mode
-    await globalConnectedPrinter.gatt.disconnect();
+    // We intentionally DO NOT disconnect here. 
+    // High-quality printers (like Deli) can maintain the connection for fast consecutive prints.
+    // If a cheap printer (like JK-5802H) drops the connection, the catch block will cleanly reset the state.
 
   } catch (error: any) {
-    console.error("[CRITICAL] Global Printing Engine Failure:", error);
+    console.warn("[WARN] GATT Operation failed:", error.message);
+    
+    // Clean up the dead/flaky connection
+    if (globalConnectedPrinter && globalConnectedPrinter.gatt && globalConnectedPrinter.gatt.connected) {
+        try { globalConnectedPrinter.gatt.disconnect(); } catch (e) {}
+    }
+    globalWritePipe = null;
+    
+    // Auto-retry exactly once if this wasn't already a retry
+    if (!isRetry) {
+        console.log("Attempting automatic retry to recover Bluetooth connection...");
+        // Wait a tiny bit for OS to clean up the disconnect
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        return await sendToGlobalThermalPrinter(rawEscPosBytes, true);
+    }
+
+    console.error("[CRITICAL] Global Printing Engine Failure after retry:", error);
     // Reset state on failure so the next button click lets the user re-select the hardware
     globalConnectedPrinter = null; 
     alert(`Printing Failed: ${error.message}`);
+  } finally {
+    if (!isRetry) {
+        isPrinting = false;
+    }
   }
 }
 
@@ -228,8 +286,9 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
     // Items
     if (sale.items && Array.isArray(sale.items)) {
         for (const item of sale.items) {
+            const itemName = item.item_name || item.name || 'Unknown Item';
             payload.push(...BOLD_ON);
-            payload.push(...encoder.encode(item.item_name.toUpperCase() + '\n'));
+            payload.push(...encoder.encode(String(itemName).toUpperCase() + '\n'));
             payload.push(...BOLD_OFF);
             const qtyStr = `  ${item.quantity} x P${Number(item.unit_price).toFixed(2)}`;
             const subtotalStr = `P${Number(item.subtotal).toFixed(2)}`;
@@ -257,7 +316,7 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
         }
     }
     
-    payload.push(...encoder.encode('\nDr. Humba\n\n\n'));
+    payload.push(...encoder.encode(`\n${merchantName}\n\n\n`));
 
     // Cut
     payload.push(...CUT);
@@ -300,7 +359,8 @@ export async function printBluetoothKitchenReceipt(sale: any) {
     payload.push(...BOLD_ON);
     if (sale.items && Array.isArray(sale.items)) {
         for (const item of sale.items) {
-            const line = `${item.quantity} x ${item.item_name}`;
+            const itemName = item.item_name || item.name || 'Unknown Item';
+            const line = `${item.quantity} x ${itemName}`;
             for (const wrapped of wrapText(line, 32)) {
                 payload.push(...encoder.encode(wrapped + '\n'));
             }
@@ -318,6 +378,134 @@ export async function printBluetoothKitchenReceipt(sale: any) {
     payload.push(...encoder.encode('\n\n\n'));
     payload.push(...CUT);
 
+    await sendToGlobalThermalPrinter(new Uint8Array(payload));
+}
+
+export async function printBluetoothXZReport(summary: any, isZRead: boolean, terminalName: string) {
+    const encoder = new TextEncoder();
+    const payload: number[] = [];
+    const INIT = [0x1B, 0x40];
+    const ALIGN_CENTER = [0x1B, 0x61, 0x01];
+    const ALIGN_LEFT = [0x1B, 0x61, 0x00];
+    const BOLD_ON = [0x1B, 0x45, 0x01];
+    const BOLD_OFF = [0x1B, 0x45, 0x00];
+    const CUT = [0x1D, 0x56, 0x42, 0x00];
+    
+    const formatPHP = (val: number) => 'P' + (val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    
+    payload.push(...INIT);
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode(`${terminalName.toUpperCase()}\n`));
+    payload.push(...encoder.encode(`${isZRead ? 'Z-READ CLOSED REPORT' : 'X-READ SUMMARY'}\n`));
+    payload.push(...BOLD_OFF);
+    payload.push(...encoder.encode('--------------------------------\n'));
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Status:', (summary.status || '').toUpperCase(), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Z-Counter:', `#${String(summary.zCounter || 0).padStart(5, '0')}`, 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Opened:', new Date(summary.openedAt).toLocaleString('en-US', { hour12: false }), 32) + '\n'));
+    if (isZRead && summary.closedAt) {
+        payload.push(...encoder.encode(formatKeyValueLine('Closed:', new Date(summary.closedAt).toLocaleString('en-US', { hour12: false }), 32) + '\n'));
+    }
+    payload.push(...encoder.encode('--------------------------------\n'));
+    
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode('SALES SUMMARY\n'));
+    payload.push(...BOLD_OFF);
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Gross Sales:', formatPHP(summary.grossSales), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Net Sales:', formatPHP(summary.netSales), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('VAT (12%):', formatPHP(summary.vatAmount), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Tx Count:', String(summary.transactionCount), 32) + '\n'));
+    
+    payload.push(...encoder.encode('--------------------------------\n'));
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode('PAYMENTS\n'));
+    payload.push(...BOLD_OFF);
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Cash:', formatPHP(summary.cashSales), 32) + '\n'));
+    if (summary.gcashSales > 0) payload.push(...encoder.encode(formatKeyValueLine('GCash:', formatPHP(summary.gcashSales), 32) + '\n'));
+    if (summary.mayaSales > 0) payload.push(...encoder.encode(formatKeyValueLine('Maya:', formatPHP(summary.mayaSales), 32) + '\n'));
+    if (summary.cardSales > 0) payload.push(...encoder.encode(formatKeyValueLine('Card:', formatPHP(summary.cardSales), 32) + '\n'));
+    if (summary.otherSales > 0) payload.push(...encoder.encode(formatKeyValueLine('Other:', formatPHP(summary.otherSales), 32) + '\n'));
+    
+    payload.push(...encoder.encode('--------------------------------\n'));
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode('DRAWER FLOW\n'));
+    payload.push(...BOLD_OFF);
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Float:', formatPHP(summary.openingBalance), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Exp Cash:', formatPHP(summary.cashSales), 32) + '\n'));
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode(formatKeyValueLine('Exp Drawer:', formatPHP(summary.openingBalance + summary.cashSales), 32) + '\n'));
+    if (isZRead) {
+        payload.push(...encoder.encode(formatKeyValueLine('Act Drawer:', formatPHP(summary.actualCash), 32) + '\n'));
+        payload.push(...encoder.encode(formatKeyValueLine('Discrepancy:', formatPHP(summary.discrepancy), 32) + '\n'));
+    }
+    payload.push(...BOLD_OFF);
+    
+    payload.push(...encoder.encode('\n\n\n'));
+    payload.push(...CUT);
+    await sendToGlobalThermalPrinter(new Uint8Array(payload));
+}
+
+export async function printBluetoothEODReport(report: any) {
+    const encoder = new TextEncoder();
+    const payload: number[] = [];
+    const INIT = [0x1B, 0x40];
+    const ALIGN_CENTER = [0x1B, 0x61, 0x01];
+    const ALIGN_LEFT = [0x1B, 0x61, 0x00];
+    const BOLD_ON = [0x1B, 0x45, 0x01];
+    const BOLD_OFF = [0x1B, 0x45, 0x00];
+    const CUT = [0x1D, 0x56, 0x42, 0x00];
+    
+    const formatPHP = (val: number) => 'P' + (val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    
+    payload.push(...INIT);
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode(`${(report.branchName || 'UNKNOWN BRANCH').toUpperCase()}\n`));
+    payload.push(...encoder.encode(`END OF DAY REPORT\n`));
+    payload.push(...BOLD_OFF);
+    payload.push(...encoder.encode('--------------------------------\n'));
+    
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Z-No:', report.controlNumber, 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Open:', report.shiftOpenTime, 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Close:', report.shiftCloseTime, 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Printed:', report.reportDate, 32) + '\n'));
+    
+    payload.push(...encoder.encode('--------------------------------\n'));
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode('SALES & REFUNDS\n'));
+    payload.push(...BOLD_OFF);
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Gross:', formatPHP(report.salesSummary?.salesAmt), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Refunds:', formatPHP(report.salesSummary?.refundsAmt), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Net:', formatPHP(report.salesSummary?.netAmt), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('VAT:', formatPHP(report.vatAmount), 32) + '\n'));
+    
+    payload.push(...encoder.encode('--------------------------------\n'));
+    payload.push(...ALIGN_CENTER);
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode('DRAWER RECONCILIATION\n'));
+    payload.push(...BOLD_OFF);
+    payload.push(...ALIGN_LEFT);
+    payload.push(...encoder.encode(formatKeyValueLine('Opening Cash:', formatPHP(report.openingCash), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Cash Sales:', formatPHP(report.cashSales), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Cash Refunds:', formatPHP(report.cashRefunds), 32) + '\n'));
+    payload.push(...BOLD_ON);
+    payload.push(...encoder.encode(formatKeyValueLine('Expected Drawer:', formatPHP(report.expectedDrawer), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Actual Drawer:', formatPHP(report.actualDrawer), 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Over/Short:', formatPHP(report.overShort), 32) + '\n'));
+    payload.push(...BOLD_OFF);
+    
+    payload.push(...encoder.encode('\n\n\n'));
+    payload.push(...CUT);
     await sendToGlobalThermalPrinter(new Uint8Array(payload));
 }
 

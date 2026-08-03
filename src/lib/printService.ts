@@ -482,7 +482,7 @@ export const printThermalInvoice = (sale: any, template: SalesInvoiceTemplate) =
           </div>
           
           <div class="centered" style="margin-top: 15px; font-size: 9px; color: #555;">
-            Dr. Humba
+            ${template.merchant_name || 'Dr. Humba'}
           </div>
         </div>
       </body>
