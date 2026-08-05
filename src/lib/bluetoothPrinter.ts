@@ -107,15 +107,59 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array, isR
         
         // Find a valid service and write characteristic
         let writePipe: any = null;
+        
+        const knownTxUuids = [
+          '0000ff02-0000-1000-8000-00805f9b34fb', // Priority 1: Common JK-58 / MPT-II transparent serial
+          '00002af1-0000-1000-8000-00805f9b34fb', // Priority 2: Official Bluetooth SIG ESC/POS
+          '49535343-8841-43f4-a8d4-ecbe34729bb3', // Priority 3: ISSC SPP
+          'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f', // Priority 4: Deli / Dothantech
+          '0000ffe1-0000-1000-8000-00805f9b34fb',
+          '0000fec9-0000-1000-8000-00805f9b34fb'
+        ];
+
+        // Debug logging for all discovered services and characteristics
+        console.log("--- Discovering Services & Characteristics ---");
         for (const service of services) {
-          const characteristics = await service.getCharacteristics();
-          for (const char of characteristics) {
-            if (char.properties.write || char.properties.writeWithoutResponse) {
-              writePipe = char;
-              break;
+          console.log(`Service: ${service.uuid}`);
+          try {
+            const characteristics = await service.getCharacteristics();
+            for (const char of characteristics) {
+              console.log(`  -> Char: ${char.uuid} [write:${char.properties.write}, writeWoRes:${char.properties.writeWithoutResponse}]`);
             }
-          }
+          } catch(e) {}
+        }
+        console.log("----------------------------------------------");
+
+        // Priority 1: Look for known SPP TX characteristics
+        for (const service of services) {
+          try {
+            const characteristics = await service.getCharacteristics();
+            for (const char of characteristics) {
+              if (knownTxUuids.includes(char.uuid) && (char.properties.write || char.properties.writeWithoutResponse)) {
+                writePipe = char;
+                console.log(`Selected PRIORITY characteristic: ${char.uuid}`);
+                break;
+              }
+            }
+          } catch(e) {}
           if (writePipe) break;
+        }
+
+        // Priority 2: Fallback to the first writable characteristic found
+        if (!writePipe) {
+          for (const service of services) {
+            try {
+              const characteristics = await service.getCharacteristics();
+              for (const char of characteristics) {
+                if (char.properties.write || char.properties.writeWithoutResponse) {
+                  writePipe = char;
+                  console.log(`Selected FALLBACK characteristic: ${char.uuid}`);
+                  break;
+                }
+              }
+            } catch(e) {}
+            if (writePipe) break;
+          }
         }
         
         if (!writePipe) {
@@ -125,16 +169,23 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array, isR
     }
 
     // 3. Stream the button's specific payload
-    // Decrease chunk size and increase delay to prevent cheap printers (like JK-5802H) from overflowing and disconnecting.
-    const chunkSize = 128;
+    const printerName = (globalConnectedPrinter.name || '').toUpperCase();
+    const isGenericModel = printerName.includes('MPT-II') || printerName.includes('JK-58');
+    
+    // Use 20 for generic printers that drop large BLE MTUs (like JK-5801H), otherwise preserve 128 for others
+    const chunkSize = isGenericModel ? 20 : 128;
+    const chunkDelay = isGenericModel ? 20 : 100;
+
     for (let i = 0; i < rawEscPosBytes.length; i += chunkSize) {
       const chunk = rawEscPosBytes.slice(i, i + chunkSize);
-      if (globalWritePipe.properties.write) {
-        await globalWritePipe.writeValueWithResponse(chunk);
-      } else {
+      
+      // Prefer writeWithoutResponse if available (some generic devices hang on writeWithResponse)
+      if (globalWritePipe.properties.writeWithoutResponse) {
         await globalWritePipe.writeValueWithoutResponse(chunk);
-        // Larger delay to prevent buffer overflow on cheap thermal printers
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Small delay to prevent hardware buffer overflow
+        await new Promise(resolve => setTimeout(resolve, chunkDelay));
+      } else if (globalWritePipe.properties.write) {
+        await globalWritePipe.writeValueWithResponse(chunk);
       }
     }
     console.log("Print job completed successfully.");
