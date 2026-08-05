@@ -1029,6 +1029,19 @@ export const POS: React.FC<POSProps> = ({
     );
   };
 
+  const updateCartQtyDirect = (menuItemId: string, qty: number) => {
+    if (!activeSession || activeSession.status !== 'open') {
+      showError('Please open your register session before processing sales.');
+      setOpenSessionOpen(true);
+      return;
+    }
+    setCart(prev =>
+      prev.map(ci =>
+        ci.menu_item_id === menuItemId ? { ...ci, quantity: Math.max(0, qty) } : ci
+      )
+    );
+  };
+
   const removeFromCart = (menuItemId: string) =>
     setCart(prev => prev.filter(ci => ci.menu_item_id !== menuItemId));
 
@@ -1213,11 +1226,33 @@ export const POS: React.FC<POSProps> = ({
                   <p className="text-[10px] text-muted-foreground mt-0.5">{formatPHP(item.price)} each</p>
                 </div>
                 <div className="flex items-center space-x-1">
-                  <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateCartQty(item.menu_item_id, -1)}>
+                  <Button variant="outline" size="icon" className="h-6 w-6 shrink-0" onClick={() => updateCartQty(item.menu_item_id, -1)}>
                     <Minus className="h-3 w-3" />
                   </Button>
-                  <span className="font-bold px-1 w-5 text-center select-none">{item.quantity}</span>
-                  <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateCartQty(item.menu_item_id, 1)}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={item.quantity || ''}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val)) {
+                        updateCartQtyDirect(item.menu_item_id, val);
+                      } else {
+                        setCart(prev =>
+                          prev.map(ci =>
+                            ci.menu_item_id === item.menu_item_id ? { ...ci, quantity: 0 } : ci
+                          )
+                        );
+                      }
+                    }}
+                    onBlur={() => {
+                      if (!item.quantity || item.quantity < 1) {
+                        updateCartQtyDirect(item.menu_item_id, 1);
+                      }
+                    }}
+                    className="w-10 h-6 text-center text-xs font-bold bg-background border border-input rounded-md [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none focus:outline-none focus:ring-1 focus:ring-primary shrink-0 font-mono"
+                  />
+                  <Button variant="outline" size="icon" className="h-6 w-6 shrink-0" onClick={() => updateCartQty(item.menu_item_id, 1)}>
                     <Plus className="h-3 w-3" />
                   </Button>
                   <Button

@@ -883,6 +883,26 @@ export const SuperAdminDashboard: React.FC = () => {
                             <Button 
                               variant="ghost" 
                               size="sm"
+                              onClick={async () => {
+                                if (!profile?.id) return;
+                                const { error } = await supabase
+                                  .from('profiles')
+                                  .update({ tenant_id: t.id })
+                                  .eq('id', profile.id);
+                                if (!error) {
+                                  const targetUrl = t.subdomain ? getTenantPortalUrl(t.subdomain) : window.location.origin;
+                                  window.location.href = targetUrl;
+                                } else {
+                                  showError('Failed to switch tenant: ' + error.message);
+                                }
+                              }}
+                              className="text-[10px] font-bold text-sky-400 hover:text-white hover:bg-sky-500/10 rounded-lg h-7 px-2"
+                            >
+                              Enter Tenant
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
                               onClick={() => openEditTenantModal(t)}
                               className="text-[10px] font-bold text-pink-400 hover:text-white hover:bg-pink-500/10 rounded-lg h-7 px-2"
                             >
