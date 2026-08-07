@@ -394,7 +394,7 @@ export const ZReadHistory: React.FC = () => {
 
       {/* ─── Detailed Report Dialog ─── */}
       <Dialog open={!!selectedSession} onOpenChange={(v) => { if (!v) setSelectedSession(null); }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto overflow-x-hidden">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold tracking-tight text-destructive">Z-Read Shift Audit Details</DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
