@@ -31,10 +31,23 @@ export interface OfflineSale {
   reference_number: string;
   control_number: string; // OFF-T01-00001
   created_at: string; // ISO string
-  items: Array<{ menu_item_id: string; quantity: number; name?: string; price?: number }>;
+  items: Array<{ 
+    menu_item_id: string; 
+    quantity: number; 
+    name?: string; 
+    price?: number;
+    discount_amount?: number;
+    is_vat_exempt?: boolean;
+    vatable_sales?: number;
+    vat_amount?: number;
+    vat_exempt_sales?: number;
+  }>;
   total_amount: number;
   queue_number?: string;
   queue_status?: string;
+  discount_type?: string | null;
+  discount_amount?: number;
+  discount_metadata?: any[];
 }
 
 interface EncryptedQueueItem {

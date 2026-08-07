@@ -428,6 +428,8 @@ export const ZReadHistory: React.FC = () => {
                   <div className="flex justify-between"><span>Gross Sales:</span><span>{formatPHP(summary.grossSales)}</span></div>
                   <div className="flex justify-between"><span>Net Sales (Ex-VAT):</span><span>{formatPHP(summary.netSales)}</span></div>
                   <div className="flex justify-between"><span>VAT Amount (12%):</span><span>{formatPHP(summary.vatAmount)}</span></div>
+                  <div className="flex justify-between"><span>VAT-Exempt Sales:</span><span>{formatPHP(summary.vatExemptSales || 0)}</span></div>
+                  <div className="flex justify-between"><span>Discount Total:</span><span>{formatPHP(summary.discountAmount || 0)}</span></div>
                   <div className="flex justify-between"><span>Transaction Count:</span><span>{summary.transactionCount}</span></div>
                   <div className="border-t border-dashed my-2" />
                   <div className="font-bold text-center">PAYMENT BREAKDOWN</div>

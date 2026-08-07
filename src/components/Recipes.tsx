@@ -24,6 +24,46 @@ import {
   PaginationPrevious,
 } from "./ui/pagination";
 
+const getCompatibleUnits = (baseUnit: string) => {
+  const bu = (baseUnit || '').toLowerCase();
+  if (bu === 'kg' || bu === 'kilogram' || bu === 'kilograms') {
+    return [
+      { value: 'kg', label: 'kg', multiplier: 1 },
+      { value: 'g', label: 'g', multiplier: 0.001 }
+    ];
+  }
+  if (bu === 'l' || bu === 'liter' || bu === 'liters') {
+    return [
+      { value: 'L', label: 'L', multiplier: 1 },
+      { value: 'ml', label: 'ml', multiplier: 0.001 }
+    ];
+  }
+  if (bu === 'g' || bu === 'gram' || bu === 'grams') {
+    return [
+      { value: 'g', label: 'g', multiplier: 1 },
+      { value: 'kg', label: 'kg', multiplier: 1000 }
+    ];
+  }
+  if (bu === 'ml' || bu === 'milliliter' || bu === 'milliliters') {
+    return [
+      { value: 'ml', label: 'ml', multiplier: 1 },
+      { value: 'L', label: 'L', multiplier: 1000 }
+    ];
+  }
+  return [{ value: baseUnit, label: baseUnit, multiplier: 1 }];
+};
+
+const formatRecipeQty = (qty: number, baseUnit: string) => {
+  const bu = (baseUnit || '').toLowerCase();
+  if (bu === 'kg' || bu === 'kilogram' || bu === 'kilograms') {
+    return `${qty} kg (${qty * 1000} g)`;
+  }
+  if (bu === 'l' || bu === 'liter' || bu === 'liters') {
+    return `${qty} L (${qty * 1000} ml)`;
+  }
+  return `${qty} ${baseUnit}`;
+};
+
 interface MenuItem {
   id: string;
   name: string;
@@ -123,6 +163,7 @@ export const Recipes: React.FC = () => {
   const [recipeIngredients, setRecipeIngredients] = useState<{ item_id: string; qty: number }[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState(1);
+  const [recipeUnit, setRecipeUnit] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   // Pagination State
@@ -132,6 +173,17 @@ export const Recipes: React.FC = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [menuItems.length]);
+
+  useEffect(() => {
+    if (currentSelectedItemId) {
+      const selectedInvItem = catalog.find(c => c.id === currentSelectedItemId);
+      const baseUnit = selectedInvItem?.base_unit || '';
+      const compat = getCompatibleUnits(baseUnit);
+      setRecipeUnit(compat[0]?.value || baseUnit);
+    } else {
+      setRecipeUnit('');
+    }
+  }, [currentSelectedItemId, catalog]);
 
   const loadData = async () => {
     try {
@@ -522,9 +574,16 @@ export const Recipes: React.FC = () => {
       showError("Ingredient already added to recipe.");
       return;
     }
+    const selectedInvItem = catalog.find(c => c.id === currentSelectedItemId);
+    const baseUnit = selectedInvItem?.base_unit || '';
+    const compat = getCompatibleUnits(baseUnit);
+    const selectedUnitObj = compat.find(u => u.value === recipeUnit) || compat[0];
+    const multiplier = selectedUnitObj ? selectedUnitObj.multiplier : 1;
+    const qtyInBaseUnit = Number(currentQty) * multiplier;
+
     setRecipeIngredients([
       ...recipeIngredients,
-      { item_id: currentSelectedItemId, qty: Number(currentQty) }
+      { item_id: currentSelectedItemId, qty: qtyInBaseUnit }
     ]);
   };
 
@@ -1103,14 +1162,28 @@ export const Recipes: React.FC = () => {
                                   </SelectContent>
                                 </Select>
                               </div>
-                              <Input
-                                type="number"
-                                step="any"
-                                value={currentQty || ''}
-                                onChange={(e) => setCurrentQty(Number(e.target.value))}
-                                placeholder="Qty"
-                                className="w-20 h-9 shrink-0"
-                              />
+                              <div className="flex gap-1 items-center shrink-0">
+                                <Input
+                                  type="number"
+                                  step="any"
+                                  value={currentQty || ''}
+                                  onChange={(e) => setCurrentQty(Number(e.target.value))}
+                                  placeholder="Qty"
+                                  className="w-20 h-9 shrink-0"
+                                />
+                                {currentSelectedItemId && (
+                                  <Select value={recipeUnit} onValueChange={setRecipeUnit}>
+                                    <SelectTrigger className="w-16 h-9 px-1 text-xs shrink-0"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      {getCompatibleUnits(catalog.find(c => c.id === currentSelectedItemId)?.base_unit || '').map(u => (
+                                        <SelectItem key={u.value} value={u.value} className="text-xs">
+                                          {u.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              </div>
                               <Button type="button" size="sm" className="h-9 px-3 shrink-0" onClick={handleAddIngredient}>
                                 Add
                               </Button>
@@ -1137,7 +1210,7 @@ export const Recipes: React.FC = () => {
                                 <TableRow key={idx}>
                                   <TableCell className="pl-4 font-semibold text-xs py-2">{info?.item_name || 'Unknown'}</TableCell>
                                   <TableCell className="text-right font-bold text-xs py-2">
-                                    {ing.qty} {info?.base_unit}
+                                    {formatRecipeQty(ing.qty, info?.base_unit || '')}
                                   </TableCell>
                                   <TableCell className="text-center pr-4 py-2">
                                     <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveIngredient(idx)}>

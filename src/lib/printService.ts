@@ -467,12 +467,65 @@ export const printThermalInvoice = (sale: any, template: SalesInvoiceTemplate) =
 
           <div class="separator"></div>
 
-          <!-- Totals -->
-          <div style="font-family: monospace; font-size: 1.05em;">
-            <div class="flex-between bold" style="font-size: 1.15em;">
+          <!-- Totals & BIR Compliance Breakdown -->
+          <div style="font-family: monospace; font-size: 0.95em; line-height: 1.4;">
+            <div class="flex-between">
+              <span>Gross Sales:</span>
+              <span>₱${((sale.vatable_sales || 0) + (sale.vat_amount || 0) + (sale.vat_exempt_sales || 0) + (sale.discount_amount || 0)).toFixed(2)}</span>
+            </div>
+            ${(sale.discount_amount || 0) > 0 ? `
+            <div class="flex-between">
+              <span>Discount Total:</span>
+              <span>-₱${(sale.discount_amount || 0).toFixed(2)}</span>
+            </div>
+            ` : ''}
+            <div class="flex-between bold" style="font-size: 1.1em; margin: 4px 0;">
               <span>TOTAL VALUE:</span>
               <span>₱${sale.total_amount.toFixed(2)}</span>
             </div>
+            <div class="separator" style="margin: 4px 0;"></div>
+            <div class="flex-between">
+              <span>VATable Sales:</span>
+              <span>₱${(sale.vatable_sales || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>VAT Amount (12%):</span>
+              <span>₱${(sale.vat_amount || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>VAT-Exempt Sales:</span>
+              <span>₱${(sale.vat_exempt_sales || 0).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>Zero-Rated Sales:</span>
+              <span>₱0.00</span>
+            </div>
+            ${sale.amount_tendered !== null && sale.amount_tendered !== undefined ? `
+            <div class="separator" style="margin: 4px 0;"></div>
+            <div class="flex-between">
+              <span>Tendered:</span>
+              <span>₱${Number(sale.amount_tendered).toFixed(2)}</span>
+            </div>
+            <div class="flex-between">
+              <span>Change:</span>
+              <span>₱${(sale.change_given || sale.change || 0).toFixed(2)}</span>
+            </div>
+            ` : ''}
+
+            ${sale.discount_metadata && sale.discount_metadata.length > 0 ? `
+            <div class="separator" style="margin: 4px 0;"></div>
+            <div class="bold" style="text-align: center; margin-bottom: 4px;">DISCOUNT DETAILS</div>
+            ${sale.discount_metadata.map((dm: any) => `
+            <div style="font-size: 0.9em; margin-top: 2px;">
+              <div>Type: ${dm.type}</div>
+              <div>ID: ${dm.id || 'N/A'}</div>
+              <div>Name: ${dm.name || 'N/A'}</div>
+            </div>
+            `).join('')}
+            <div style="margin-top: 15px; border-bottom: 1px dashed #000; width: 80%; margin-left: auto; margin-right: auto; text-align: center; font-size: 0.8em; padding-top: 10px;">
+              Customer Signature
+            </div>
+            ` : ''}
           </div>
 
           <div class="separator"></div>

@@ -349,11 +349,51 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
 
     payload.push(...encoder.encode('--------------------------------\n'));
 
-    // Totals
+    // Totals & BIR Compliance Breakdown
+    const vatableSales = Number(sale.vatable_sales || 0);
+    const vatAmount = Number(sale.vat_amount || 0);
+    const vatExemptSales = Number(sale.vat_exempt_sales || 0);
+    const discountAmt = Number(sale.discount_amount || 0);
+    const grossSales = vatableSales + vatAmount + vatExemptSales + discountAmt;
+
+    payload.push(...encoder.encode(formatKeyValueLine('Gross Sales:', `P${grossSales.toFixed(2)}`, 32) + '\n'));
+    if (discountAmt > 0) {
+        payload.push(...encoder.encode(formatKeyValueLine('Discount Total:', `-P${discountAmt.toFixed(2)}`, 32) + '\n'));
+    }
+
     payload.push(...BOLD_ON);
     const totalStr = `P${Number(sale.total_amount).toFixed(2)}`;
     payload.push(...encoder.encode(formatKeyValueLine('TOTAL VALUE:', totalStr, 32) + '\n'));
     payload.push(...BOLD_OFF);
+
+    payload.push(...encoder.encode('--------------------------------\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('VATable Sales:', `P${vatableSales.toFixed(2)}`, 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('VAT Amount (12%):', `P${vatAmount.toFixed(2)}`, 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('VAT-Exempt Sales:', `P${vatExemptSales.toFixed(2)}`, 32) + '\n'));
+    payload.push(...encoder.encode(formatKeyValueLine('Zero-Rated Sales:', 'P0.00', 32) + '\n'));
+
+    if (sale.amount_tendered !== null && sale.amount_tendered !== undefined) {
+        payload.push(...encoder.encode('--------------------------------\n'));
+        payload.push(...encoder.encode(formatKeyValueLine('Tendered:', `P${Number(sale.amount_tendered).toFixed(2)}`, 32) + '\n'));
+        const changeGiven = Number(sale.change_given || sale.change || 0);
+        payload.push(...encoder.encode(formatKeyValueLine('Change:', `P${changeGiven.toFixed(2)}`, 32) + '\n'));
+    }
+
+    if (sale.discount_metadata && sale.discount_metadata.length > 0) {
+        payload.push(...encoder.encode('--------------------------------\n'));
+        payload.push(...ALIGN_CENTER);
+        payload.push(...encoder.encode('DISCOUNT DETAILS\n'));
+        payload.push(...ALIGN_LEFT);
+        for (const dm of sale.discount_metadata) {
+            payload.push(...encoder.encode(`Type: ${dm.type}\n`));
+            payload.push(...encoder.encode(`ID: ${dm.id || 'N/A'}\n`));
+            payload.push(...encoder.encode(`Name: ${dm.name || 'N/A'}\n\n`));
+        }
+        payload.push(...ALIGN_CENTER);
+        payload.push(...encoder.encode('\n-----------------------\n'));
+        payload.push(...encoder.encode('Customer Signature\n'));
+        payload.push(...ALIGN_LEFT);
+    }
 
     payload.push(...encoder.encode('--------------------------------\n'));
 

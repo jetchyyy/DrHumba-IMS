@@ -86,7 +86,19 @@ interface PaymentDialogProps {
   open: boolean;
   onClose: () => void;
   cartTotal: number;
-  onConfirm: (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string, queueNumber: string, subStoreId: string | null) => Promise<void>;
+  cart: CartItem[];
+  onConfirm: (
+    method: PaymentMethod,
+    tendered: number | null,
+    saleCategory: string,
+    referenceNumber: string,
+    queueNumber: string,
+    subStoreId: string | null,
+    discountType: string | null,
+    discountAmount: number,
+    discountMetadata: any[],
+    discountedItems: any[]
+  ) => Promise<void>;
   processing: boolean;
   onStateChange?: (state: { method: PaymentMethod; tendered: number; refNumber: string } | null) => void;
   saleCategories: Array<{ value: string; label: string }>;
@@ -95,7 +107,19 @@ interface PaymentDialogProps {
   initialSubStore: any | null;
 }
 
-const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal, onConfirm, processing, onStateChange, saleCategories, defaultSaleCategory, subStores, initialSubStore }) => {
+const PaymentDialog: React.FC<PaymentDialogProps> = ({
+  open,
+  onClose,
+  cartTotal,
+  cart,
+  onConfirm,
+  processing,
+  onStateChange,
+  saleCategories,
+  defaultSaleCategory,
+  subStores,
+  initialSubStore,
+}) => {
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [tenderedStr, setTenderedStr] = useState('');
   const [saleCategory, setSaleCategory] = useState<string>(defaultSaleCategory);
@@ -104,14 +128,230 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
   const [queueNumber, setQueueNumber] = useState<string>('');
   const [dialogSubStoreId, setDialogSubStoreId] = useState<string>('parent');
 
+  // Discount states
+  const [applyDiscount, setApplyDiscount] = useState(false);
+  const [discountType, setDiscountType] = useState<string>('sc'); // sc, pwd, mov, solo, custom
+  const [groupSize, setGroupSize] = useState<number>(1);
+  const [discountCount, setDiscountCount] = useState<number>(1);
+  
+  // Custom discount values
+  const [customDiscountRate, setCustomDiscountRate] = useState<number>(20);
+  const [customDiscountIsVatExempt, setCustomDiscountIsVatExempt] = useState<boolean>(true);
+
+  // Card holders metadata
+  const [cardHolders, setCardHolders] = useState<Array<{ name: string; id: string }>>([{ name: '', id: '' }]);
+
+  // Manual unit selection overrides
+  const [manualSelection, setManualSelection] = useState<Record<string, boolean>>({});
+
+  // Flatten the cart into individual units for discount selection
+  const flatUnits = useMemo(() => {
+    let units: Array<{ id: string; menu_item_id: string; price: number; name: string }> = [];
+    cart.forEach(item => {
+      for (let q = 0; q < item.quantity; q++) {
+        units.push({
+          id: `${item.menu_item_id}-${q}`,
+          menu_item_id: item.menu_item_id,
+          price: item.price,
+          name: item.name
+        });
+      }
+    });
+    return units;
+  }, [cart]);
+
+  // Adjust cardholders count when discountCount changes
+  useEffect(() => {
+    setCardHolders(prev => {
+      const next = [...prev];
+      if (next.length < discountCount) {
+        while (next.length < discountCount) {
+          next.push({ name: '', id: '' });
+        }
+      } else if (next.length > discountCount) {
+        next.splice(discountCount);
+      }
+      return next;
+    });
+  }, [discountCount]);
+
+  // Clear manual selections on cardholder count changes to fall back to auto-cheapest
+  useEffect(() => {
+    setManualSelection({});
+  }, [discountCount]);
+
+  // Automatically select cheapest units when discount settings change,
+  // or use manual checked selections capped at discountCount
+  const targetUnitIds = useMemo(() => {
+    if (!applyDiscount) return new Set<string>();
+
+    const manualKeys = Object.keys(manualSelection).filter(k => manualSelection[k]);
+    if (manualKeys.length > 0) {
+      return new Set<string>(manualKeys.slice(0, discountCount));
+    } else {
+      const sorted = [...flatUnits].sort((a, b) => a.price - b.price);
+      const selected = new Set<string>();
+      for (let i = 0; i < Math.min(discountCount, sorted.length); i++) {
+        selected.add(sorted[i].id);
+      }
+      return selected;
+    }
+  }, [applyDiscount, flatUnits, discountCount, manualSelection]);
+
+  // Calculate calculations for all items
+  const discountCalculation = useMemo(() => {
+    if (!applyDiscount || discountCount <= 0 || groupSize <= 0) {
+      return {
+        discountedItems: cart.map(item => ({
+          menu_item_id: item.menu_item_id,
+          quantity: item.quantity,
+          price: item.price,
+          discount_amount: 0,
+          is_vat_exempt: false,
+          vatable_sales: (item.price * item.quantity) / 1.12,
+          vat_amount: ((item.price * item.quantity) / 1.12) * 0.12,
+          vat_exempt_sales: 0,
+          net_total: item.price * item.quantity
+        })),
+        total_amount: cartTotal,
+        discount_amount: 0,
+        vatable_sales: cartTotal / 1.12,
+        vat_amount: (cartTotal / 1.12) * 0.12,
+        vat_exempt_sales: 0
+      };
+    }
+
+    let rate = 0.20;
+    let isExempt = true;
+    if (discountType === 'solo') {
+      rate = 0.10;
+      isExempt = true;
+    } else if (discountType === 'custom') {
+      rate = customDiscountRate / 100;
+      isExempt = customDiscountIsVatExempt;
+    }
+
+    let calculatedUnits = flatUnits.map(unit => {
+      const isDiscounted = targetUnitIds.has(unit.id);
+      const p_disc = isDiscounted ? (unit.price / groupSize) * discountCount : 0;
+      const p_reg = unit.price - p_disc;
+
+      let vat_exempt_sales = 0;
+      let discount_amount = 0;
+      let vatable_sales_disc = 0;
+      let vat_amount_disc = 0;
+
+      if (p_disc > 0) {
+        if (isExempt) {
+          vat_exempt_sales = p_disc / 1.12;
+          discount_amount = vat_exempt_sales * rate;
+        } else {
+          vatable_sales_disc = p_disc / 1.12;
+          vat_amount_disc = vatable_sales_disc * 0.12;
+          discount_amount = p_disc * rate;
+        }
+      }
+
+      const vatable_sales_reg = p_reg > 0 ? p_reg / 1.12 : 0;
+      const vat_amount_reg = vatable_sales_reg * 0.12;
+
+      const total_vatable = vatable_sales_reg + vatable_sales_disc;
+      const total_vat = vat_amount_reg + vat_amount_disc;
+      const net_total = total_vatable + vat_exempt_sales + total_vat - discount_amount;
+
+      return {
+        ...unit,
+        isDiscounted,
+        discount_amount,
+        vatable_sales: total_vatable,
+        vat_amount: total_vat,
+        vat_exempt_sales,
+        is_vat_exempt: isExempt && isDiscounted,
+        net_total
+      };
+    });
+
+    let groupedItemsMap: Record<string, any> = {};
+    calculatedUnits.forEach(unit => {
+      if (!groupedItemsMap[unit.menu_item_id]) {
+        groupedItemsMap[unit.menu_item_id] = {
+          menu_item_id: unit.menu_item_id,
+          quantity: 0,
+          price: unit.price,
+          name: unit.name,
+          discount_amount: 0,
+          vatable_sales: 0,
+          vat_amount: 0,
+          vat_exempt_sales: 0,
+          is_vat_exempt: false
+        };
+      }
+      let gi = groupedItemsMap[unit.menu_item_id];
+      gi.quantity += 1;
+      gi.discount_amount += unit.discount_amount;
+      gi.vatable_sales += unit.vatable_sales;
+      gi.vat_amount += unit.vat_amount;
+      gi.vat_exempt_sales += unit.vat_exempt_sales;
+      if (unit.is_vat_exempt) {
+        gi.is_vat_exempt = true;
+      }
+    });
+
+    const discountedItems = Object.values(groupedItemsMap);
+
+    let tx_total_amount = 0;
+    let tx_discount_amount = 0;
+    let tx_vatable_sales = 0;
+    let tx_vat_amount = 0;
+    let tx_vat_exempt_sales = 0;
+
+    calculatedUnits.forEach(unit => {
+      tx_total_amount += unit.net_total;
+      tx_discount_amount += unit.discount_amount;
+      tx_vatable_sales += unit.vatable_sales;
+      tx_vat_amount += unit.vat_amount;
+      tx_vat_exempt_sales += unit.vat_exempt_sales;
+    });
+
+    return {
+      discountedItems,
+      total_amount: tx_total_amount,
+      discount_amount: tx_discount_amount,
+      vatable_sales: tx_vatable_sales,
+      vat_amount: tx_vat_amount,
+      vat_exempt_sales: tx_vat_exempt_sales
+    };
+  }, [applyDiscount, flatUnits, discountCount, groupSize, discountType, customDiscountRate, customDiscountIsVatExempt, targetUnitIds]);
+
+  const handleToggleUnit = (unitId: string) => {
+    setManualSelection(prev => {
+      const next = { ...prev };
+      const currentSelectedCount = Object.keys(next).filter(k => next[k]).length;
+      
+      if (!next[unitId]) {
+        if (currentSelectedCount >= discountCount) {
+          const selectedKeys = Object.keys(next).filter(k => next[k]);
+          if (selectedKeys.length > 0) {
+            next[selectedKeys[0]] = false;
+          }
+        }
+        next[unitId] = true;
+      } else {
+        next[unitId] = false;
+      }
+      return next;
+    });
+  };
+
+  const payableTotal = discountCalculation.total_amount;
   const tendered = parseFloat(tenderedStr) || 0;
-  const change = method === 'cash' ? tendered - cartTotal : 0;
+  const change = method === 'cash' ? tendered - payableTotal : 0;
 
   const isRefNumRequired = method === 'gcash' || method === 'maya';
   const hasRefNum = !isRefNumRequired || refNumber.trim().length > 0;
   const isCustomCatRequired = saleCategory === 'other';
   const hasCustomCat = !isCustomCatRequired || customCategory.trim().length > 0;
-  const isValidCash = method !== 'cash' || tendered >= cartTotal;
+  const isValidCash = method !== 'cash' || tendered >= payableTotal;
 
   const canConfirm = isValidCash && hasRefNum && hasCustomCat;
 
@@ -134,6 +374,14 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
       setRefNumber('');
       setQueueNumber('');
       setDialogSubStoreId(initialSubStore?.id || 'parent');
+      setApplyDiscount(false);
+      setDiscountType('sc');
+      setGroupSize(1);
+      setDiscountCount(1);
+      setCustomDiscountRate(20);
+      setCustomDiscountIsVatExempt(true);
+      setCardHolders([{ name: '', id: '' }]);
+      setManualSelection({});
     }
   }, [open, defaultSaleCategory, initialSubStore]);
 
@@ -142,10 +390,30 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
     const finalCategory = saleCategory === 'other' ? customCategory.trim() : saleCategory;
     const finalRef = (method === 'gcash' || method === 'maya') ? refNumber.trim() : '';
     const finalSubStoreId = dialogSubStoreId === 'parent' ? null : dialogSubStoreId;
-    await onConfirm(method, tValue, finalCategory, finalRef, queueNumber.trim(), finalSubStoreId);
+    
+    const finalMetadata = applyDiscount
+      ? cardHolders.map(ch => ({
+          type: discountType.toUpperCase(),
+          id: ch.id.trim(),
+          name: ch.name.trim()
+        }))
+      : [];
+
+    await onConfirm(
+      method,
+      tValue,
+      finalCategory,
+      finalRef,
+      queueNumber.trim(),
+      finalSubStoreId,
+      applyDiscount ? discountType : null,
+      applyDiscount ? discountCalculation.discount_amount : 0,
+      finalMetadata,
+      discountCalculation.discountedItems
+    );
   };
 
-  const quickAmounts = useMemo(() => QUICK_CASH_AMOUNTS(cartTotal), [cartTotal]);
+  const quickAmounts = useMemo(() => QUICK_CASH_AMOUNTS(payableTotal), [payableTotal]);
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v && !processing) onClose(); }}>
@@ -157,11 +425,23 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto max-h-[60vh] md:max-h-[70vh] pr-1">
           {/* Order Total */}
-          <div className="flex justify-between items-center bg-primary/5 border border-primary/20 rounded-lg px-4 py-3">
-            <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Order Total</span>
-            <span className="text-2xl font-black text-primary">{formatPHP(cartTotal)}</span>
+          <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-3 space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cart Total</span>
+              <span className="text-sm font-bold text-muted-foreground">{formatPHP(cartTotal)}</span>
+            </div>
+            {applyDiscount && discountCalculation.discount_amount > 0 && (
+              <div className="flex justify-between items-center text-rose-500 font-semibold">
+                <span className="text-xs uppercase tracking-wider">Discount ({discountType.toUpperCase()})</span>
+                <span className="text-sm">- {formatPHP(discountCalculation.discount_amount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center pt-1 border-t border-dashed">
+              <span className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Net Amount Due</span>
+              <span className="text-2xl font-black text-primary">{formatPHP(payableTotal)}</span>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-2">
@@ -209,9 +489,9 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
                     </Label>
                     <Input
                       type="number"
-                      min={cartTotal}
+                      min={payableTotal}
                       step="0.01"
-                      placeholder={`Min: ${formatPHP(cartTotal)}`}
+                      placeholder={`Min: ${formatPHP(payableTotal)}`}
                       value={tenderedStr}
                       onChange={(e) => setTenderedStr(e.target.value)}
                       className="text-base font-bold h-12"
@@ -238,7 +518,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
                         size="sm"
                         variant="ghost"
                         className="text-xs text-muted-foreground h-8"
-                        onClick={() => setTenderedStr(cartTotal.toFixed(2))}
+                        onClick={() => setTenderedStr(payableTotal.toFixed(2))}
                       >
                         Exact
                       </Button>
@@ -267,7 +547,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
               )}
             </div>
 
-            {/* Right Column: Metadata & Attribution */}
+            {/* Right Column: Metadata & Attribution & Discounts */}
             <div className="space-y-4">
               {/* Sale Category */}
               <div className="space-y-2">
@@ -327,7 +607,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                    Queue / Order / Table # (Optional)
+                    Queue / Table / Order # (Optional)
                   </Label>
                   <Button
                     type="button"
@@ -347,6 +627,149 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({ open, onClose, cartTotal,
                   onChange={(e) => setQueueNumber(e.target.value)}
                   placeholder="e.g. Q-01, Table 5, 8742"
                 />
+              </div>
+
+              {/* Discount Section */}
+              <div className="border border-dashed rounded-lg p-3 space-y-3 bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="apply-discount-toggle" className="text-xs uppercase tracking-wider text-muted-foreground font-semibold cursor-pointer">
+                    Apply Discount
+                  </Label>
+                  <input
+                    type="checkbox"
+                    id="apply-discount-toggle"
+                    checked={applyDiscount}
+                    onChange={(e) => setApplyDiscount(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  />
+                </div>
+
+                {applyDiscount && (
+                  <div className="space-y-3 pt-2 border-t border-dashed">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase text-muted-foreground">Discount Type</Label>
+                      <Select value={discountType} onValueChange={setDiscountType}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="sc">Senior Citizen (20%)</SelectItem>
+                          <SelectItem value="pwd">PWD (20%)</SelectItem>
+                          <SelectItem value="mov">Medal of Valor (20%)</SelectItem>
+                          <SelectItem value="solo">Solo Parent (10%)</SelectItem>
+                          <SelectItem value="custom">Custom Promo</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {discountType === 'custom' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase text-muted-foreground">Rate (%)</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            className="h-8 text-xs"
+                            value={customDiscountRate}
+                            onChange={(e) => setCustomDiscountRate(Number(e.target.value) || 0)}
+                          />
+                        </div>
+                        <div className="flex items-center space-x-2 pt-5">
+                          <input
+                            type="checkbox"
+                            id="custom-exempt-toggle"
+                            checked={customDiscountIsVatExempt}
+                            onChange={(e) => setCustomDiscountIsVatExempt(e.target.checked)}
+                            className="h-4 w-4 rounded border-gray-300 text-primary"
+                          />
+                          <Label htmlFor="custom-exempt-toggle" className="text-[10px] uppercase text-muted-foreground cursor-pointer">
+                            VAT Exempt
+                          </Label>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[10px] uppercase text-muted-foreground">Group Size (Pax)</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          className="h-8 text-xs"
+                          value={groupSize}
+                          onChange={(e) => setGroupSize(Math.max(1, Number(e.target.value) || 1))}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] uppercase text-muted-foreground">No. of ID Cards (D)</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max={groupSize}
+                          className="h-8 text-xs"
+                          value={discountCount}
+                          onChange={(e) => setDiscountCount(Math.min(groupSize, Math.max(1, Number(e.target.value) || 1)))}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Card Holders Details */}
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold uppercase text-muted-foreground">Cardholder Details</p>
+                      {cardHolders.map((ch, idx) => (
+                        <div key={idx} className="grid grid-cols-2 gap-2 pt-1">
+                          <Input
+                            placeholder="Name"
+                            className="h-8 text-xs"
+                            value={ch.name}
+                            onChange={(e) => {
+                              const newCh = [...cardHolders];
+                              newCh[idx].name = e.target.value;
+                              setCardHolders(newCh);
+                            }}
+                          />
+                          <Input
+                            placeholder="Card / ID #"
+                            className="h-8 text-xs"
+                            value={ch.id}
+                            onChange={(e) => {
+                              const newCh = [...cardHolders];
+                              newCh[idx].id = e.target.value;
+                              setCardHolders(newCh);
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Manual Selection Overlay */}
+                    <div className="space-y-2 pt-2 border-t border-dashed">
+                      <div className="flex justify-between items-center">
+                        <p className="text-[10px] font-bold uppercase text-muted-foreground">Manual Discount Target</p>
+                        <span className="text-[9px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-bold">
+                          Selected: {targetUnitIds.size} / {discountCount}
+                        </span>
+                      </div>
+                      <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                        {flatUnits.map(unit => (
+                          <div key={unit.id} className="flex items-center justify-between p-1.5 hover:bg-muted/50 rounded text-xs">
+                            <span className="truncate max-w-[150px] font-medium">{unit.name}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-muted-foreground">₱{unit.price.toFixed(2)}</span>
+                              <input
+                                type="checkbox"
+                                checked={targetUnitIds.has(unit.id)}
+                                onChange={() => handleToggleUnit(unit.id)}
+                                className="h-3.5 w-3.5 rounded border-gray-300 text-primary"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -390,6 +813,7 @@ export const POS: React.FC<POSProps> = ({
   const isRestaurant = tenant?.is_restaurant ?? true;
 
   const [items, setItems] = useState<MenuItem[]>([]);
+  const [availabilityMap, setAvailabilityMap] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [loading, setLoading] = useState(true);
@@ -467,6 +891,9 @@ export const POS: React.FC<POSProps> = ({
             p_cashier_id:       sale.cashier_id,
             p_queue_number:     sale.queue_number || null,
             p_sub_store_id:     (sale as any).sub_store_id || null,
+            p_discount_type:     (sale as any).discount_type || null,
+            p_discount_amount:   (sale as any).discount_amount || 0,
+            p_discount_metadata: (sale as any).discount_metadata || [],
           });
 
           if (error) throw error;
@@ -722,6 +1149,19 @@ export const POS: React.FC<POSProps> = ({
       setItems(data || []);
 
       if (selectedBranch?.id) {
+        const { data: availData } = await supabase.rpc('fn_get_menu_items_availability', {
+          p_branch_id: selectedBranch.id
+        });
+        if (availData) {
+          const availMap: Record<string, boolean> = {};
+          availData.forEach((row: any) => {
+            availMap[row.menu_item_id] = row.stock_available;
+          });
+          setAvailabilityMap(availMap);
+        } else {
+          setAvailabilityMap({});
+        }
+
         const { data: bpData } = await supabase
           .from('item_branch_prices')
           .select('menu_item_id, inventory_item_id, price, foodpanda_price, grab_price')
@@ -751,6 +1191,7 @@ export const POS: React.FC<POSProps> = ({
         }
       } else {
         setBranchPrices({});
+        setAvailabilityMap({});
       }
     } catch (err) {
       console.error('Error loading menu items for POS:', err);
@@ -999,6 +1440,10 @@ export const POS: React.FC<POSProps> = ({
       setOpenSessionOpen(true);
       return;
     }
+    if (availabilityMap[item.id] === false) {
+      showError(`"${item.name}" is currently out of stock / lacking ingredients.`);
+      return;
+    }
     const unitPrice = getItemPrice(item);
     setCart(prev => {
       const exists = prev.find(ci => ci.menu_item_id === item.id);
@@ -1066,36 +1511,53 @@ export const POS: React.FC<POSProps> = ({
     setPaymentOpen(true);
   };
 
-  const handleConfirmPayment = async (method: PaymentMethod, tendered: number | null, saleCategory: string, referenceNumber: string, queueNumber: string, subStoreId: string | null = null) => {
+  const handleConfirmPayment = async (
+    method: PaymentMethod,
+    tendered: number | null,
+    saleCategory: string,
+    referenceNumber: string,
+    queueNumber: string,
+    subStoreId: string | null = null,
+    discountType: string | null = null,
+    discountAmount: number = 0,
+    discountMetadata: any[] = [],
+    discountedItems: any[] = []
+  ) => {
     if (!selectedBranch) return;
     setCheckingOut(true);
 
     try {
-      const payload = cart.map(ci => ({ 
-        menu_item_id: ci.menu_item_id, 
-        quantity: ci.quantity,
-        name: ci.name,
-        price: ci.price
-      }));
-
       // Resolve final subStoreId (dialog selection overrides header selection)
       const finalSubStoreId = subStoreId || selectedSubStore?.id || null;
+      const payableTotal = cartTotal - discountAmount;
 
       if (isOnline) {
         const { data: saleId, error } = await supabase.rpc('fn_process_sale', {
           p_branch_id:        selectedBranch.id,
-          p_items:            payload.map(p => ({ menu_item_id: p.menu_item_id, quantity: p.quantity, price: p.price })),
+          p_items:            discountedItems.map(p => ({
+            menu_item_id: p.menu_item_id,
+            quantity: p.quantity,
+            price: p.price,
+            discount_amount: p.discount_amount || 0,
+            is_vat_exempt: p.is_vat_exempt || false,
+            vatable_sales: p.vatable_sales || 0,
+            vat_amount: p.vat_amount || 0,
+            vat_exempt_sales: p.vat_exempt_sales || 0
+          })),
           p_payment_method:   method,
           p_amount_tendered:  tendered,
           p_sale_category:    saleCategory,
           p_reference_number: referenceNumber,
           p_queue_number:     queueNumber || null,
           p_sub_store_id:     finalSubStoreId,
+          p_discount_type:     discountType,
+          p_discount_amount:   discountAmount,
+          p_discount_metadata: discountMetadata
         });
 
         if (error) throw error;
 
-        const change = method === 'cash' && tendered ? tendered - cartTotal : 0;
+        const change = method === 'cash' && tendered ? tendered - payableTotal : 0;
 
         setLastSaleResult({
           id: saleId as string,
@@ -1104,19 +1566,31 @@ export const POS: React.FC<POSProps> = ({
           sale_category: saleCategory,
           reference_number: referenceNumber,
           queue_number: queueNumber || null,
-          items: payload.map((p, idx) => ({
+          items: discountedItems.map((p, idx) => ({
             id: String(idx),
             quantity: p.quantity,
             unit_price: p.price,
-            subtotal: p.price * p.quantity,
-            item_name: p.name,
-            sku: ''
+            subtotal: p.price * p.quantity - (p.discount_amount || 0),
+            item_name: p.name || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.name || 'Item',
+            sku: '',
+            discount_amount: p.discount_amount || 0,
+            vatable_sales: p.vatable_sales || 0,
+            vat_amount: p.vat_amount || 0,
+            vat_exempt_sales: p.vat_exempt_sales || 0,
+            is_vat_exempt: p.is_vat_exempt || false
           })),
           branch_name: selectedBranch.name,
           cashier_email: profile?.email || 'System',
-          total_amount: cartTotal,
-          created_at: new Date().toISOString()
-        });
+          total_amount: payableTotal,
+          created_at: new Date().toISOString(),
+          discount_type: discountType,
+          discount_amount: discountAmount,
+          discount_metadata: discountMetadata,
+          vatable_sales: discountedItems.reduce((acc, p) => acc + (p.vatable_sales || 0), 0),
+          vat_amount: discountedItems.reduce((acc, p) => acc + (p.vat_amount || 0), 0),
+          vat_exempt_sales: discountedItems.reduce((acc, p) => acc + (p.vat_exempt_sales || 0), 0)
+        } as any);
+
         setCart([]);
         setPaymentOpen(false);
         setIsCartSheetOpen(false);
@@ -1138,13 +1612,26 @@ export const POS: React.FC<POSProps> = ({
           amount_tendered: tendered,
           sale_category: saleCategory,
           reference_number: referenceNumber,
-          items: payload,
-          total_amount: cartTotal,
+          items: discountedItems.map(p => ({
+            menu_item_id: p.menu_item_id,
+            quantity: p.quantity,
+            price: p.price,
+            name: p.name || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.name,
+            discount_amount: p.discount_amount || 0,
+            is_vat_exempt: p.is_vat_exempt || false,
+            vatable_sales: p.vatable_sales || 0,
+            vat_amount: p.vat_amount || 0,
+            vat_exempt_sales: p.vat_exempt_sales || 0
+          })),
+          total_amount: payableTotal,
           queue_number: queueNumber || undefined,
-          queue_status: queueNumber ? 'preparing' : undefined
+          queue_status: queueNumber ? 'preparing' : undefined,
+          discount_type: discountType,
+          discount_amount: discountAmount,
+          discount_metadata: discountMetadata
         } as any);
 
-        const change = method === 'cash' && tendered ? tendered - cartTotal : 0;
+        const change = method === 'cash' && tendered ? tendered - payableTotal : 0;
 
         setLastSaleResult({
           id: offlineSale.id,
@@ -1158,15 +1645,26 @@ export const POS: React.FC<POSProps> = ({
             id: String(idx),
             quantity: item.quantity,
             unit_price: item.price || 0,
-            subtotal: (item.price || 0) * item.quantity,
+            subtotal: (item.price || 0) * item.quantity - (item.discount_amount || 0),
             item_name: item.name || 'Unknown Item',
-            sku: ''
+            sku: '',
+            discount_amount: item.discount_amount || 0,
+            vatable_sales: item.vatable_sales || 0,
+            vat_amount: item.vat_amount || 0,
+            vat_exempt_sales: item.vat_exempt_sales || 0,
+            is_vat_exempt: item.is_vat_exempt || false
           })),
           branch_name: selectedBranch.name,
           cashier_email: profile?.email || 'System',
-          total_amount: cartTotal,
-          created_at: new Date().toISOString()
-        });
+          total_amount: payableTotal,
+          created_at: new Date().toISOString(),
+          discount_type: discountType,
+          discount_amount: discountAmount,
+          discount_metadata: discountMetadata,
+          vatable_sales: offlineSale.items.reduce((acc, p) => acc + (p.vatable_sales || 0), 0),
+          vat_amount: offlineSale.items.reduce((acc, p) => acc + (p.vat_amount || 0), 0),
+          vat_exempt_sales: offlineSale.items.reduce((acc, p) => acc + (p.vat_exempt_sales || 0), 0)
+        } as any);
 
         setCart([]);
         setPaymentOpen(false);
@@ -1579,34 +2077,61 @@ export const POS: React.FC<POSProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 flex-1 content-start">
-              {filteredItems.map(item => (
-                <Card
-                  key={item.id}
-                  onClick={() => addToCart(item, 1)}
-                  className="cursor-pointer transition-all hover:border-primary/50 hover:shadow-md group flex flex-col justify-between h-36"
-                >
-                  <CardContent className="p-4 flex flex-col h-full justify-between">
-                    <div>
-                      <Badge variant="secondary" className="text-[9px] uppercase mb-1">{item.category}</Badge>
-                      <h4 className="text-sm font-bold group-hover:text-primary transition-colors line-clamp-2">{item.name}</h4>
-                      <span className="text-[10px] text-muted-foreground font-mono mt-0.5 block">{item.sku}</span>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-bold">{formatPHP(getItemPrice(item))}</span>
-                        {priceChannel !== 'standard' && (
-                          <span className={`text-[9px] font-semibold ${priceChannel === 'foodpanda' ? 'text-amber-500' : 'text-emerald-500'}`}>
-                            {priceChannel === 'foodpanda' ? 'Foodpanda' : 'Grab'} Price
-                          </span>
-                        )}
+               {filteredItems.map(item => {
+                const isOutOfStock = availabilityMap[item.id] === false;
+                return (
+                  <Card
+                    key={item.id}
+                    onClick={() => {
+                      if (!isOutOfStock) {
+                        addToCart(item, 1);
+                      }
+                    }}
+                    className={`transition-all group flex flex-col justify-between min-h-[9.5rem] h-auto ${
+                      isOutOfStock 
+                        ? 'opacity-60 cursor-not-allowed bg-muted/40 border-muted-foreground/20' 
+                        : 'cursor-pointer hover:border-primary/50 hover:shadow-md'
+                    }`}
+                  >
+                    <CardContent className="p-4 flex flex-col h-full justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                          <Badge variant="secondary" className="text-[9px] uppercase">{item.category}</Badge>
+                          {isOutOfStock && (
+                            <Badge variant="destructive" className="text-[9px] uppercase font-black px-1.5 py-0.5 whitespace-nowrap bg-rose-600 text-white border-none">
+                              Out of Stock
+                            </Badge>
+                          )}
+                        </div>
+                        <h4 className={`text-sm font-bold transition-colors line-clamp-2 ${
+                          isOutOfStock ? 'text-muted-foreground' : 'group-hover:text-primary'
+                        }`}>{item.name}</h4>
+                        <span className="text-[10px] text-muted-foreground font-mono mt-0.5 block">{item.sku}</span>
                       </div>
-                      <Button variant="secondary" size="sm" className="h-7 text-xs font-bold group-hover:bg-primary group-hover:text-primary-foreground transition-all">
-                        Add
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold">{formatPHP(getItemPrice(item))}</span>
+                          {priceChannel !== 'standard' && (
+                            <span className={`text-[9px] font-semibold ${priceChannel === 'foodpanda' ? 'text-amber-500' : 'text-emerald-500'}`}>
+                              {priceChannel === 'foodpanda' ? 'Foodpanda' : 'Grab'} Price
+                            </span>
+                          )}
+                        </div>
+                        <Button 
+                          variant={isOutOfStock ? 'outline' : 'secondary'} 
+                          size="sm" 
+                          disabled={isOutOfStock}
+                          className={`h-7 text-xs font-bold transition-all ${
+                            !isOutOfStock && 'group-hover:bg-primary group-hover:text-primary-foreground'
+                          }`}
+                        >
+                          {isOutOfStock ? 'Sold Out' : 'Add'}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
 
               {filteredItems.length === 0 && (
                 <div className="col-span-full text-center p-8 text-muted-foreground">
@@ -1653,6 +2178,7 @@ export const POS: React.FC<POSProps> = ({
         open={paymentOpen}
         onClose={() => setPaymentOpen(false)}
         cartTotal={cartTotal}
+        cart={cart}
         onConfirm={handleConfirmPayment}
         processing={checkingOut}
         onStateChange={setPaymentState}
@@ -1882,10 +2408,11 @@ export const POS: React.FC<POSProps> = ({
                 <div className="flex justify-between"><span>Start:</span><span>{formatPHP(sessionSummary.grandTotalStart)}</span></div>
                 <div className="flex justify-between"><span>Current:</span><span>{formatPHP(sessionSummary.grandTotalEnd)}</span></div>
                 <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">SALES SUMMARY</div>
                 <div className="flex justify-between"><span>Gross Sales:</span><span>{formatPHP(sessionSummary.grossSales)}</span></div>
                 <div className="flex justify-between"><span>Net Sales (Ex-VAT):</span><span>{formatPHP(sessionSummary.netSales)}</span></div>
                 <div className="flex justify-between"><span>VAT Amount (12%):</span><span>{formatPHP(sessionSummary.vatAmount)}</span></div>
+                <div className="flex justify-between"><span>VAT-Exempt Sales:</span><span>{formatPHP(sessionSummary.vatExemptSales || 0)}</span></div>
+                <div className="flex justify-between"><span>Discount Total:</span><span>{formatPHP(sessionSummary.discountAmount || 0)}</span></div>
                 <div className="flex justify-between"><span>Transaction Count:</span><span>{sessionSummary.transactionCount}</span></div>
                 <div className="border-t border-dashed my-2" />
                 <div className="font-bold text-center">PAYMENT BREAKDOWN</div>
@@ -2008,10 +2535,11 @@ export const POS: React.FC<POSProps> = ({
                 <div className="flex justify-between"><span>Start:</span><span>{formatPHP(viewingClosedSummary.grandTotalStart)}</span></div>
                 <div className="flex justify-between"><span>End:</span><span>{formatPHP(viewingClosedSummary.grandTotalEnd)}</span></div>
                 <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">SALES SUMMARY</div>
                 <div className="flex justify-between"><span>Gross Sales:</span><span>{formatPHP(viewingClosedSummary.grossSales)}</span></div>
                 <div className="flex justify-between"><span>Net Sales (Ex-VAT):</span><span>{formatPHP(viewingClosedSummary.netSales)}</span></div>
                 <div className="flex justify-between"><span>VAT Amount (12%):</span><span>{formatPHP(viewingClosedSummary.vatAmount)}</span></div>
+                <div className="flex justify-between"><span>VAT-Exempt Sales:</span><span>{formatPHP(viewingClosedSummary.vatExemptSales || 0)}</span></div>
+                <div className="flex justify-between"><span>Discount Total:</span><span>{formatPHP(viewingClosedSummary.discountAmount || 0)}</span></div>
                 <div className="flex justify-between"><span>Transaction Count:</span><span>{viewingClosedSummary.transactionCount}</span></div>
                 <div className="border-t border-dashed my-2" />
                 <div className="font-bold text-center">PAYMENT BREAKDOWN</div>
