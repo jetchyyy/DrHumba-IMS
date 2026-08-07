@@ -24,7 +24,9 @@ import {
   HamburgerMenuIcon as Menu,
   ReloadIcon as Spinner,
   CardStackIcon as ExpensesIcon,
-  SpeakerLoudIcon as Megaphone
+  SpeakerLoudIcon as Megaphone,
+  ChevronLeftIcon,
+  ChevronRightIcon
 } from '@radix-ui/react-icons';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Button } from './ui/button';
@@ -119,8 +121,8 @@ export const useNavItems = () => {
 };
 
 // ── Inner nav content (shared between desktop sidebar & mobile sheet) ─────────
-const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => void; onNavigate?: () => void }> = ({
-  activeTab, setActiveTab, onNavigate
+const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => void; onNavigate?: () => void; isCollapsed?: boolean; onToggleCollapse?: () => void }> = ({
+  activeTab, setActiveTab, onNavigate, isCollapsed, onToggleCollapse
 }) => {
   const { profile, selectedBranch, setSelectedBranch, branches, signOut } = useAuth();
   const { tenant } = useTenant();
@@ -165,20 +167,29 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
   if (!profile) return null;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Logo */}
-      <div className="p-6 border-b flex items-center space-x-3">
-        <div className="w-8 h-8 rounded-lg bg-white overflow-hidden shadow-lg border border-pink-100 flex-shrink-0">
-          <img src={tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png"} alt="Logo" className="w-full h-full object-cover" />
+      <div className={`p-4 border-b flex items-center ${isCollapsed ? 'flex-col gap-4' : 'justify-between'}`}>
+        <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-3'}`}>
+          <div className="w-8 h-8 rounded-lg bg-white overflow-hidden shadow-lg border border-pink-100 flex-shrink-0">
+            <img src={tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png"} alt="Logo" className="w-full h-full object-cover" />
+          </div>
+          {!isCollapsed && (
+            <div className="overflow-hidden">
+              <h1 className="text-lg font-bold tracking-wide truncate">{tenant?.name || "Dr. Humba"}</h1>
+              <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider truncate">Inventory System</p>
+            </div>
+          )}
         </div>
-        <div>
-          <h1 className="text-lg font-bold tracking-wide">{tenant?.name || "Dr. Humba"}</h1>
-          <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Inventory System</p>
-        </div>
+        {onToggleCollapse && (
+          <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={onToggleCollapse} title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}>
+            {isCollapsed ? <ChevronRightIcon className="h-4 w-4" /> : <ChevronLeftIcon className="h-4 w-4" />}
+          </Button>
+        )}
       </div>
 
       {/* Branch selector */}
-      <div className="p-4 border-b bg-muted/20">
+      <div className={`p-4 border-b bg-muted/20 ${isCollapsed ? 'hidden' : ''}`}>
         <label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block mb-2">
           Active Branch Context
         </label>
@@ -235,7 +246,7 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
             <Button
               key={tab.id}
               variant={isActive ? 'default' : 'ghost'}
-              className={`w-full justify-start h-10 px-3 transition-all ${
+              className={`w-full ${isCollapsed ? 'justify-center px-0' : 'justify-start px-3'} h-10 transition-all overflow-hidden ${
                 isActive ? 'shadow-md' : isLocked
                   ? 'text-muted-foreground/40 hover:bg-muted/30 hover:text-muted-foreground/60'
                   : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
@@ -243,12 +254,12 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
               onClick={() => { setActiveTab(tab.id); onNavigate?.(); }}
               title={isLocked ? `${tab.name} — not available in your current plan` : tab.name}
             >
-              <Icon className={`mr-3 h-4 w-4 flex-shrink-0 ${
+              <Icon className={`${isCollapsed ? '' : 'mr-3'} h-4 w-4 flex-shrink-0 transition-all duration-200 ${
                 isActive ? 'text-primary-foreground' : isLocked ? 'text-muted-foreground/40' : 'text-muted-foreground'
               }`} />
-              <span className="flex-1 text-left">{tab.name}</span>
-              {isLocked && (
-                <svg className="h-3 w-3 text-muted-foreground/40 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {!isCollapsed && <span className="flex-1 text-left truncate">{tab.name}</span>}
+              {!isCollapsed && isLocked && (
+                <svg className="h-3 w-3 text-muted-foreground/40 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
               )}
@@ -260,9 +271,9 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
       <Separator />
 
       {/* Footer */}
-      <div className="p-4 bg-muted/10 flex flex-col space-y-3">
+      <div className={`p-4 bg-muted/10 flex flex-col ${isCollapsed ? 'space-y-4 items-center' : 'space-y-3'}`}>
         {/* Plan Badge */}
-        {tenant && (
+        {tenant && !isCollapsed && (
           <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-primary/5 border border-primary/20">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Current Plan</span>
             <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
@@ -272,38 +283,44 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
             }`}>{tenant.plan_type}</span>
           </div>
         )}
-        <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center font-bold text-secondary-foreground border">
+        <div className={`flex items-center ${isCollapsed ? 'flex-col space-y-4' : 'space-x-3 w-full'}`}>
+          <div className="w-9 h-9 flex-shrink-0 rounded-full bg-secondary flex items-center justify-center font-bold text-secondary-foreground border">
             {profile.email.slice(0, 2).toUpperCase()}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold truncate">{profile.email}</p>
-            <p className="text-[10px] text-muted-foreground capitalize font-medium">{profile.role_name.replace('_', ' ')}</p>
+          {!isCollapsed && (
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold truncate">{profile.email}</p>
+              <p className="text-[10px] text-muted-foreground capitalize font-medium">{profile.role_name.replace('_', ' ')}</p>
+            </div>
+          )}
+          <div className={isCollapsed ? 'flex flex-col gap-3 items-center' : 'flex items-center gap-2'}>
+            {!isCollapsed && <FloatingNotifications />}
+            {isCollapsed && <div className="h-8 w-8 flex items-center justify-center"><FloatingNotifications /></div>}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="h-8 w-8 text-muted-foreground hover:text-foreground flex-shrink-0"
+              title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
           </div>
-          <FloatingNotifications />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleTheme}
-            className="h-8 w-8 text-muted-foreground hover:text-foreground flex-shrink-0"
-            title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-          >
-            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </Button>
         </div>
         <Button
           variant="outline"
-          size="sm"
+          size={isCollapsed ? "icon" : "sm"}
           onClick={handleSignOut}
           disabled={isLoggingOut}
-          className="w-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30"
+          className={`text-muted-foreground hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30 flex-shrink-0 ${isCollapsed ? 'w-10 h-10' : 'w-full'}`}
+          title="Sign Out"
         >
           {isLoggingOut ? (
-            <Spinner className="mr-2 h-4 w-4 animate-spin" />
+            <Spinner className={`${isCollapsed ? '' : 'mr-2'} h-4 w-4 animate-spin`} />
           ) : (
-            <LogOut className="mr-2 h-4 w-4" />
+            <LogOut className={`${isCollapsed ? '' : 'mr-2'} h-4 w-4`} />
           )}
-          {isLoggingOut ? 'Signing Out...' : 'Sign Out'}
+          {!isCollapsed && (isLoggingOut ? 'Signing Out...' : 'Sign Out')}
         </Button>
       </div>
     </div>
@@ -313,11 +330,18 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
 // ── Desktop Sidebar ───────────────────────────────────────────────────────────
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
   const { profile } = useAuth();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  
   if (!profile) return null;
 
   return (
-    <aside className="w-64 border-r bg-background flex-col h-screen sticky top-0 hidden md:flex">
-      <NavContent activeTab={activeTab} setActiveTab={setActiveTab} />
+    <aside className={`border-r bg-background flex-col h-screen sticky top-0 hidden md:flex transition-[width] duration-300 ease-in-out overflow-hidden ${isCollapsed ? 'w-20' : 'w-64'}`}>
+      <NavContent 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        isCollapsed={isCollapsed}
+        onToggleCollapse={() => setIsCollapsed(!isCollapsed)}
+      />
     </aside>
   );
 };
