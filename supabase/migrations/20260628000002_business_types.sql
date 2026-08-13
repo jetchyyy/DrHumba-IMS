@@ -280,9 +280,9 @@ BEGIN
 
             -- Reverse movement ledger
             INSERT INTO public.inventory_movements
-                (branch_id, item_id, quantity, reference_id, reference_type, created_by)
+                (branch_id, item_id, quantity, movement_type, reference_id, reference_type, created_by)
             VALUES
-                (v_branch_id, r_item.inventory_item_id, v_qty_return, p_sale_id, 'void_refund', auth.uid());
+                (v_branch_id, r_item.inventory_item_id, v_qty_return, 'adjustment', p_sale_id, 'void_refund', auth.uid());
         END IF;
         -- Note: 'service' items bypass reversals
     END LOOP;
