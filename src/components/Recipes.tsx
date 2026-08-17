@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTenant } from '../contexts/TenantContext';
 import { supabase } from '../lib/supabase';
-import { PlusIcon as Plus, Pencil2Icon as Edit2, ReaderIcon as BookOpen, ReloadIcon as RefreshCw, TrashIcon as Trash2, MagicWandIcon as ChefHat } from '@radix-ui/react-icons';
+import { PlusIcon as Plus, Pencil2Icon as Edit2, ReaderIcon as BookOpen, ReloadIcon as RefreshCw, TrashIcon as Trash2, MagicWandIcon as ChefHat, MagnifyingGlassIcon as Search, EyeOpenIcon as Eye, EyeNoneIcon as EyeOff } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Checkbox } from './ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -113,6 +113,11 @@ export const Recipes: React.FC = () => {
   
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [catalog, setCatalog] = useState<InventoryCatalogItem[]>([]);
+  
+  // Search & Filtering State
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+  const [showInactive, setShowInactive] = useState(false);
 
   // Modals state
   const [showItemModal, setShowItemModal] = useState(false);
@@ -567,6 +572,33 @@ export const Recipes: React.FC = () => {
     }
   };
 
+  const toggleItemStatus = async (item: MenuItem) => {
+    const isRestaurant = tenant?.is_restaurant ?? true;
+    const itemLabel = isRestaurant ? 'menu item' : 'catalog item';
+    const newStatus = item.status === 'active' ? 'inactive' : 'active';
+    
+    if (!await confirm(
+      newStatus === 'inactive' ? `Mark ${itemLabel} Inactive` : `Mark ${itemLabel} Active`, 
+      `Are you sure you want to mark "${item.name}" as ${newStatus}?`
+    )) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('menu_items')
+        .update({ status: newStatus })
+        .eq('id', item.id);
+
+      if (error) throw error;
+      showSuccess(`Successfully marked "${item.name}" as ${newStatus}.`);
+      await loadData();
+    } catch (err: any) {
+      console.error('Error updating status:', err);
+      showError(err.message || `Error updating status of ${itemLabel}`);
+    }
+  };
+
   const handleAddIngredient = () => {
     if (!currentSelectedItemId) return;
     const exists = recipeIngredients.find(ri => ri.item_id === currentSelectedItemId);
@@ -591,10 +623,26 @@ export const Recipes: React.FC = () => {
     setRecipeIngredients(recipeIngredients.filter((_, i) => i !== index));
   };
 
+  const filteredMenuItems = useMemo(() => {
+    return menuItems.filter(item => {
+      // 1. Search term match
+      const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                            item.sku.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      // 2. Category filter match
+      const matchesCategory = selectedCategoryFilter === 'all' || item.category === selectedCategoryFilter;
+      
+      // 3. Status match (by default hide inactive unless checked)
+      const matchesStatus = showInactive || item.status === 'active';
+      
+      return matchesSearch && matchesCategory && matchesStatus;
+    });
+  }, [menuItems, searchTerm, selectedCategoryFilter, showInactive]);
+
   const isEditor = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
 
-  const totalPages = Math.ceil(menuItems.length / itemsPerPage);
-  const paginatedItems = menuItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = Math.ceil(filteredMenuItems.length / itemsPerPage);
+  const paginatedItems = filteredMenuItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
@@ -622,6 +670,57 @@ export const Recipes: React.FC = () => {
               {isRestaurant ? "Create Menu Item" : "Create Product/Service"}
             </Button>
           )}
+        </div>
+      </div>
+
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder={isRestaurant ? "Search menu items..." : "Search products & services..."}
+            className="pl-9"
+          />
+        </div>
+
+        <div className="w-full md:w-[200px]">
+          <Select
+            value={selectedCategoryFilter}
+            onValueChange={(val) => {
+              setSelectedCategoryFilter(val);
+              setCurrentPage(1);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Filter by Category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categoriesList.map((cat) => (
+                <SelectItem key={cat} value={cat}>
+                  {cat}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center space-x-2 bg-muted/40 px-3 py-2 rounded-md border text-sm">
+          <Checkbox
+            id="showInactive"
+            checked={showInactive}
+            onCheckedChange={(checked) => {
+              setShowInactive(!!checked);
+              setCurrentPage(1);
+            }}
+          />
+          <Label htmlFor="showInactive" className="cursor-pointer select-none font-medium text-xs md:text-sm">
+            Show Inactive Items
+          </Label>
         </div>
       </div>
 
@@ -698,6 +797,15 @@ export const Recipes: React.FC = () => {
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => handleOpenItemEdit(item)} title="Edit Item Info">
                               <Edit2 className="h-4 w-4" />
                             </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className={`h-8 w-8 ${item.status === 'active' ? 'text-muted-foreground hover:text-amber-600' : 'text-amber-600 hover:text-emerald-600'}`} 
+                              onClick={() => toggleItemStatus(item)} 
+                              title={item.status === 'active' ? "Mark Inactive" : "Mark Active"}
+                            >
+                              {item.status === 'active' ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => handleDeleteItem(item)} title="Delete Item">
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -717,6 +825,14 @@ export const Recipes: React.FC = () => {
                 <TableRow>
                   <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                     {isRestaurant ? "No menu items found. Get started by clicking 'Create Menu Item'." : "No catalog products or services found. Click 'Create Product/Service' to add one."}
+                  </TableCell>
+                </TableRow>
+              )}
+
+              {menuItems.length > 0 && filteredMenuItems.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                    No items matched your search or filter criteria.
                   </TableCell>
                 </TableRow>
               )}
