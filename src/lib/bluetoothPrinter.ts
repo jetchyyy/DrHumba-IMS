@@ -354,11 +354,16 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
     const vatAmount = Number(sale.vat_amount || 0);
     const vatExemptSales = Number(sale.vat_exempt_sales || 0);
     const discountAmt = Number(sale.discount_amount || 0);
-    const grossSales = vatableSales + vatAmount + vatExemptSales + discountAmt;
+    const vatRelief = vatExemptSales > 0 ? vatExemptSales * 0.12 : 0;
+    const grossSales = (vatableSales + vatAmount) + (vatExemptSales * 1.12);
 
     payload.push(...encoder.encode(formatKeyValueLine('Gross Sales:', `P${grossSales.toFixed(2)}`, 32) + '\n'));
+    if (vatRelief > 0) {
+        payload.push(...encoder.encode(formatKeyValueLine('12% VAT Relief:', `-P${vatRelief.toFixed(2)}`, 32) + '\n'));
+    }
     if (discountAmt > 0) {
-        payload.push(...encoder.encode(formatKeyValueLine('Discount Total:', `-P${discountAmt.toFixed(2)}`, 32) + '\n'));
+        const discLabel = `Discount (${(sale.discount_type || 'DISC').toUpperCase()}):`;
+        payload.push(...encoder.encode(formatKeyValueLine(discLabel, `-P${discountAmt.toFixed(2)}`, 32) + '\n'));
     }
 
     payload.push(...BOLD_ON);

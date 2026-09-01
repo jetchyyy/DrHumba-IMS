@@ -38,6 +38,11 @@ interface POSState {
   paymentMethod: string | null;
   tendered: number;
   refNumber: string;
+  applyDiscount?: boolean;
+  discountType?: string | null;
+  discountAmount?: number;
+  payableTotal?: number;
+  vatRelief?: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -200,7 +205,8 @@ export const CustomerDisplay: React.FC = () => {
     const isDigital = state.paymentMethod === 'gcash' || state.paymentMethod === 'maya';
     if (!isDigital) return null;
 
-    const qrData = `PAYMENT:${(state.paymentMethod || '').toUpperCase()}:AMOUNT:${state.cartTotal}:BRANCH:${state.selectedBranch?.name || 'DrHumba'}`;
+    const amountToPay = state.payableTotal !== undefined ? state.payableTotal : state.cartTotal;
+    const qrData = `PAYMENT:${(state.paymentMethod || '').toUpperCase()}:AMOUNT:${amountToPay}:BRANCH:${state.selectedBranch?.name || 'DrHumba'}`;
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrData)}&color=0-0-0&bgcolor=255-255-255`;
 
     return (
@@ -211,7 +217,7 @@ export const CustomerDisplay: React.FC = () => {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
-          Scan to Pay ₱{state.cartTotal.toFixed(2)}
+          Scan to Pay ₱{amountToPay.toFixed(2)}
         </span>
       </div>
     );
@@ -431,27 +437,54 @@ export const CustomerDisplay: React.FC = () => {
               </div>
 
               {/* Pricing Breakdown */}
-              <div className="p-6 border-t border-zinc-100 bg-zinc-50/50 space-y-3">
+              <div className="p-6 border-t border-zinc-100 bg-zinc-50/50 space-y-2">
                 <div className="flex justify-between items-center text-sm font-bold">
-                  <span className="text-zinc-500">Total Bill</span>
+                  <span className="text-zinc-500">Gross Bill</span>
                   <span className="text-zinc-800">{formatPHP(state.cartTotal)}</span>
                 </div>
+
+                {state.applyDiscount && (
+                  <>
+                    {(state.vatRelief || 0) > 0 && (
+                      <div className="flex justify-between items-center text-xs font-semibold text-emerald-600">
+                        <span>12% VAT Exemption (Relief)</span>
+                        <span>- {formatPHP(state.vatRelief || 0)}</span>
+                      </div>
+                    )}
+                    {(state.discountAmount || 0) > 0 && (
+                      <div className="flex justify-between items-center text-xs font-semibold text-rose-500">
+                        <span>Discount ({(state.discountType || 'SC/PWD').toUpperCase()})</span>
+                        <span>- {formatPHP(state.discountAmount || 0)}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div className="flex justify-between items-center pt-2 border-t border-zinc-200">
+                  <span className="text-sm font-extrabold text-zinc-800 uppercase tracking-wider">Net Amount Due</span>
+                  <span className="text-xl font-black text-pink-600">
+                    {formatPHP(state.payableTotal !== undefined ? state.payableTotal : state.cartTotal)}
+                  </span>
+                </div>
+
                 {state.paymentMethod === 'cash' && state.tendered > 0 && (
                   <>
-                    <div className="flex justify-between items-center text-sm font-bold">
+                    <div className="flex justify-between items-center text-sm font-bold pt-1">
                       <span className="text-zinc-500">Amount Tendered</span>
                       <span className="text-zinc-800">{formatPHP(state.tendered)}</span>
                     </div>
-                    <div className="flex justify-between items-center pt-3 border-t border-zinc-100 text-lg font-black">
+                    <div className="flex justify-between items-center pt-2 border-t border-zinc-100 text-lg font-black">
                       <span className="text-emerald-600">Change Due</span>
-                      <span className="text-emerald-600">{formatPHP(state.tendered - state.cartTotal)}</span>
+                      <span className="text-emerald-600">
+                        {formatPHP(state.tendered - (state.payableTotal !== undefined ? state.payableTotal : state.cartTotal))}
+                      </span>
                     </div>
                   </>
                 )}
                 {state.paymentMethod && state.paymentMethod !== 'cash' && (
-                  <div className="flex justify-between items-center pt-3 border-t border-zinc-100 text-sm font-bold">
+                  <div className="flex justify-between items-center pt-2 border-t border-zinc-100 text-sm font-bold">
                     <span className="text-zinc-500">Method</span>
-                    <span className="text-zinc-700 uppercase tracking-wide bg-zinc-100 px-3 py-1 rounded-full border border-zinc-200">
+                    <span className="text-zinc-700 uppercase tracking-wide bg-zinc-100 px-3 py-1 rounded-full border border-zinc-200 text-xs">
                       {state.paymentMethod}
                     </span>
                   </div>

@@ -471,15 +471,21 @@ export const printThermalInvoice = (sale: any, template: SalesInvoiceTemplate) =
           <div style="font-family: monospace; font-size: 0.95em; line-height: 1.4;">
             <div class="flex-between">
               <span>Gross Sales:</span>
-              <span>₱${((sale.vatable_sales || 0) + (sale.vat_amount || 0) + (sale.vat_exempt_sales || 0) + (sale.discount_amount || 0)).toFixed(2)}</span>
+              <span>₱${(((sale.vatable_sales || 0) + (sale.vat_amount || 0)) + ((sale.vat_exempt_sales || 0) * 1.12)).toFixed(2)}</span>
             </div>
+            ${(sale.vat_exempt_sales || 0) > 0 ? `
+            <div class="flex-between" style="color: #059669;">
+              <span>12% VAT Relief:</span>
+              <span>-₱${((sale.vat_exempt_sales || 0) * 0.12).toFixed(2)}</span>
+            </div>
+            ` : ''}
             ${(sale.discount_amount || 0) > 0 ? `
-            <div class="flex-between">
-              <span>Discount Total:</span>
+            <div class="flex-between" style="color: #dc2626;">
+              <span>Discount (${(sale.discount_type || 'SC/PWD').toUpperCase()}):</span>
               <span>-₱${(sale.discount_amount || 0).toFixed(2)}</span>
             </div>
             ` : ''}
-            <div class="flex-between bold" style="font-size: 1.1em; margin: 4px 0;">
+            <div class="flex-between bold" style="font-size: 1.1em; margin: 4px 0; border-top: 1px dashed #000; padding-top: 3px;">
               <span>TOTAL VALUE:</span>
               <span>₱${sale.total_amount.toFixed(2)}</span>
             </div>

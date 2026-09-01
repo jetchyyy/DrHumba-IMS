@@ -97,10 +97,20 @@ interface PaymentDialogProps {
     discountType: string | null,
     discountAmount: number,
     discountMetadata: any[],
-    discountedItems: any[]
+    discountedItems: any[],
+    payableTotal?: number
   ) => Promise<void>;
   processing: boolean;
-  onStateChange?: (state: { method: PaymentMethod; tendered: number; refNumber: string } | null) => void;
+  onStateChange?: (state: { 
+    method: PaymentMethod; 
+    tendered: number; 
+    refNumber: string;
+    applyDiscount?: boolean;
+    discountType?: string;
+    discountAmount?: number;
+    payableTotal?: number;
+    vatRelief?: number;
+  } | null) => void;
   saleCategories: Array<{ value: string; label: string }>;
   defaultSaleCategory: string;
   subStores: any[];
@@ -130,6 +140,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
 
   // Discount states
   const [applyDiscount, setApplyDiscount] = useState(false);
+  const [discountMode, setDiscountMode] = useState<'shared' | 'itemized'>('shared');
   const [discountType, setDiscountType] = useState<string>('sc'); // sc, pwd, mov, solo, custom
   const [groupSize, setGroupSize] = useState<number>(1);
   const [discountCount, setDiscountCount] = useState<number>(1);
@@ -178,16 +189,16 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
   // Clear manual selections on cardholder count changes to fall back to auto-cheapest
   useEffect(() => {
     setManualSelection({});
-  }, [discountCount]);
+  }, [discountCount, discountMode]);
 
-  // Automatically select cheapest units when discount settings change,
+  // Automatically select cheapest units when discount settings change in itemized mode,
   // or use manual checked selections capped at discountCount
   const targetUnitIds = useMemo(() => {
     if (!applyDiscount) return new Set<string>();
 
     const manualKeys = Object.keys(manualSelection).filter(k => manualSelection[k]);
     if (manualKeys.length > 0) {
-      return new Set<string>(manualKeys.slice(0, discountCount));
+      return new Set<string>(manualKeys);
     } else {
       const sorted = [...flatUnits].sort((a, b) => a.price - b.price);
       const selected = new Set<string>();
@@ -198,7 +209,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
     }
   }, [applyDiscount, flatUnits, discountCount, manualSelection]);
 
-  // Calculate calculations for all items
+  // Comprehensive Philippine BIR-Compliant Discount Calculation Engine
   const discountCalculation = useMemo(() => {
     if (!applyDiscount || discountCount <= 0 || groupSize <= 0) {
       return {
@@ -206,6 +217,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
           menu_item_id: item.menu_item_id,
           quantity: item.quantity,
           price: item.price,
+          name: item.name,
           discount_amount: 0,
           is_vat_exempt: false,
           vatable_sales: (item.price * item.quantity) / 1.12,
@@ -217,13 +229,23 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
         discount_amount: 0,
         vatable_sales: cartTotal / 1.12,
         vat_amount: (cartTotal / 1.12) * 0.12,
-        vat_exempt_sales: 0
+        vat_exempt_sales: 0,
+        gross_sales: cartTotal,
+        regular_gross: cartTotal,
+        sc_gross: 0,
+        vat_relief: 0,
+        total_savings: 0,
+        seniorRatio: 0,
+        regularCount: groupSize
       };
     }
 
     let rate = 0.20;
     let isExempt = true;
-    if (discountType === 'solo') {
+    if (discountType === 'sc' || discountType === 'pwd' || discountType === 'mov') {
+      rate = 0.20;
+      isExempt = true;
+    } else if (discountType === 'solo') {
       rate = 0.10;
       isExempt = true;
     } else if (discountType === 'custom') {
@@ -231,42 +253,63 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
       isExempt = customDiscountIsVatExempt;
     }
 
+    const seniorRatio = Math.min(1, Math.max(0, discountCount / groupSize));
+    const regularRatio = 1 - seniorRatio;
+
     let calculatedUnits = flatUnits.map(unit => {
-      const isDiscounted = targetUnitIds.has(unit.id);
-      const p_disc = isDiscounted ? (unit.price / groupSize) * discountCount : 0;
-      const p_reg = unit.price - p_disc;
+      let gross_sc = 0;
+      let gross_reg = 0;
+
+      if (discountMode === 'shared') {
+        gross_sc = unit.price * seniorRatio;
+        gross_reg = unit.price * regularRatio;
+      } else {
+        const isSelected = targetUnitIds.has(unit.id);
+        if (isSelected) {
+          gross_sc = unit.price;
+          gross_reg = 0;
+        } else {
+          gross_sc = 0;
+          gross_reg = unit.price;
+        }
+      }
 
       let vat_exempt_sales = 0;
       let discount_amount = 0;
       let vatable_sales_disc = 0;
       let vat_amount_disc = 0;
 
-      if (p_disc > 0) {
+      if (gross_sc > 0) {
         if (isExempt) {
-          vat_exempt_sales = p_disc / 1.12;
+          vat_exempt_sales = gross_sc / 1.12;
           discount_amount = vat_exempt_sales * rate;
         } else {
-          vatable_sales_disc = p_disc / 1.12;
+          const payable_sc = gross_sc * (1 - rate);
+          vatable_sales_disc = payable_sc / 1.12;
           vat_amount_disc = vatable_sales_disc * 0.12;
-          discount_amount = p_disc * rate;
+          discount_amount = gross_sc * rate;
         }
       }
 
-      const vatable_sales_reg = p_reg > 0 ? p_reg / 1.12 : 0;
+      const vatable_sales_reg = gross_reg > 0 ? gross_reg / 1.12 : 0;
       const vat_amount_reg = vatable_sales_reg * 0.12;
 
       const total_vatable = vatable_sales_reg + vatable_sales_disc;
       const total_vat = vat_amount_reg + vat_amount_disc;
-      const net_total = total_vatable + vat_exempt_sales + total_vat - discount_amount;
+      const net_total = isExempt
+        ? (total_vatable + total_vat + vat_exempt_sales - discount_amount)
+        : (total_vatable + total_vat);
 
       return {
         ...unit,
-        isDiscounted,
+        isDiscounted: gross_sc > 0,
+        gross_sc,
+        gross_reg,
         discount_amount,
         vatable_sales: total_vatable,
         vat_amount: total_vat,
         vat_exempt_sales,
-        is_vat_exempt: isExempt && isDiscounted,
+        is_vat_exempt: isExempt && gross_sc > 0,
         net_total
       };
     });
@@ -304,6 +347,8 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
     let tx_vatable_sales = 0;
     let tx_vat_amount = 0;
     let tx_vat_exempt_sales = 0;
+    let tx_regular_gross = 0;
+    let tx_sc_gross = 0;
 
     calculatedUnits.forEach(unit => {
       tx_total_amount += unit.net_total;
@@ -311,7 +356,12 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
       tx_vatable_sales += unit.vatable_sales;
       tx_vat_amount += unit.vat_amount;
       tx_vat_exempt_sales += unit.vat_exempt_sales;
+      tx_regular_gross += unit.gross_reg;
+      tx_sc_gross += unit.gross_sc;
     });
+
+    const vat_relief = isExempt ? Math.max(0, tx_sc_gross - tx_vat_exempt_sales) : 0;
+    const total_savings = vat_relief + tx_discount_amount;
 
     return {
       discountedItems,
@@ -319,26 +369,21 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
       discount_amount: tx_discount_amount,
       vatable_sales: tx_vatable_sales,
       vat_amount: tx_vat_amount,
-      vat_exempt_sales: tx_vat_exempt_sales
+      vat_exempt_sales: tx_vat_exempt_sales,
+      gross_sales: cartTotal,
+      regular_gross: tx_regular_gross,
+      sc_gross: tx_sc_gross,
+      vat_relief,
+      total_savings,
+      seniorRatio,
+      regularCount: groupSize - discountCount
     };
-  }, [applyDiscount, flatUnits, discountCount, groupSize, discountType, customDiscountRate, customDiscountIsVatExempt, targetUnitIds]);
+  }, [applyDiscount, discountMode, flatUnits, discountCount, groupSize, discountType, customDiscountRate, customDiscountIsVatExempt, targetUnitIds, cart, cartTotal]);
 
   const handleToggleUnit = (unitId: string) => {
     setManualSelection(prev => {
       const next = { ...prev };
-      const currentSelectedCount = Object.keys(next).filter(k => next[k]).length;
-      
-      if (!next[unitId]) {
-        if (currentSelectedCount >= discountCount) {
-          const selectedKeys = Object.keys(next).filter(k => next[k]);
-          if (selectedKeys.length > 0) {
-            next[selectedKeys[0]] = false;
-          }
-        }
-        next[unitId] = true;
-      } else {
-        next[unitId] = false;
-      }
+      next[unitId] = !next[unitId];
       return next;
     });
   };
@@ -351,18 +396,27 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
   const hasRefNum = !isRefNumRequired || refNumber.trim().length > 0;
   const isCustomCatRequired = saleCategory === 'other';
   const hasCustomCat = !isCustomCatRequired || customCategory.trim().length > 0;
-  const isValidCash = method !== 'cash' || tendered >= payableTotal;
+  const isValidCash = method !== 'cash' || tendered >= (payableTotal - 0.009);
 
   const canConfirm = isValidCash && hasRefNum && hasCustomCat;
 
   // Propagate state to parent for customer display sync
   useEffect(() => {
     if (open && onStateChange) {
-      onStateChange({ method, tendered: parseFloat(tenderedStr) || 0, refNumber });
+      onStateChange({ 
+        method, 
+        tendered: parseFloat(tenderedStr) || 0, 
+        refNumber,
+        applyDiscount,
+        discountType,
+        discountAmount: applyDiscount ? discountCalculation.discount_amount : 0,
+        payableTotal: applyDiscount ? discountCalculation.total_amount : cartTotal,
+        vatRelief: applyDiscount ? discountCalculation.vat_relief : 0
+      });
     } else if (!open && onStateChange) {
       onStateChange(null);
     }
-  }, [open, method, tenderedStr, refNumber, onStateChange]);
+  }, [open, method, tenderedStr, refNumber, applyDiscount, discountType, discountCalculation, cartTotal, onStateChange]);
 
   // Reset when dialog opens
   useEffect(() => {
@@ -375,6 +429,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
       setQueueNumber('');
       setDialogSubStoreId(initialSubStore?.id || 'parent');
       setApplyDiscount(false);
+      setDiscountMode('shared');
       setDiscountType('sc');
       setGroupSize(1);
       setDiscountCount(1);
@@ -409,7 +464,8 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
       applyDiscount ? discountType : null,
       applyDiscount ? discountCalculation.discount_amount : 0,
       finalMetadata,
-      discountCalculation.discountedItems
+      discountCalculation.discountedItems,
+      payableTotal
     );
   };
 
@@ -426,20 +482,68 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
         </DialogHeader>
 
         <div className="space-y-4 overflow-y-auto max-h-[60vh] md:max-h-[70vh] pr-1">
-          {/* Order Total */}
-          <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-3 space-y-1">
+          {/* Order Total & Live Visual Discount Breakdown */}
+          <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 space-y-2">
             <div className="flex justify-between items-center">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cart Total</span>
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Gross Cart Total</span>
               <span className="text-sm font-bold text-muted-foreground">{formatPHP(cartTotal)}</span>
             </div>
-            {applyDiscount && discountCalculation.discount_amount > 0 && (
-              <div className="flex justify-between items-center text-rose-500 font-semibold">
-                <span className="text-xs uppercase tracking-wider">Discount ({discountType.toUpperCase()})</span>
-                <span className="text-sm">- {formatPHP(discountCalculation.discount_amount)}</span>
+
+            {applyDiscount && (
+              <div className="pt-2 border-t border-dashed space-y-1 text-xs">
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span className="font-medium">Calculation Basis:</span>
+                  <span className="font-bold text-foreground">
+                    {discountMode === 'shared'
+                      ? `${groupSize} Pax (${discountCount} ${discountType.toUpperCase()}, ${groupSize - discountCount} Reg) • ${(discountCalculation.seniorRatio * 100).toFixed(0)}% Share`
+                      : `Itemized Selection (${targetUnitIds.size} item${targetUnitIds.size === 1 ? '' : 's'})`}
+                  </span>
+                </div>
+
+                {discountCalculation.regular_gross > 0 && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Regular Share ({groupSize - discountCount} Pax):</span>
+                    <span>{formatPHP(discountCalculation.regular_gross)}</span>
+                  </div>
+                )}
+
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{discountType.toUpperCase()} Share ({discountCount} Pax Gross):</span>
+                  <span>{formatPHP(discountCalculation.sc_gross)}</span>
+                </div>
+
+                {discountCalculation.vat_relief > 0 && (
+                  <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
+                    <span>Less: 12% VAT Exemption (Relief):</span>
+                    <span>- {formatPHP(discountCalculation.vat_relief)}</span>
+                  </div>
+                )}
+
+                {discountCalculation.discount_amount > 0 && (
+                  <div className="flex justify-between text-rose-500 font-semibold">
+                    <span>Less: {discountType.toUpperCase()} Discount ({discountType === 'solo' ? '10%' : discountType === 'custom' ? `${customDiscountRate}%` : '20%'}):</span>
+                    <span>- {formatPHP(discountCalculation.discount_amount)}</span>
+                  </div>
+                )}
+
+                {discountCalculation.total_savings > 0 && (
+                  <div className="flex justify-between font-bold text-emerald-600 dark:text-emerald-400 pt-1 border-t border-dashed">
+                    <span>Total Customer Savings:</span>
+                    <span>- {formatPHP(discountCalculation.total_savings)}</span>
+                  </div>
+                )}
               </div>
             )}
-            <div className="flex justify-between items-center pt-1 border-t border-dashed">
-              <span className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Net Amount Due</span>
+
+            <div className="flex justify-between items-center pt-2 border-t border-primary/20">
+              <div>
+                <span className="text-xs font-black text-muted-foreground uppercase tracking-wider block">Net Amount Due</span>
+                <span className="text-[10px] text-muted-foreground">
+                  {applyDiscount
+                    ? `VATable: ${formatPHP(discountCalculation.vatable_sales)} | VAT: ${formatPHP(discountCalculation.vat_amount)} | Exempt: ${formatPHP(discountCalculation.vat_exempt_sales)}`
+                    : 'Standard 12% VAT Inclusive'}
+                </span>
+              </div>
               <span className="text-2xl font-black text-primary">{formatPHP(payableTotal)}</span>
             </div>
           </div>
@@ -646,6 +750,32 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
 
                 {applyDiscount && (
                   <div className="space-y-3 pt-2 border-t border-dashed">
+                    {/* Mode Toggle */}
+                    <div className="flex rounded-md bg-muted p-0.5 text-[10px] font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setDiscountMode('shared')}
+                        className={`flex-1 py-1 px-2 rounded text-center transition-all ${
+                          discountMode === 'shared'
+                            ? 'bg-background text-foreground shadow-sm font-bold'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        Shared Table / Pax Split
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDiscountMode('itemized')}
+                        className={`flex-1 py-1 px-2 rounded text-center transition-all ${
+                          discountMode === 'itemized'
+                            ? 'bg-background text-foreground shadow-sm font-bold'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        Itemized Dishes Selection
+                      </button>
+                    </div>
+
                     <div className="space-y-1">
                       <Label className="text-[10px] uppercase text-muted-foreground">Discount Type</Label>
                       <Select value={discountType} onValueChange={setDiscountType}>
@@ -653,11 +783,11 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="sc">Senior Citizen (20%)</SelectItem>
-                          <SelectItem value="pwd">PWD (20%)</SelectItem>
-                          <SelectItem value="mov">Medal of Valor (20%)</SelectItem>
-                          <SelectItem value="solo">Solo Parent (10%)</SelectItem>
-                          <SelectItem value="custom">Custom Promo</SelectItem>
+                          <SelectItem value="sc">Senior Citizen (20% + VAT Exempt)</SelectItem>
+                          <SelectItem value="pwd">PWD (20% + VAT Exempt)</SelectItem>
+                          <SelectItem value="mov">Medal of Valor (20% + VAT Exempt)</SelectItem>
+                          <SelectItem value="solo">Solo Parent (10% + VAT Exempt)</SelectItem>
+                          <SelectItem value="custom">Custom Promo Discount</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -690,37 +820,63 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
                       </div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-[10px] uppercase text-muted-foreground">Group Size (Pax)</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          className="h-8 text-xs"
-                          value={groupSize}
-                          onChange={(e) => setGroupSize(Math.max(1, Number(e.target.value) || 1))}
-                        />
+                    {discountMode === 'shared' ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-[10px] uppercase text-muted-foreground font-semibold">Total Diners (Pax)</Label>
+                            <Input
+                              type="number"
+                              min="1"
+                              className="h-8 text-xs font-bold"
+                              value={groupSize}
+                              onChange={(e) => {
+                                const newSize = Math.max(1, Number(e.target.value) || 1);
+                                setGroupSize(newSize);
+                                if (discountCount > newSize) setDiscountCount(newSize);
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] uppercase text-muted-foreground font-semibold">No. of ID Cards (SC/PWD)</Label>
+                            <Input
+                              type="number"
+                              min="1"
+                              max={groupSize}
+                              className="h-8 text-xs font-bold"
+                              value={discountCount}
+                              onChange={(e) => setDiscountCount(Math.min(groupSize, Math.max(1, Number(e.target.value) || 1)))}
+                            />
+                          </div>
+                        </div>
+                        <div className="bg-muted/40 rounded p-1.5 text-[10px] text-muted-foreground">
+                          💡 <span className="font-semibold">{groupSize} total diners</span> with <span className="font-semibold">{discountCount} {discountType.toUpperCase()}</span> = <span className="text-primary font-bold">{((discountCount / groupSize) * 100).toFixed(0)}%</span> bill discount share.
+                        </div>
                       </div>
+                    ) : (
                       <div className="space-y-1">
-                        <Label className="text-[10px] uppercase text-muted-foreground">No. of ID Cards (D)</Label>
+                        <Label className="text-[10px] uppercase text-muted-foreground font-semibold">No. of Cardholders</Label>
                         <Input
                           type="number"
                           min="1"
-                          max={groupSize}
-                          className="h-8 text-xs"
+                          className="h-8 text-xs font-bold"
                           value={discountCount}
-                          onChange={(e) => setDiscountCount(Math.min(groupSize, Math.max(1, Number(e.target.value) || 1)))}
+                          onChange={(e) => {
+                            const cnt = Math.max(1, Number(e.target.value) || 1);
+                            setDiscountCount(cnt);
+                            setGroupSize(cnt);
+                          }}
                         />
                       </div>
-                    </div>
+                    )}
 
                     {/* Card Holders Details */}
-                    <div className="space-y-2">
-                      <p className="text-[10px] font-bold uppercase text-muted-foreground">Cardholder Details</p>
+                    <div className="space-y-2 pt-1 border-t border-dashed">
+                      <p className="text-[10px] font-bold uppercase text-muted-foreground">Cardholder Details ({cardHolders.length} Card{cardHolders.length === 1 ? '' : 's'})</p>
                       {cardHolders.map((ch, idx) => (
-                        <div key={idx} className="grid grid-cols-2 gap-2 pt-1">
+                        <div key={idx} className="grid grid-cols-2 gap-2 pt-0.5">
                           <Input
-                            placeholder="Name"
+                            placeholder={`Cardholder #${idx + 1} Name`}
                             className="h-8 text-xs"
                             value={ch.name}
                             onChange={(e) => {
@@ -730,8 +886,8 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
                             }}
                           />
                           <Input
-                            placeholder="Card / ID #"
-                            className="h-8 text-xs"
+                            placeholder="ID / Booklet #"
+                            className="h-8 text-xs font-mono"
                             value={ch.id}
                             onChange={(e) => {
                               const newCh = [...cardHolders];
@@ -743,31 +899,33 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
                       ))}
                     </div>
 
-                    {/* Manual Selection Overlay */}
-                    <div className="space-y-2 pt-2 border-t border-dashed">
-                      <div className="flex justify-between items-center">
-                        <p className="text-[10px] font-bold uppercase text-muted-foreground">Manual Discount Target</p>
-                        <span className="text-[9px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-bold">
-                          Selected: {targetUnitIds.size} / {discountCount}
-                        </span>
-                      </div>
-                      <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
-                        {flatUnits.map(unit => (
-                          <div key={unit.id} className="flex items-center justify-between p-1.5 hover:bg-muted/50 rounded text-xs">
-                            <span className="truncate max-w-[150px] font-medium">{unit.name}</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-muted-foreground">₱{unit.price.toFixed(2)}</span>
-                              <input
-                                type="checkbox"
-                                checked={targetUnitIds.has(unit.id)}
-                                onChange={() => handleToggleUnit(unit.id)}
-                                className="h-3.5 w-3.5 rounded border-gray-300 text-primary"
-                              />
+                    {/* Itemized Selection list (Only when itemized mode active) */}
+                    {discountMode === 'itemized' && (
+                      <div className="space-y-2 pt-2 border-t border-dashed">
+                        <div className="flex justify-between items-center">
+                          <p className="text-[10px] font-bold uppercase text-muted-foreground">Select Discounted Items</p>
+                          <span className="text-[9px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-bold">
+                            Selected: {targetUnitIds.size} / {flatUnits.length}
+                          </span>
+                        </div>
+                        <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                          {flatUnits.map(unit => (
+                            <div key={unit.id} className="flex items-center justify-between p-1.5 hover:bg-muted/50 rounded text-xs">
+                              <span className="truncate max-w-[150px] font-medium">{unit.name}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-muted-foreground">₱{unit.price.toFixed(2)}</span>
+                                <input
+                                  type="checkbox"
+                                  checked={targetUnitIds.has(unit.id)}
+                                  onChange={() => handleToggleUnit(unit.id)}
+                                  className="h-3.5 w-3.5 rounded border-gray-300 text-primary"
+                                />
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -931,7 +1089,16 @@ export const POS: React.FC<POSProps> = ({
 
   // Customer Display Sync state
   const [supabaseChannel, setSupabaseChannel] = useState<any>(null);
-  const [paymentState, setPaymentState] = useState<{ method: PaymentMethod; tendered: number; refNumber: string } | null>(null);
+  const [paymentState, setPaymentState] = useState<{ 
+    method: PaymentMethod; 
+    tendered: number; 
+    refNumber: string;
+    applyDiscount?: boolean;
+    discountType?: string;
+    discountAmount?: number;
+    payableTotal?: number;
+    vatRelief?: number;
+  } | null>(null);
 
   // Cashier Drawer Session & shift control states
   const [activeSession, setActiveSession] = useState<any>(null);
@@ -1071,6 +1238,11 @@ export const POS: React.FC<POSProps> = ({
       paymentMethod: payState?.method || null,
       tendered: payState?.tendered || 0,
       refNumber: payState?.refNumber || '',
+      applyDiscount: payState?.applyDiscount || false,
+      discountType: payState?.discountType || null,
+      discountAmount: payState?.discountAmount || 0,
+      payableTotal: payState?.payableTotal !== undefined ? payState.payableTotal : total,
+      vatRelief: payState?.vatRelief || 0
     };
 
     // 1. Broadcast locally
@@ -1521,7 +1693,8 @@ export const POS: React.FC<POSProps> = ({
     discountType: string | null = null,
     discountAmount: number = 0,
     discountMetadata: any[] = [],
-    discountedItems: any[] = []
+    discountedItems: any[] = [],
+    payableTotalArg?: number
   ) => {
     if (!selectedBranch) return;
     setCheckingOut(true);
@@ -1529,7 +1702,9 @@ export const POS: React.FC<POSProps> = ({
     try {
       // Resolve final subStoreId (dialog selection overrides header selection)
       const finalSubStoreId = subStoreId || selectedSubStore?.id || null;
-      const payableTotal = cartTotal - discountAmount;
+      const payableTotal = payableTotalArg !== undefined
+        ? payableTotalArg
+        : discountedItems.reduce((acc, p) => acc + ((p.vatable_sales || 0) + (p.vat_amount || 0) + (p.vat_exempt_sales || 0) - (p.discount_amount || 0)), 0);
 
       if (isOnline) {
         const { data: saleId, error } = await supabase.rpc('fn_process_sale', {
