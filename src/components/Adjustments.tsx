@@ -856,7 +856,7 @@ export const Adjustments: React.FC = () => {
                   </div>
                 </div>
                 <div className="mt-4 flex justify-end">
-                  <Button type="button" variant="secondary" onClick={handleAddItem}>
+                  <Button type="button" onClick={handleAddItem}>
                     Add Item
                   </Button>
                 </div>
@@ -866,41 +866,49 @@ export const Adjustments: React.FC = () => {
             {/* Added Items List */}
             <div>
               <h4 className="text-sm font-semibold mb-3">Adjustments List ({addedItems.length})</h4>
-              <div className="border rounded-md max-h-40 overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Item Name</TableHead>
-                      <TableHead className="text-right">Adjustment Amount</TableHead>
-                      <TableHead className="w-[80px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {addedItems.map((item, idx) => {
-                      const info = catalog.find(c => c.id === item.item_id);
-                      return (
-                        <TableRow key={idx}>
-                          <TableCell className="font-medium">{info?.item_name}</TableCell>
-                          <TableCell className={`text-right font-bold ${item.qty < 0 ? 'text-destructive' : 'text-primary'}`}>
-                            {item.qty > 0 ? `+${item.qty}` : item.qty} {info?.base_unit}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive"
-                              onClick={() => handleRemoveItem(idx)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+              {addedItems.length === 0 ? (
+                <div className="border rounded-md border-dashed flex flex-col items-center justify-center py-6 gap-1.5 text-center bg-muted/20">
+                  <ClipboardList className="h-6 w-6 text-muted-foreground/50" />
+                  <p className="text-sm font-medium text-muted-foreground">No items added yet</p>
+                  <p className="text-xs text-muted-foreground/70">Use the form above to add items to this adjustment.</p>
+                </div>
+              ) : (
+                <div className="border rounded-md max-h-40 overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item Name</TableHead>
+                        <TableHead className="text-right">Adjustment Amount</TableHead>
+                        <TableHead className="w-[80px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {addedItems.map((item, idx) => {
+                        const info = catalog.find(c => c.id === item.item_id);
+                        return (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium">{info?.item_name}</TableCell>
+                            <TableCell className={`text-right font-bold ${item.qty < 0 ? 'text-destructive' : 'text-primary'}`}>
+                              {item.qty > 0 ? `+${item.qty}` : item.qty} {info?.base_unit}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive"
+                                onClick={() => handleRemoveItem(idx)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </div>
 
             </div>

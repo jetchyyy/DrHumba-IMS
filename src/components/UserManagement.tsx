@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { GroupIcon as Users, PlusIcon as Plus, LockClosedIcon as Key, EnvelopeClosedIcon as Mail, ReloadIcon as RefreshCw, Pencil1Icon as Edit, TrashIcon as Trash2, CrossCircledIcon as ShieldOff, PersonIcon as UserCheck } from '@radix-ui/react-icons';
+import { GroupIcon as Users, PlusIcon as Plus, LockClosedIcon as Key, EnvelopeClosedIcon as Mail, ReloadIcon as RefreshCw, Pencil1Icon as Edit, TrashIcon as Trash2, CrossCircledIcon as ShieldOff, PersonIcon as UserCheck, MagnifyingGlassIcon, Cross2Icon } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
@@ -73,9 +73,28 @@ export const UserManagement: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  // Filter & Search State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterRole, setFilterRole] = useState('all');
+  const [filterBranch, setFilterBranch] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+
+  const hasActiveFilters = searchQuery || filterRole !== 'all' || filterBranch !== 'all' || filterStatus !== 'all' || filterDateFrom || filterDateTo;
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setFilterRole('all');
+    setFilterBranch('all');
+    setFilterStatus('all');
+    setFilterDateFrom('');
+    setFilterDateTo('');
+  };
+
   useEffect(() => {
     setCurrentPage(1);
-  }, [staff.length]);
+  }, [staff.length, searchQuery, filterRole, filterBranch, filterStatus, filterDateFrom, filterDateTo]);
 
   const ROLE_DEFAULTS: Record<string, string[]> = {
     super_admin: ['pos', 'sales-history', 'inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'users', 'expenses', 'action_buttons'],
@@ -397,8 +416,34 @@ export const UserManagement: React.FC = () => {
     }
   };
 
-  const totalPages = Math.ceil(staff.length / itemsPerPage);
-  const paginatedStaff = staff.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const filteredStaff = staff.filter(member => {
+    if (searchQuery && !member.email.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (filterRole !== 'all' && member.role_name !== filterRole) return false;
+    if (filterBranch !== 'all') {
+      if (filterBranch === '__global__') {
+        if (member.branch_id) return false;
+      } else {
+        if (member.branch_id !== filterBranch) return false;
+      }
+    }
+    if (filterStatus !== 'all' && member.status !== filterStatus) return false;
+    if (filterDateFrom) {
+      const memberDate = new Date(member.created_at);
+      const from = new Date(filterDateFrom);
+      from.setHours(0, 0, 0, 0);
+      if (memberDate < from) return false;
+    }
+    if (filterDateTo) {
+      const memberDate = new Date(member.created_at);
+      const to = new Date(filterDateTo);
+      to.setHours(23, 59, 59, 999);
+      if (memberDate > to) return false;
+    }
+    return true;
+  });
+
+  const totalPages = Math.ceil(filteredStaff.length / itemsPerPage);
+  const paginatedStaff = filteredStaff.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
@@ -431,7 +476,94 @@ export const UserManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Staff List Panel */}
+      {/* ── Search & Filter Bar ── */}
+      <div className="mb-4 flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row gap-2">
+          {/* Search */}
+          <div className="relative flex-1">
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by email address…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          {/* Role filter */}
+          <Select value={filterRole} onValueChange={setFilterRole}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="All Roles" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Roles</SelectItem>
+              {uniqueRoles.map(r => (
+                <SelectItem key={r} value={r}>{getRoleFriendlyName(r)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Location filter */}
+          <Select value={filterBranch} onValueChange={setFilterBranch}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="All Locations" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Locations</SelectItem>
+              <SelectItem value="__global__">Corporate (Global)</SelectItem>
+              {branches.map(b => (
+                <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Status filter */}
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="w-full sm:w-36">
+              <SelectValue placeholder="All Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="suspended">Suspended</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2 items-center">
+          {/* Date from */}
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Label className="text-xs text-muted-foreground shrink-0">Created from</Label>
+            <Input
+              type="date"
+              value={filterDateFrom}
+              onChange={e => setFilterDateFrom(e.target.value)}
+              className="h-9 text-sm"
+            />
+          </div>
+          {/* Date to */}
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Label className="text-xs text-muted-foreground shrink-0">to</Label>
+            <Input
+              type="date"
+              value={filterDateTo}
+              onChange={e => setFilterDateTo(e.target.value)}
+              className="h-9 text-sm"
+            />
+          </div>
+
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1.5 text-muted-foreground hover:text-foreground">
+              <Cross2Icon className="h-3.5 w-3.5" />
+              Clear filters
+            </Button>
+          )}
+
+          <span className="ml-auto text-xs text-muted-foreground">
+            {filteredStaff.length} of {staff.length} staff
+          </span>
+        </div>
+      </div>
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -452,10 +584,12 @@ export const UserManagement: React.FC = () => {
                     Loading staff records...
                   </TableCell>
                 </TableRow>
-              ) : staff.length === 0 ? (
+              ) : paginatedStaff.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={isSuperAdmin ? 6 : 5} className="h-24 text-center text-muted-foreground">
-                    No staff records found.
+                    {hasActiveFilters ? (
+                      <span>No staff match the current filters. <button type="button" onClick={clearFilters} className="text-primary underline underline-offset-2">Clear filters</button></span>
+                    ) : 'No staff records found.'}
                   </TableCell>
                 </TableRow>
               ) : (
