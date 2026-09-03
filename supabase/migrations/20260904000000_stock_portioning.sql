@@ -193,13 +193,13 @@ BEGIN
     WHERE id = p_request_id;
 
     -- 5. Audit log entry
-    INSERT INTO public.audit_logs (user_id, action, entity_type, entity_id, details, tenant_id)
+    INSERT INTO public.audit_logs (user_id, action, module, new_value, tenant_id)
     VALUES (
         auth.uid(),
         'APPROVE_PORTIONING_REQUEST',
-        'portioning_requests',
-        p_request_id,
+        'portioning',
         jsonb_build_object(
+            'request_id', p_request_id,
             'source_item', v_source_name,
             'source_qty', v_source_qty,
             'target_item', v_target_name,

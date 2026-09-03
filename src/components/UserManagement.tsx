@@ -181,7 +181,7 @@ export const UserManagement: React.FC = () => {
   const loadStaff = async () => {
     setLoading(true);
     try {
-      const { data, error: staffError } = await supabase
+      let query = supabase
         .from('profiles')
         .select(`
           id,
@@ -193,8 +193,14 @@ export const UserManagement: React.FC = () => {
           created_at,
           branches (name)
         `)
-        .neq('is_platform_admin', true)
-        .order('role_name');
+        .neq('is_platform_admin', true);
+
+      const targetTenantId = tenant?.id || profile?.tenant_id;
+      if (targetTenantId) {
+        query = query.eq('tenant_id', targetTenantId);
+      }
+
+      const { data, error: staffError } = await query.order('role_name');
 
       if (staffError) throw staffError;
       setStaff(data as any[] || []);
@@ -211,7 +217,7 @@ export const UserManagement: React.FC = () => {
       setBranchId(branches[0].id);
       setEditBranchId(branches[0].id);
     }
-  }, [branches]);
+  }, [branches, tenant, profile]);
 
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
