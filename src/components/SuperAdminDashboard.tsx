@@ -195,6 +195,7 @@ export const SuperAdminDashboard: React.FC = () => {
     receiving: 'Receiving Sheets',
     transfers: 'Store Transfers',
     adjustments: 'Stock Adjustments',
+    portioning: 'Portioning & Yield Conversions',
     transactions: 'Stock Ledgers',
     kitchen_receipts: 'Kitchen Orders Queue',
     recipes: 'Menu Recipes & Deductions',

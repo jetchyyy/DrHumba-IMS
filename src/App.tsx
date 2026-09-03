@@ -17,6 +17,7 @@ import { GlobalInventory } from './components/GlobalInventory';
 import { StockReceiving } from './components/StockReceiving';
 import { Transfers } from './components/Transfers';
 import { Adjustments } from './components/Adjustments';
+import { Portioning } from './components/Portioning';
 import { Transactions } from './components/Transactions';
 import { Recipes } from './components/Recipes';
 import { BranchManagement } from './components/BranchManagement';
@@ -563,6 +564,7 @@ const AppContent: React.FC = () => {
     receiving:        'receiving',
     transfers:        'transfers',
     adjustments:      'adjustments',
+    portioning:       'portioning',
     transactions:     'transactions',
     recipes:          'recipes',
     branches:         'branches',
@@ -650,6 +652,8 @@ const AppContent: React.FC = () => {
         return <Transfers />;
       case 'adjustments':
         return <Adjustments />;
+      case 'portioning':
+        return <Portioning />;
       case 'transactions':
         return <Transactions />;
       case 'kitchen-receipts':
