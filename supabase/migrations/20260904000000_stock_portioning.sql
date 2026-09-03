@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS public.portioning_requests (
     waste_quantity NUMERIC DEFAULT 0 CHECK (waste_quantity >= 0),
     waste_reason TEXT,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
-    requested_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-    approved_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    requested_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
     approved_at TIMESTAMPTZ,
     rejection_reason TEXT,
     remarks TEXT,
@@ -23,6 +23,15 @@ CREATE TABLE IF NOT EXISTS public.portioning_requests (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT portioning_requests_tenant_control_number_key UNIQUE (tenant_id, control_number)
 );
+
+-- Foreign key constraints for PostgREST profile relationships
+ALTER TABLE public.portioning_requests DROP CONSTRAINT IF EXISTS portioning_requests_requested_by_fkey;
+ALTER TABLE public.portioning_requests ADD CONSTRAINT portioning_requests_requested_by_fkey 
+    FOREIGN KEY (requested_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+
+ALTER TABLE public.portioning_requests DROP CONSTRAINT IF EXISTS portioning_requests_approved_by_fkey;
+ALTER TABLE public.portioning_requests ADD CONSTRAINT portioning_requests_approved_by_fkey 
+    FOREIGN KEY (approved_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
 
 -- 2. Enable RLS and attach tenant auto-stamp trigger
 ALTER TABLE public.portioning_requests ENABLE ROW LEVEL SECURITY;

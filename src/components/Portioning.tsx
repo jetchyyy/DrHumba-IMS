@@ -124,26 +124,66 @@ export const Portioning: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Portioning Requests
-      let query = supabase
-        .from('portioning_requests')
-        .select(`
-          *,
-          branches:branch_id (name),
-          source_item:source_item_id (item_name, base_unit, category, cost_per_base_unit),
-          target_item:target_item_id (item_name, base_unit, category, cost_per_base_unit),
-          requested_user:requested_by (full_name),
-          approved_user:approved_by (full_name)
-        `)
-        .order('created_at', { ascending: false });
+      // 1. Fetch Portioning Requests with fallback if schema cache is pending reload
+      let reqData: any[] = [];
+      try {
+        let query = supabase
+          .from('portioning_requests')
+          .select(`
+            *,
+            branches:branch_id (name),
+            source_item:source_item_id (item_name, base_unit, category, cost_per_base_unit),
+            target_item:target_item_id (item_name, base_unit, category, cost_per_base_unit),
+            requested_user:requested_by (full_name),
+            approved_user:approved_by (full_name)
+          `)
+          .order('created_at', { ascending: false });
 
-      if (selectedBranch) {
-        query = query.eq('branch_id', selectedBranch.id);
+        if (selectedBranch) {
+          query = query.eq('branch_id', selectedBranch.id);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+        reqData = data || [];
+      } catch (relErr) {
+        // Fallback without embedded user join if schema cache hasn't refreshed
+        let query = supabase
+          .from('portioning_requests')
+          .select(`
+            *,
+            branches:branch_id (name),
+            source_item:source_item_id (item_name, base_unit, category, cost_per_base_unit),
+            target_item:target_item_id (item_name, base_unit, category, cost_per_base_unit)
+          `)
+          .order('created_at', { ascending: false });
+
+        if (selectedBranch) {
+          query = query.eq('branch_id', selectedBranch.id);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+        reqData = data || [];
+
+        // Fetch profiles separately
+        const userIds = Array.from(new Set(reqData.flatMap(r => [r.requested_by, r.approved_by]).filter(Boolean)));
+        if (userIds.length > 0) {
+          const { data: profs } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', userIds);
+
+          const profMap = new Map(profs?.map(p => [p.id, p.full_name]) || []);
+          reqData = reqData.map(r => ({
+            ...r,
+            requested_user: r.requested_by ? { full_name: profMap.get(r.requested_by) || 'Staff' } : null,
+            approved_user: r.approved_by ? { full_name: profMap.get(r.approved_by) || 'Admin' } : null,
+          }));
+        }
       }
 
-      const { data: reqData, error: reqErr } = await query;
-      if (reqErr) throw reqErr;
-      setRequests(reqData || []);
+      setRequests(reqData);
 
       // 2. Fetch Catalog Items
       const { data: catData, error: catErr } = await supabase
