@@ -2687,89 +2687,94 @@ export const POS: React.FC<POSProps> = ({
 
       {/* ─── Closed Z-Report View Dialog ─── */}
       <Dialog open={!!viewingClosedSummary} onOpenChange={(v) => { if (!v) setViewingClosedSummary(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold tracking-tight text-destructive">Z-Read Shift Closed Report</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Official shift summary. This terminal session is now locked.
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="sm:max-w-2xl p-0 overflow-hidden">
+          <div className="flex flex-col max-h-[90vh] w-full">
+            {/* Header */}
+            <div className="px-6 pt-6 pb-4 pr-12 shrink-0">
+              <DialogTitle className="text-lg font-bold tracking-tight text-destructive">Z-Read Shift Closed Report</DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-1.5">
+                Official shift summary. This terminal session is now locked.
+              </DialogDescription>
+            </div>
 
-          {viewingClosedSummary && (
-            <div className="space-y-4 py-2">
-              <div className="border border-destructive/20 rounded-md p-4 bg-muted/30 font-mono text-xs space-y-1.5 max-h-[50vh] overflow-y-auto">
-                <div className="text-center font-bold uppercase">{selectedBranch?.name || 'TERMINAL'}</div>
-                <div className="text-center text-[10px] text-destructive font-bold">Z-READ CLOSED REPORT</div>
-                <div className="border-t border-dashed my-2" />
-                <div className="flex justify-between"><span>Status:</span><span className="font-bold text-destructive">{viewingClosedSummary.status?.toUpperCase()}</span></div>
-                <div className="flex justify-between"><span>Z-Counter:</span><span className="font-bold text-destructive">#{String(viewingClosedSummary.zCounter || 0).padStart(5, '0')}</span></div>
-                <div className="flex justify-between"><span>Opened At:</span><span>{new Date(viewingClosedSummary.openedAt).toLocaleString()}</span></div>
-                <div className="flex justify-between"><span>Closed At:</span><span>{new Date(viewingClosedSummary.closedAt).toLocaleString()}</span></div>
-                <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">LIFETIME GRAND TOTALS</div>
-                <div className="flex justify-between"><span>Start:</span><span>{formatPHP(viewingClosedSummary.grandTotalStart)}</span></div>
-                <div className="flex justify-between"><span>End:</span><span>{formatPHP(viewingClosedSummary.grandTotalEnd)}</span></div>
-                <div className="border-t border-dashed my-2" />
-                <div className="flex justify-between"><span>Gross Sales:</span><span>{formatPHP(viewingClosedSummary.grossSales)}</span></div>
-                <div className="flex justify-between"><span>Net Sales (Ex-VAT):</span><span>{formatPHP(viewingClosedSummary.netSales)}</span></div>
-                <div className="flex justify-between"><span>VAT Amount (12%):</span><span>{formatPHP(viewingClosedSummary.vatAmount)}</span></div>
-                <div className="flex justify-between"><span>VAT-Exempt Sales:</span><span>{formatPHP(viewingClosedSummary.vatExemptSales || 0)}</span></div>
-                <div className="flex justify-between"><span>Discount Total:</span><span>{formatPHP(viewingClosedSummary.discountAmount || 0)}</span></div>
-                <div className="flex justify-between"><span>Transaction Count:</span><span>{viewingClosedSummary.transactionCount}</span></div>
-                <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">PAYMENT BREAKDOWN</div>
-                <div className="flex justify-between"><span>Cash:</span><span>{formatPHP(viewingClosedSummary.cashSales)}</span></div>
-                <div className="flex justify-between"><span>GCash:</span><span>{formatPHP(viewingClosedSummary.gcashSales)}</span></div>
-                <div className="flex justify-between"><span>Maya:</span><span>{formatPHP(viewingClosedSummary.mayaSales)}</span></div>
-                <div className="flex justify-between"><span>Card:</span><span>{formatPHP(viewingClosedSummary.cardSales)}</span></div>
-                <div className="flex justify-between"><span>Other:</span><span>{formatPHP(viewingClosedSummary.otherSales)}</span></div>
-                <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">SALES CHANNEL BREAKDOWN</div>
-                <div className="flex justify-between"><span>Dine-in / Store:</span><span>{formatPHP(viewingClosedSummary.dineInSales || 0)}</span></div>
-                <div className="flex justify-between"><span>Take-out:</span><span>{formatPHP(viewingClosedSummary.takeOutSales || 0)}</span></div>
-                <div className="flex justify-between text-amber-500 font-bold"><span>FoodPanda:</span><span>{formatPHP(viewingClosedSummary.foodpandaSales || 0)}</span></div>
-                <div className="flex justify-between text-emerald-500 font-bold"><span>GrabFood:</span><span>{formatPHP(viewingClosedSummary.grabSales || 0)}</span></div>
-                {viewingClosedSummary.otherChannelSales > 0 && (
-                  <div className="flex justify-between"><span>Other Channels:</span><span>{formatPHP(viewingClosedSummary.otherChannelSales)}</span></div>
-                )}
-                <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">VOIDS & REFUNDS</div>
-                <div className="flex justify-between"><span>Void Count:</span><span>{viewingClosedSummary.voidCount}</span></div>
-                <div className="flex justify-between"><span>Void Amount:</span><span>{formatPHP(viewingClosedSummary.voidAmount)}</span></div>
-                <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">DRAWER FLOW & BALANCING</div>
-                <div className="flex justify-between"><span>Opening Float:</span><span>{formatPHP(viewingClosedSummary.openingBalance)}</span></div>
-                <div className="flex justify-between"><span>Expected Cash:</span><span>{formatPHP(viewingClosedSummary.expectedCash)}</span></div>
-                <div className="flex justify-between font-bold"><span>Expected Drawer:</span><span>{formatPHP(viewingClosedSummary.openingBalance + viewingClosedSummary.expectedCash)}</span></div>
-                <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-bold"><span>Actual Drawer:</span><span>{formatPHP(viewingClosedSummary.actualCash)}</span></div>
-                <div className={`flex justify-between font-bold ${viewingClosedSummary.discrepancy < 0 ? 'text-destructive' : 'text-emerald-500'}`}>
-                  <span>Discrepancy:</span>
-                  <span>{formatPHP(viewingClosedSummary.discrepancy)}</span>
+            {/* Scrollable receipt body */}
+            {viewingClosedSummary && (
+              <div className="flex-1 overflow-y-auto px-6 py-3 min-h-0">
+                <div className="border border-destructive/20 rounded-md p-4 bg-muted/30 font-mono text-xs space-y-1.5">
+                  <div className="text-center font-bold uppercase">{selectedBranch?.name || 'TERMINAL'}</div>
+                  <div className="text-center text-[10px] text-destructive font-bold">Z-READ CLOSED REPORT</div>
+                  <div className="border-t border-dashed my-2" />
+                  <div className="flex justify-between"><span>Status:</span><span className="font-bold text-destructive">{viewingClosedSummary.status?.toUpperCase()}</span></div>
+                  <div className="flex justify-between"><span>Z-Counter:</span><span className="font-bold text-destructive">#{String(viewingClosedSummary.zCounter || 0).padStart(5, '0')}</span></div>
+                  <div className="flex justify-between"><span>Opened At:</span><span>{new Date(viewingClosedSummary.openedAt).toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span>Closed At:</span><span>{new Date(viewingClosedSummary.closedAt).toLocaleString()}</span></div>
+                  <div className="border-t border-dashed my-2" />
+                  <div className="font-bold text-center">LIFETIME GRAND TOTALS</div>
+                  <div className="flex justify-between"><span>Start:</span><span>{formatPHP(viewingClosedSummary.grandTotalStart)}</span></div>
+                  <div className="flex justify-between"><span>End:</span><span>{formatPHP(viewingClosedSummary.grandTotalEnd)}</span></div>
+                  <div className="border-t border-dashed my-2" />
+                  <div className="flex justify-between"><span>Gross Sales:</span><span>{formatPHP(viewingClosedSummary.grossSales)}</span></div>
+                  <div className="flex justify-between"><span>Net Sales (Ex-VAT):</span><span>{formatPHP(viewingClosedSummary.netSales)}</span></div>
+                  <div className="flex justify-between"><span>VAT Amount (12%):</span><span>{formatPHP(viewingClosedSummary.vatAmount)}</span></div>
+                  <div className="flex justify-between"><span>VAT-Exempt Sales:</span><span>{formatPHP(viewingClosedSummary.vatExemptSales || 0)}</span></div>
+                  <div className="flex justify-between"><span>Discount Total:</span><span>{formatPHP(viewingClosedSummary.discountAmount || 0)}</span></div>
+                  <div className="flex justify-between"><span>Transaction Count:</span><span>{viewingClosedSummary.transactionCount}</span></div>
+                  <div className="border-t border-dashed my-2" />
+                  <div className="font-bold text-center">PAYMENT BREAKDOWN</div>
+                  <div className="flex justify-between"><span>Cash:</span><span>{formatPHP(viewingClosedSummary.cashSales)}</span></div>
+                  <div className="flex justify-between"><span>GCash:</span><span>{formatPHP(viewingClosedSummary.gcashSales)}</span></div>
+                  <div className="flex justify-between"><span>Maya:</span><span>{formatPHP(viewingClosedSummary.mayaSales)}</span></div>
+                  <div className="flex justify-between"><span>Card:</span><span>{formatPHP(viewingClosedSummary.cardSales)}</span></div>
+                  <div className="flex justify-between"><span>Other:</span><span>{formatPHP(viewingClosedSummary.otherSales)}</span></div>
+                  <div className="border-t border-dashed my-2" />
+                  <div className="font-bold text-center">SALES CHANNEL BREAKDOWN</div>
+                  <div className="flex justify-between"><span>Dine-in / Store:</span><span>{formatPHP(viewingClosedSummary.dineInSales || 0)}</span></div>
+                  <div className="flex justify-between"><span>Take-out:</span><span>{formatPHP(viewingClosedSummary.takeOutSales || 0)}</span></div>
+                  <div className="flex justify-between text-amber-500 font-bold"><span>FoodPanda:</span><span>{formatPHP(viewingClosedSummary.foodpandaSales || 0)}</span></div>
+                  <div className="flex justify-between text-emerald-500 font-bold"><span>GrabFood:</span><span>{formatPHP(viewingClosedSummary.grabSales || 0)}</span></div>
+                  {viewingClosedSummary.otherChannelSales > 0 && (
+                    <div className="flex justify-between"><span>Other Channels:</span><span>{formatPHP(viewingClosedSummary.otherChannelSales)}</span></div>
+                  )}
+                  <div className="border-t border-dashed my-2" />
+                  <div className="font-bold text-center">VOIDS &amp; REFUNDS</div>
+                  <div className="flex justify-between"><span>Void Count:</span><span>{viewingClosedSummary.voidCount}</span></div>
+                  <div className="flex justify-between"><span>Void Amount:</span><span>{formatPHP(viewingClosedSummary.voidAmount)}</span></div>
+                  <div className="border-t border-dashed my-2" />
+                  <div className="font-bold text-center">DRAWER FLOW &amp; BALANCING</div>
+                  <div className="flex justify-between"><span>Opening Float:</span><span>{formatPHP(viewingClosedSummary.openingBalance)}</span></div>
+                  <div className="flex justify-between"><span>Expected Cash:</span><span>{formatPHP(viewingClosedSummary.expectedCash)}</span></div>
+                  <div className="flex justify-between font-bold"><span>Expected Drawer:</span><span>{formatPHP(viewingClosedSummary.openingBalance + viewingClosedSummary.expectedCash)}</span></div>
+                  <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-bold"><span>Actual Drawer:</span><span>{formatPHP(viewingClosedSummary.actualCash)}</span></div>
+                  <div className={`flex justify-between font-bold ${viewingClosedSummary.discrepancy < 0 ? 'text-destructive' : 'text-emerald-500'}`}>
+                    <span>Discrepancy:</span>
+                    <span>{formatPHP(viewingClosedSummary.discrepancy)}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
-            <Button variant="outline" onClick={() => setViewingClosedSummary(null)} className="sm:flex-1">
-              Close & Lock POS
-            </Button>
-            <Button
-              onClick={() => handlePrintXZBluetooth(viewingClosedSummary, true)}
-              disabled={isPrintingXZBluetooth}
-              className="sm:flex-1 font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              {isPrintingXZBluetooth ? <Spinner className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-              Print Bluetooth
-            </Button>
-            <Button
-              onClick={() => printXZReport(viewingClosedSummary, true, selectedBranch?.name || 'TERMINAL')}
-              className="sm:flex-1 font-bold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <Printer className="w-4 h-4" />
-              Print System
-            </Button>
-          </DialogFooter>
+            {/* Footer — always anchored at bottom */}
+            <div className="flex flex-col sm:flex-row gap-2 px-6 py-4 shrink-0 border-t">
+              <Button variant="outline" onClick={() => setViewingClosedSummary(null)} className="sm:flex-1">
+                Close &amp; Lock POS
+              </Button>
+              <Button
+                onClick={() => handlePrintXZBluetooth(viewingClosedSummary, true)}
+                disabled={isPrintingXZBluetooth}
+                className="sm:flex-1 font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {isPrintingXZBluetooth ? <Spinner className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                Print Bluetooth
+              </Button>
+              <Button
+                onClick={() => printXZReport(viewingClosedSummary, true, selectedBranch?.name || 'TERMINAL')}
+                className="sm:flex-1 font-bold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Printer className="w-4 h-4" />
+                Print System
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </>
