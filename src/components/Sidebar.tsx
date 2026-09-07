@@ -97,26 +97,27 @@ export const useNavItems = () => {
 
   // Filter by business model rules & SuperAdmin feature flags
   const filtered = tabs.filter(tab => {
-    // 1. Business model requirement (e.g. Kitchen Orders is only shown for restaurants)
-    if (!tab.show) return false;
-
-    // 2. Feature flag set by SuperAdmin in SuperAdmin Dashboard
+    // 1. Plan feature flag is a hard ceiling — always applied first regardless of role
     const key = TAB_FEATURE_KEYS[tab.id];
     if (key && tenant?.features && features[key] === false) {
       return false;
     }
 
-    // 3. System tabs always available to allowed roles
+    // 2. System tabs always available to allowed roles
     if (['dashboard', 'settings'].includes(tab.id)) return true;
 
-    // 4. Super Admin gets all business-valid & feature-enabled tabs
-    if (role === 'super_admin') return true;
+    // 3. Super Admin gets all business-valid & feature-enabled tabs
+    if (role === 'super_admin') return tab.show;
 
-    // 5. Staff tab permission overrides
+    // 4. If the staff has an explicit allowed_tabs list, use it as the source of truth.
+    //    This allows custom-role staff to access tabs like Transfers even if tab.show
+    //    is false for their role (since tab.show only lists known system roles).
     if (profile.allowed_tabs && Array.isArray(profile.allowed_tabs)) {
       return profile.allowed_tabs.includes(tab.id);
     }
-    return true;
+
+    // 5. Fall back to the tab.show role gate for standard roles without overrides
+    return !!tab.show;
   });
 
   return filtered.map(tab => ({ ...tab, locked: false }));

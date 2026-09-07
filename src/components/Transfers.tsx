@@ -93,7 +93,7 @@ export const Transfers: React.FC = () => {
   const [remarks, setRemarks] = useState('');
   const [addedItems, setAddedItems] = useState<{ item_id: string; qty: number }[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
-  const [currentQty, setCurrentQty] = useState(50);
+  const [currentQty, setCurrentQty] = useState(0);
   const [sourceInventory, setSourceInventory] = useState<Record<string, number>>({});
   const [itemSearchTerm, setItemSearchTerm] = useState('');
   const [itemPopoverOpen, setItemPopoverOpen] = useState(false);
@@ -188,7 +188,7 @@ export const Transfers: React.FC = () => {
     setAddedItems([]);
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
-      setCurrentQty(100);
+      setCurrentQty(0);
     }
     setItemSearchTerm('');
     setItemPopoverOpen(false);

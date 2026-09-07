@@ -125,6 +125,8 @@ export const UserManagement: React.FC = () => {
   };
 
   const planFeatures = (tenant?.features ?? {}) as Record<string, boolean>;
+  // NOTE: 'transfers' appears both in the grid and as a dedicated toggle — they are kept
+  // in sync bidirectionally. 'action_buttons' is only in the dedicated toggle.
   const ALL_AVAILABLE_TABS = [
     { id: 'pos', name: 'POS (Sales)' },
     { id: 'queue-caller', name: 'Queue Caller' },
@@ -248,10 +250,12 @@ export const UserManagement: React.FC = () => {
       return;
     }
 
-    const finalAllowedTabs = [...allowedTabs];
-    if (allowTransfers) {
-      finalAllowedTabs.push('transfers');
-    }
+    // allowedTabs already contains 'transfers' if the grid checkbox is checked
+    // (kept in sync with allowTransfers). Deduplicate before saving.
+    const finalAllowedTabs = Array.from(new Set([
+      ...allowedTabs,
+      ...(allowTransfers ? ['transfers'] : []),
+    ]));
     if (allowActionButtons) {
       finalAllowedTabs.push('action_buttons');
     }
@@ -303,10 +307,12 @@ export const UserManagement: React.FC = () => {
       return;
     }
 
-    const finalAllowedTabs = [...editAllowedTabs];
-    if (editAllowTransfers) {
-      finalAllowedTabs.push('transfers');
-    }
+    // editAllowedTabs already contains 'transfers' if the grid checkbox is checked
+    // (kept in sync with editAllowTransfers). Deduplicate before saving.
+    const finalAllowedTabs = Array.from(new Set([
+      ...editAllowedTabs,
+      ...(editAllowTransfers ? ['transfers'] : []),
+    ]));
     if (editAllowActionButtons) {
       finalAllowedTabs.push('action_buttons');
     }
@@ -392,9 +398,12 @@ export const UserManagement: React.FC = () => {
       setEditCustomRole('');
     }
 
+    const hasTransfers = tabs.includes('transfers');
     setEditBranchId(member.branch_id || (branches.length > 0 ? branches[0].id : ''));
-    setEditAllowedTabs(tabs.filter(t => t !== 'transfers' && t !== 'action_buttons'));
-    setEditAllowTransfers(tabs.includes('transfers'));
+    // Keep 'transfers' in editAllowedTabs so the grid checkbox stays in sync,
+    // but also track it separately via editAllowTransfers for the dedicated toggle.
+    setEditAllowedTabs(tabs.filter(t => t !== 'action_buttons'));
+    setEditAllowTransfers(hasTransfers);
     setEditAllowActionButtons(tabs.includes('action_buttons'));
     setIsEditModalOpen(true);
   };
@@ -785,7 +794,16 @@ export const UserManagement: React.FC = () => {
                 <Checkbox
                   id="allow-transfers"
                   checked={allowTransfers}
-                  onCheckedChange={(checked) => setAllowTransfers(!!checked)}
+                  onCheckedChange={(checked) => {
+                    const isOn = !!checked;
+                    setAllowTransfers(isOn);
+                    // Keep the grid Transfers checkbox in sync
+                    if (isOn) {
+                      setAllowedTabs(prev => prev.includes('transfers') ? prev : [...prev, 'transfers']);
+                    } else {
+                      setAllowedTabs(prev => prev.filter(t => t !== 'transfers'));
+                    }
+                  }}
                 />
                 <div className="grid gap-1 leading-none">
                   <Label htmlFor="allow-transfers" className="text-sm font-semibold cursor-pointer">
@@ -826,8 +844,12 @@ export const UserManagement: React.FC = () => {
                           onCheckedChange={(checked) => {
                             if (!checked) {
                               setAllowedTabs(allowedTabs.filter(t => t !== tab.id));
+                              // Keep dedicated Transfers toggle in sync
+                              if (tab.id === 'transfers') setAllowTransfers(false);
                             } else {
                               setAllowedTabs([...allowedTabs, tab.id]);
+                              // Keep dedicated Transfers toggle in sync
+                              if (tab.id === 'transfers') setAllowTransfers(true);
                             }
                           }}
                         />
@@ -917,7 +939,16 @@ export const UserManagement: React.FC = () => {
                 <Checkbox
                   id="edit-allow-transfers"
                   checked={editAllowTransfers}
-                  onCheckedChange={(checked) => setEditAllowTransfers(!!checked)}
+                  onCheckedChange={(checked) => {
+                    const isOn = !!checked;
+                    setEditAllowTransfers(isOn);
+                    // Keep the grid Transfers checkbox in sync
+                    if (isOn) {
+                      setEditAllowedTabs(prev => prev.includes('transfers') ? prev : [...prev, 'transfers']);
+                    } else {
+                      setEditAllowedTabs(prev => prev.filter(t => t !== 'transfers'));
+                    }
+                  }}
                 />
                 <div className="grid gap-1 leading-none">
                   <Label htmlFor="edit-allow-transfers" className="text-sm font-semibold cursor-pointer">
@@ -958,8 +989,12 @@ export const UserManagement: React.FC = () => {
                           onCheckedChange={(checked) => {
                             if (!checked) {
                               setEditAllowedTabs(editAllowedTabs.filter(t => t !== tab.id));
+                              // Keep dedicated Transfers toggle in sync
+                              if (tab.id === 'transfers') setEditAllowTransfers(false);
                             } else {
                               setEditAllowedTabs([...editAllowedTabs, tab.id]);
+                              // Keep dedicated Transfers toggle in sync
+                              if (tab.id === 'transfers') setEditAllowTransfers(true);
                             }
                           }}
                         />
