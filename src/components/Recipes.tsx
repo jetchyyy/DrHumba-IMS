@@ -167,7 +167,7 @@ export const Recipes: React.FC = () => {
   const [instructions, setInstructions] = useState('');
   const [recipeIngredients, setRecipeIngredients] = useState<{ item_id: string; qty: number }[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
-  const [currentQty, setCurrentQty] = useState(1);
+  const [currentQty, setCurrentQty] = useState<number | string>(1);
   const [recipeUnit, setRecipeUnit] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -290,10 +290,10 @@ export const Recipes: React.FC = () => {
     setRecipeIngredients([]);
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
-      setCurrentQty(5);
+      setCurrentQty('');
     } else {
       setCurrentSelectedItemId('');
-      setCurrentQty(1);
+      setCurrentQty('');
     }
     setShowItemModal(true);
   };
@@ -320,10 +320,10 @@ export const Recipes: React.FC = () => {
 
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
-      setCurrentQty(5);
+      setCurrentQty('');
     } else {
       setCurrentSelectedItemId('');
-      setCurrentQty(1);
+      setCurrentQty('');
     }
 
     try {
@@ -1283,7 +1283,7 @@ export const Recipes: React.FC = () => {
                                   type="number"
                                   step="any"
                                   value={currentQty || ''}
-                                  onChange={(e) => setCurrentQty(Number(e.target.value))}
+                                  onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
                                   placeholder="Qty"
                                   className="w-20 h-9 shrink-0"
                                 />

@@ -86,7 +86,7 @@ export const StockReceiving: React.FC = () => {
   const [dateReceived, setDateReceived] = useState(new Date().toISOString().split('T')[0]);
   const [addedItems, setAddedItems] = useState<{ item_id: string; qty: number; cost: number }[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
-  const [currentQty, setCurrentQty] = useState(1);
+  const [currentQty, setCurrentQty] = useState<number | string>(1);
   const [currentCost, setCurrentCost] = useState(10);
   
   const [processingReceiptId, setProcessingReceiptId] = useState<string | null>(null);
@@ -122,7 +122,7 @@ export const StockReceiving: React.FC = () => {
     setAddedItems([]);
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
-      setCurrentQty(10);
+      setCurrentQty('');
       setCurrentCost(15);
     }
     setShowCreateModal(true);
@@ -580,7 +580,8 @@ export const StockReceiving: React.FC = () => {
                     <Input
                       type="number"
                       value={currentQty}
-                      onChange={(e) => setCurrentQty(Number(e.target.value))}
+                      onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="0"
                     />
                   </div>
                   <div className="space-y-2">

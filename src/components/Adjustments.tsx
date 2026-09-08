@@ -86,7 +86,7 @@ export const Adjustments: React.FC = () => {
   const [photoUrl, setPhotoUrl] = useState('');
   const [addedItems, setAddedItems] = useState<{ item_id: string; qty: number }[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
-  const [currentQty, setCurrentQty] = useState(-10); // Default to negative deduction
+  const [currentQty, setCurrentQty] = useState<number | string>(-10); // Default to negative deduction
   
   const [processing, setProcessing] = useState(false);
 
@@ -249,7 +249,7 @@ export const Adjustments: React.FC = () => {
     stopCamera();
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
-      setCurrentQty(-10);
+      setCurrentQty('');
     }
     setShowCreateModal(true);
   };
@@ -851,7 +851,8 @@ export const Adjustments: React.FC = () => {
                     <Input
                       type="number"
                       value={currentQty}
-                      onChange={(e) => setCurrentQty(Number(e.target.value))}
+                      onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="0"
                     />
                   </div>
                 </div>
