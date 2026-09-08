@@ -103,18 +103,18 @@ export const useNavItems = () => {
       return false;
     }
 
-    // 2. System tabs always available to allowed roles
-    if (['dashboard', 'settings'].includes(tab.id)) return true;
-
-    // 3. Super Admin gets all business-valid & feature-enabled tabs
-    if (role === 'super_admin') return tab.show;
-
-    // 4. If the staff has an explicit allowed_tabs list, use it as the source of truth.
+    // 2. If the staff has an explicit allowed_tabs list, use it as the source of truth.
     //    This allows custom-role staff to access tabs like Transfers even if tab.show
     //    is false for their role (since tab.show only lists known system roles).
     if (profile.allowed_tabs && Array.isArray(profile.allowed_tabs)) {
       return profile.allowed_tabs.includes(tab.id);
     }
+
+    // 3. System tabs always available to standard roles (if not overridden by allowed_tabs)
+    if (['dashboard', 'settings'].includes(tab.id)) return true;
+
+    // 4. Super Admin gets all business-valid & feature-enabled tabs
+    if (role === 'super_admin') return tab.show;
 
     // 5. Fall back to the tab.show role gate for standard roles without overrides
     return !!tab.show;

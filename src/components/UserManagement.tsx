@@ -97,14 +97,15 @@ export const UserManagement: React.FC = () => {
   }, [staff.length, searchQuery, filterRole, filterBranch, filterStatus, filterDateFrom, filterDateTo]);
 
   const ROLE_DEFAULTS: Record<string, string[]> = {
-    super_admin: ['pos', 'sales-history', 'inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'users', 'expenses', 'action_buttons'],
-    inventory_manager: ['inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'analytics', 'action_buttons'],
-    branch_manager: ['pos', 'sales-history', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'analytics', 'expenses'],
-    cashier: ['pos', 'sales-history', 'inventory', 'global-inventory'],
-    auditor: ['inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'expenses'],
+    super_admin: ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'users', 'expenses', 'action_buttons', 'settings'],
+    inventory_manager: ['dashboard', 'inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'analytics', 'action_buttons', 'settings'],
+    branch_manager: ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'analytics', 'expenses', 'settings'],
+    cashier: ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings'],
+    auditor: ['dashboard', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'expenses', 'settings'],
   };
 
   const TAB_FEATURE_KEYS: Record<string, string> = {
+    dashboard: 'dashboard',
     pos: 'pos',
     'queue-caller': 'queue_caller',
     'sales-history': 'sales_history',
@@ -115,6 +116,7 @@ export const UserManagement: React.FC = () => {
     receiving: 'receiving',
     transfers: 'transfers',
     adjustments: 'adjustments',
+    portioning: 'portioning',
     transactions: 'transactions',
     'kitchen-receipts': 'kitchen_receipts',
     recipes: 'recipes',
@@ -122,12 +124,14 @@ export const UserManagement: React.FC = () => {
     analytics: 'analytics',
     'audit-logs': 'audit_logs',
     users: 'users',
+    settings: 'settings',
   };
 
   const planFeatures = (tenant?.features ?? {}) as Record<string, boolean>;
   // NOTE: 'transfers' appears both in the grid and as a dedicated toggle — they are kept
   // in sync bidirectionally. 'action_buttons' is only in the dedicated toggle.
   const ALL_AVAILABLE_TABS = [
+    { id: 'dashboard', name: 'Overview' },
     { id: 'pos', name: 'POS (Sales)' },
     { id: 'queue-caller', name: 'Queue Caller' },
     { id: 'sales-history', name: 'Sales History' },
@@ -138,6 +142,7 @@ export const UserManagement: React.FC = () => {
     { id: 'receiving', name: 'Stock Receiving' },
     { id: 'transfers', name: 'Transfers' },
     { id: 'adjustments', name: 'Adjustments' },
+    { id: 'portioning', name: 'Portioning & Yield' },
     { id: 'transactions', name: 'Transactions' },
     { id: 'kitchen-receipts', name: 'Kitchen Orders' },
     { id: 'recipes', name: 'Recipes' },
@@ -145,6 +150,7 @@ export const UserManagement: React.FC = () => {
     { id: 'analytics', name: 'Analytics' },
     { id: 'audit-logs', name: 'Audit Logs' },
     { id: 'users', name: 'Staff Management' },
+    { id: 'settings', name: 'Settings' },
   ].filter(tab => {
     // Only show tabs that are enabled by the tenant plan
     const key = TAB_FEATURE_KEYS[tab.id];
@@ -155,11 +161,11 @@ export const UserManagement: React.FC = () => {
   const handleRoleChange = (v: string) => {
     setRole(v);
     if (v === 'custom') {
-      setAllowedTabs(['pos', 'sales-history', 'inventory', 'global-inventory']);
+      setAllowedTabs(['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings']);
       setAllowTransfers(false);
       setAllowActionButtons(false);
     } else {
-      const defaults = ROLE_DEFAULTS[v] || ['pos', 'sales-history', 'inventory', 'global-inventory'];
+      const defaults = ROLE_DEFAULTS[v] || ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings'];
       setAllowedTabs(defaults.filter(t => t !== 'transfers' && t !== 'action_buttons'));
       setAllowTransfers(defaults.includes('transfers'));
       setAllowActionButtons(defaults.includes('action_buttons'));
@@ -169,11 +175,11 @@ export const UserManagement: React.FC = () => {
   const handleEditRoleChange = (v: string) => {
     setEditRole(v);
     if (v === 'custom') {
-      setEditAllowedTabs(['pos', 'sales-history', 'inventory', 'global-inventory']);
+      setEditAllowedTabs(['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings']);
       setEditAllowTransfers(false);
       setEditAllowActionButtons(false);
     } else {
-      const defaults = ROLE_DEFAULTS[v] || ['pos', 'sales-history', 'inventory', 'global-inventory'];
+      const defaults = ROLE_DEFAULTS[v] || ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings'];
       setEditAllowedTabs(defaults.filter(t => t !== 'transfers' && t !== 'action_buttons'));
       setEditAllowTransfers(defaults.includes('transfers'));
       setEditAllowActionButtons(defaults.includes('action_buttons'));
