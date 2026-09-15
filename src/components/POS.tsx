@@ -998,7 +998,7 @@ export const POS: React.FC<POSProps> = ({
   // Cart
   type PriceChannel = 'standard' | 'foodpanda' | 'grab';
   const [priceChannel, setPriceChannel] = useState<PriceChannel>('standard');
-  const [branchPrices, setBranchPrices] = useState<Record<string, { price?: number; foodpanda_price?: number; grab_price?: number }>>({});
+  const [branchPrices, setBranchPrices] = useState<Record<string, Record<string, { price?: number; foodpanda_price?: number; grab_price?: number }>>>({});
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
 
@@ -1334,14 +1334,18 @@ export const POS: React.FC<POSProps> = ({
           setAvailabilityMap({});
         }
 
+        const childSubStores = branches ? branches.filter(b => b.parent_id === selectedBranch.id && b.status !== 'inactive') : [];
+        const branchIdsToFetch = Array.from(new Set([selectedBranch.id, ...childSubStores.map(s => s.id)]));
+
         const { data: bpData } = await supabase
           .from('item_branch_prices')
-          .select('menu_item_id, inventory_item_id, price, foodpanda_price, grab_price')
-          .eq('branch_id', selectedBranch.id);
+          .select('branch_id, menu_item_id, inventory_item_id, price, foodpanda_price, grab_price')
+          .in('branch_id', branchIdsToFetch);
 
         if (bpData) {
-          const bpMap: Record<string, { price?: number; foodpanda_price?: number; grab_price?: number }> = {};
+          const bpMap: Record<string, Record<string, { price?: number; foodpanda_price?: number; grab_price?: number }>> = {};
           bpData.forEach(bp => {
+            if (!bpMap[bp.branch_id]) bpMap[bp.branch_id] = {};
             const overrideObj = {
               price: bp.price !== null && bp.price !== undefined ? Number(bp.price) : undefined,
               foodpanda_price: bp.foodpanda_price !== null && bp.foodpanda_price !== undefined ? Number(bp.foodpanda_price) : undefined,
@@ -1349,13 +1353,13 @@ export const POS: React.FC<POSProps> = ({
             };
 
             if (bp.menu_item_id) {
-              bpMap[bp.menu_item_id] = overrideObj;
+              bpMap[bp.branch_id][bp.menu_item_id] = overrideObj;
             }
             if (bp.inventory_item_id) {
-              bpMap[bp.inventory_item_id] = overrideObj;
+              bpMap[bp.branch_id][bp.inventory_item_id] = overrideObj;
               const targetMenuItem = (data || []).find(mi => mi.inventory_item_id === bp.inventory_item_id);
               if (targetMenuItem) {
-                bpMap[targetMenuItem.id] = overrideObj;
+                bpMap[bp.branch_id][targetMenuItem.id] = overrideObj;
               }
             }
           });
@@ -1580,16 +1584,23 @@ export const POS: React.FC<POSProps> = ({
   // ─── Cart Helpers ──────────────────────────────────────────
 
   const getItemPrice = (item: MenuItem, channel: PriceChannel = priceChannel): number => {
-    const bp = branchPrices[item.id];
+    const subId = selectedSubStore?.id;
+    const subBp = subId && branchPrices[subId] ? branchPrices[subId][item.id] : undefined;
+    const parentBp = selectedBranch?.id && branchPrices[selectedBranch.id] ? branchPrices[selectedBranch.id][item.id] : undefined;
+
     if (channel === 'foodpanda') {
-      if (bp?.foodpanda_price && bp.foodpanda_price > 0) return bp.foodpanda_price;
+      if (subBp?.foodpanda_price && subBp.foodpanda_price > 0) return subBp.foodpanda_price;
+      if (parentBp?.foodpanda_price && parentBp.foodpanda_price > 0) return parentBp.foodpanda_price;
       if (item.foodpanda_price && Number(item.foodpanda_price) > 0) return Number(item.foodpanda_price);
     }
     if (channel === 'grab') {
-      if (bp?.grab_price && bp.grab_price > 0) return bp.grab_price;
+      if (subBp?.grab_price && subBp.grab_price > 0) return subBp.grab_price;
+      if (parentBp?.grab_price && parentBp.grab_price > 0) return parentBp.grab_price;
       if (item.grab_price && Number(item.grab_price) > 0) return Number(item.grab_price);
     }
-    if (bp?.price && bp.price > 0) return bp.price;
+
+    if (subBp?.price && subBp.price > 0) return subBp.price;
+    if (parentBp?.price && parentBp.price > 0) return parentBp.price;
     return Number(item.price);
   };
 
@@ -1604,7 +1615,7 @@ export const POS: React.FC<POSProps> = ({
         })
       );
     }
-  }, [priceChannel]);
+  }, [priceChannel, selectedSubStore?.id]);
 
   const addToCart = (item: MenuItem, qty = 1) => {
     if (!activeSession || activeSession.status !== 'open') {

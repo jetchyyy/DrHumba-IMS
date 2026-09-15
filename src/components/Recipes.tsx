@@ -130,6 +130,9 @@ export const Recipes: React.FC = () => {
   const [foodpandaPrice, setFoodpandaPrice] = useState<number | ''>('');
   const [grabPrice, setGrabPrice] = useState<number | ''>('');
   const [branchPriceOverrides, setBranchPriceOverrides] = useState<Record<string, { price: string; foodpanda_price: string; grab_price: string }>>({});
+  const [expandedBranches, setExpandedBranches] = useState<Record<string, boolean>>({});
+  const [branchPriceSearch, setBranchPriceSearch] = useState('');
+  const [showOverridesOnly, setShowOverridesOnly] = useState(false);
   const [allBranches, setAllBranches] = useState(true);
   const [availableBranches, setAvailableBranches] = useState<string[]>([]);
   const [price, setPrice] = useState(9.99);
@@ -1063,74 +1066,262 @@ export const Recipes: React.FC = () => {
 
                   {/* Branch Dynamic Price Overrides */}
                   <div className="p-3 border border-border/40 bg-muted/20 rounded-lg space-y-3 mt-3">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
-                      Branch Dynamic Price Overrides (Optional)
-                    </Label>
-                    <p className="text-[10px] text-muted-foreground">
-                      Override default prices for specific branch locations if dish price differs by store.
-                    </p>
-                    <div className="space-y-2.5 max-h-48 overflow-y-auto p-2 bg-background/50 rounded-lg border border-border/40">
-                      {(branches || []).filter(b => !b.parent_id).map(branch => {
-                        const bp = branchPriceOverrides[branch.id] || { price: '', foodpanda_price: '', grab_price: '' };
-                        return (
-                          <div key={branch.id} className="p-2 border border-border/30 rounded bg-muted/10 space-y-1.5">
-                            <span className="text-xs font-bold text-primary block">{branch.name}</span>
-                            <div className="grid grid-cols-3 gap-2">
-                              <div>
-                                <Label className="text-[10px]">Standard (₱)</Label>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  className="h-7 text-xs"
-                                  value={bp.price}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setBranchPriceOverrides(prev => ({
-                                      ...prev,
-                                      [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), price: val }
-                                    }));
-                                  }}
-                                  placeholder="Default"
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-[10px] text-amber-500 font-semibold">FP (₱)</Label>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  className="h-7 text-xs"
-                                  value={bp.foodpanda_price}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setBranchPriceOverrides(prev => ({
-                                      ...prev,
-                                      [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), foodpanda_price: val }
-                                    }));
-                                  }}
-                                  placeholder="Default"
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-[10px] text-emerald-500 font-semibold">Grab (₱)</Label>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  className="h-7 text-xs"
-                                  value={bp.grab_price}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setBranchPriceOverrides(prev => ({
-                                      ...prev,
-                                      [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), grab_price: val }
-                                    }));
-                                  }}
-                                  placeholder="Default"
-                                />
-                              </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                          Branch Dynamic Price Overrides (Optional)
+                        </Label>
+                        <p className="text-[10px] text-muted-foreground">
+                          Override default prices for specific branch locations if dish price differs by store.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant={showOverridesOnly ? "default" : "outline"}
+                        size="sm"
+                        className="h-6 text-[10px] px-2 self-start sm:self-auto shrink-0"
+                        onClick={() => setShowOverridesOnly(!showOverridesOnly)}
+                      >
+                        {showOverridesOnly ? "Custom Prices Only" : "All Locations"}
+                        {Object.entries(branchPriceOverrides).filter(([_, bp]) => bp.price !== '' || bp.foodpanda_price !== '' || bp.grab_price !== '').length > 0 && (
+                          <span className="ml-1.5 px-1 bg-primary-foreground text-primary rounded-full text-[9px] font-bold">
+                            {Object.entries(branchPriceOverrides).filter(([_, bp]) => bp.price !== '' || bp.foodpanda_price !== '' || bp.grab_price !== '').length}
+                          </span>
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* Search Filter Input */}
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        placeholder="Search branch or sub-store name..."
+                        className="h-7 pl-8 pr-7 text-xs bg-background/80"
+                        value={branchPriceSearch}
+                        onChange={(e) => setBranchPriceSearch(e.target.value)}
+                      />
+                      {branchPriceSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setBranchPriceSearch('')}
+                          className="absolute right-2.5 top-1 text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="space-y-2.5 max-h-72 overflow-y-auto p-2 bg-background/50 rounded-lg border border-border/40">
+                      {(() => {
+                        const hasOverride = (bId: string) => {
+                          const bp = branchPriceOverrides[bId];
+                          return !!(bp && (bp.price !== '' || bp.foodpanda_price !== '' || bp.grab_price !== ''));
+                        };
+
+                        const filteredParents = (branches || []).filter(b => !b.parent_id).filter(branch => {
+                          const subStores = (branches || []).filter(b => b.parent_id === branch.id);
+                          const searchLower = branchPriceSearch.trim().toLowerCase();
+
+                          if (searchLower) {
+                            const parentMatch = branch.name.toLowerCase().includes(searchLower);
+                            const subMatch = subStores.some(s => s.name.toLowerCase().includes(searchLower));
+                            if (!parentMatch && !subMatch) return false;
+                          }
+
+                          if (showOverridesOnly) {
+                            const parentHas = hasOverride(branch.id);
+                            const subHas = subStores.some(s => hasOverride(s.id));
+                            if (!parentHas && !subHas) return false;
+                          }
+
+                          return true;
+                        });
+
+                        if (filteredParents.length === 0) {
+                          return (
+                            <div className="p-4 text-center text-xs text-muted-foreground">
+                              {showOverridesOnly ? 'No custom price overrides configured yet.' : 'No matching branches found.'}
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        }
+
+                        return filteredParents.map(branch => {
+                          const bp = branchPriceOverrides[branch.id] || { price: '', foodpanda_price: '', grab_price: '' };
+                          const subStores = (branches || []).filter(b => b.parent_id === branch.id);
+                          const activeSubOverrides = subStores.filter(sub => hasOverride(sub.id)).length;
+                          const isSearchActive = !!branchPriceSearch.trim();
+                          const isExpanded = expandedBranches[branch.id] || isSearchActive || activeSubOverrides > 0;
+
+                          return (
+                            <div key={branch.id} className="p-2 border border-border/30 rounded bg-muted/10 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-xs font-bold text-primary block">{branch.name}</span>
+                                  {hasOverride(branch.id) && (
+                                    <Badge variant="outline" className="text-[9px] px-1 py-0 border-emerald-500/50 text-emerald-600 bg-emerald-500/10">
+                                      Custom Price
+                                    </Badge>
+                                  )}
+                                </div>
+                                {subStores.length > 0 && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setExpandedBranches(prev => ({ ...prev, [branch.id]: !isExpanded }))}
+                                    className="h-6 text-[10px] px-2 border border-indigo-500/30 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-500/10"
+                                  >
+                                    <span>{subStores.length} Sub-Store{subStores.length > 1 ? 's' : ''}</span>
+                                    {activeSubOverrides > 0 && (
+                                      <span className="ml-1 text-emerald-600 font-bold">• {activeSubOverrides} Active</span>
+                                    )}
+                                    <span className="ml-1 text-[9px]">{isExpanded ? '▲' : '▼'}</span>
+                                  </Button>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-3 gap-2">
+                                <div>
+                                  <Label className="text-[10px]">Standard (₱)</Label>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    className="h-7 text-xs"
+                                    value={bp.price}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setBranchPriceOverrides(prev => ({
+                                        ...prev,
+                                        [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), price: val }
+                                      }));
+                                    }}
+                                    placeholder="Default"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-[10px] text-amber-500 font-semibold">FP (₱)</Label>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    className="h-7 text-xs"
+                                    value={bp.foodpanda_price}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setBranchPriceOverrides(prev => ({
+                                        ...prev,
+                                        [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), foodpanda_price: val }
+                                      }));
+                                    }}
+                                    placeholder="Default"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-[10px] text-emerald-500 font-semibold">Grab (₱)</Label>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    className="h-7 text-xs"
+                                    value={bp.grab_price}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setBranchPriceOverrides(prev => ({
+                                        ...prev,
+                                        [branch.id]: { ...(prev[branch.id] || { price: '', foodpanda_price: '', grab_price: '' }), grab_price: val }
+                                      }));
+                                    }}
+                                    placeholder="Default"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Sub-Store Price Overrides (Collapsible Accordion) */}
+                              {subStores.length > 0 && isExpanded && (
+                                <div className="pl-3 mt-2 border-l-2 border-indigo-500/30 space-y-2">
+                                  <span className="text-[10px] font-bold uppercase text-indigo-500/80 block">
+                                    Sub-Store Overrides (Optional):
+                                  </span>
+                                  {subStores.map(sub => {
+                                    const sbp = branchPriceOverrides[sub.id] || { price: '', foodpanda_price: '', grab_price: '' };
+                                    const inheritedStd = bp.price !== '' ? bp.price : (price ? String(price) : null);
+                                    const inheritedFp = bp.foodpanda_price !== '' ? bp.foodpanda_price : (foodpandaPrice ? String(foodpandaPrice) : null);
+                                    const inheritedGrab = bp.grab_price !== '' ? bp.grab_price : (grabPrice ? String(grabPrice) : null);
+
+                                    return (
+                                      <div key={sub.id} className="p-2 border border-border/40 rounded bg-background/60 space-y-1.5">
+                                        <div className="flex items-center space-x-1.5">
+                                          <span className="text-[10px] text-muted-foreground">└─</span>
+                                          <span className="text-xs font-semibold text-foreground">{sub.name}</span>
+                                          <Badge variant="outline" className="text-[9px] px-1 py-0 border-border/50 text-muted-foreground">
+                                            Sub-Store
+                                          </Badge>
+                                          {hasOverride(sub.id) && (
+                                            <Badge variant="outline" className="text-[9px] px-1 py-0 border-emerald-500/50 text-emerald-600 bg-emerald-500/10">
+                                              Custom Price
+                                            </Badge>
+                                          )}
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-2">
+                                          <div>
+                                            <Label className="text-[9px] text-muted-foreground">Standard (₱)</Label>
+                                            <Input
+                                              type="number"
+                                              step="0.01"
+                                              className="h-6 text-[11px]"
+                                              value={sbp.price}
+                                              onChange={(e) => {
+                                                const val = e.target.value;
+                                                setBranchPriceOverrides(prev => ({
+                                                  ...prev,
+                                                  [sub.id]: { ...(prev[sub.id] || { price: '', foodpanda_price: '', grab_price: '' }), price: val }
+                                                }));
+                                              }}
+                                              placeholder={inheritedStd ? `Inherit: ₱${inheritedStd}` : "Default"}
+                                            />
+                                          </div>
+                                          <div>
+                                            <Label className="text-[9px] text-amber-500/90 font-semibold">FP (₱)</Label>
+                                            <Input
+                                              type="number"
+                                              step="0.01"
+                                              className="h-6 text-[11px]"
+                                              value={sbp.foodpanda_price}
+                                              onChange={(e) => {
+                                                const val = e.target.value;
+                                                setBranchPriceOverrides(prev => ({
+                                                  ...prev,
+                                                  [sub.id]: { ...(prev[sub.id] || { price: '', foodpanda_price: '', grab_price: '' }), foodpanda_price: val }
+                                                }));
+                                              }}
+                                              placeholder={inheritedFp ? `Inherit: ₱${inheritedFp}` : "Default"}
+                                            />
+                                          </div>
+                                          <div>
+                                            <Label className="text-[9px] text-emerald-500/90 font-semibold">Grab (₱)</Label>
+                                            <Input
+                                              type="number"
+                                              step="0.01"
+                                              className="h-6 text-[11px]"
+                                              value={sbp.grab_price}
+                                              onChange={(e) => {
+                                                const val = e.target.value;
+                                                setBranchPriceOverrides(prev => ({
+                                                  ...prev,
+                                                  [sub.id]: { ...(prev[sub.id] || { price: '', foodpanda_price: '', grab_price: '' }), grab_price: val }
+                                                }));
+                                              }}
+                                              placeholder={inheritedGrab ? `Inherit: ₱${inheritedGrab}` : "Default"}
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
 
