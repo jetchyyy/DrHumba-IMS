@@ -59,6 +59,7 @@ interface CatalogItem {
   id: string;
   item_name: string;
   base_unit: string;
+  min_transfer_qty?: number | null;
 }
 
 export const Transfers: React.FC = () => {
@@ -135,7 +136,7 @@ export const Transfers: React.FC = () => {
 
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
-        .select('id, item_name, base_unit')
+        .select('id, item_name, base_unit, min_transfer_qty')
         .eq('status', 'active');
       if (catError) throw catError;
       setCatalog(catData || []);
@@ -204,6 +205,13 @@ export const Transfers: React.FC = () => {
       return;
     }
 
+    const selectedCatalogItem = catalog.find(c => c.id === currentSelectedItemId);
+    const minQty = selectedCatalogItem?.min_transfer_qty && selectedCatalogItem.min_transfer_qty > 0 ? selectedCatalogItem.min_transfer_qty : null;
+    if (minQty !== null && qtyToAdd < minQty) {
+      showError(`Quantity for ${selectedCatalogItem?.item_name || 'item'} must be at least ${minQty} ${selectedCatalogItem?.base_unit || ''}.`);
+      return;
+    }
+
     const availableQty = sourceInventory[currentSelectedItemId] || 0;
     const exists = addedItems.find(i => i.item_id === currentSelectedItemId);
     if (exists) {
@@ -243,11 +251,16 @@ export const Transfers: React.FC = () => {
       return;
     }
 
-    // Final validation of added items against source inventory balances
+    // Final validation of added items against minimum quantity and source inventory balances
     for (const item of addedItems) {
+      const info = catalog.find(c => c.id === item.item_id);
+      const minQty = info?.min_transfer_qty && info.min_transfer_qty > 0 ? info.min_transfer_qty : null;
+      if (minQty !== null && item.qty < minQty) {
+        showError(`Quantity for ${info?.item_name || 'item'} must be at least ${minQty} ${info?.base_unit || ''}.`);
+        return;
+      }
       const availableQty = sourceInventory[item.item_id] || 0;
       if (item.qty > availableQty) {
-        const info = catalog.find(c => c.id === item.item_id);
         showError(`Cannot transfer exceeding available quantity of ${availableQty} for ${info?.item_name || 'item'} in the source branch inventory.`);
         return;
       }
@@ -547,7 +560,10 @@ export const Transfers: React.FC = () => {
     }
   };
 
-  const canApprove = profile && ['super_admin', 'inventory_manager', 'branch_manager'].includes(profile.role_name);
+  const canApprove = profile && (
+    ['super_admin', 'inventory_manager', 'branch_manager'].includes(profile.role_name) ||
+    (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
+  );
 
   const filteredTransfers = transfers.filter(transfer => {
     let matchesDate = true;
@@ -597,7 +613,7 @@ export const Transfers: React.FC = () => {
             <RefreshCw className="h-4 w-4" />
           </Button>
           
-          {(profile?.role_name === 'super_admin' || profile?.role_name === 'inventory_manager' || selectedBranch?.is_warehouse) && (
+          {(profile?.role_name === 'super_admin' || profile?.role_name === 'inventory_manager' || selectedBranch?.is_warehouse || (profile?.allowed_tabs && profile.allowed_tabs.includes('transfers'))) && (
             <Button variant="default" onClick={() => handleOpenCreateModal(true)}>
               <ArrowRightLeft className="mr-2 h-4 w-4" />
               Send Shipment
@@ -905,13 +921,29 @@ export const Transfers: React.FC = () => {
                         </div>
                       </PopoverContent>
                     </Popover>
-                    {currentSelectedItemId && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Current stock at source: <span className="font-semibold text-foreground">
-                          {sourceInventory[currentSelectedItemId] || 0} {catalog.find(c => c.id === currentSelectedItemId)?.base_unit}
-                        </span>
-                      </p>
-                    )}
+                    {currentSelectedItemId && (() => {
+                      const item = catalog.find(c => c.id === currentSelectedItemId);
+                      const minQty = item?.min_transfer_qty && item.min_transfer_qty > 0 ? item.min_transfer_qty : null;
+                      const currentQtyNum = Number(currentQty);
+                      const isBelowMin = minQty !== null && currentQty !== '' && !isNaN(currentQtyNum) && currentQtyNum < minQty;
+                      return (
+                        <div className="space-y-1 mt-1">
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <span className="text-muted-foreground">Current stock at source: <strong className="text-foreground">{sourceInventory[currentSelectedItemId] || 0} {item?.base_unit}</strong></span>
+                            {minQty !== null && (
+                              <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-bold">
+                                Min Required: {minQty} {item?.base_unit}
+                              </Badge>
+                            )}
+                          </div>
+                          {isBelowMin && (
+                            <p className="text-xs text-destructive font-semibold flex items-center mt-1">
+                              ⚠️ Quantity must be at least {minQty} {item?.base_unit}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div className="space-y-2">
                     <Label>Qty</Label>
@@ -939,6 +971,7 @@ export const Transfers: React.FC = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Item Name</TableHead>
+                      <TableHead className="text-right">Min Required</TableHead>
                       <TableHead className="text-right">Quantity</TableHead>
                       <TableHead className="w-[80px]"></TableHead>
                     </TableRow>
@@ -946,10 +979,18 @@ export const Transfers: React.FC = () => {
                   <TableBody>
                     {addedItems.map((item, idx) => {
                       const info = catalog.find(c => c.id === item.item_id);
+                      const minQty = info?.min_transfer_qty && info.min_transfer_qty > 0 ? info.min_transfer_qty : null;
+                      const isBelowMin = minQty !== null && item.qty < minQty;
                       return (
-                        <TableRow key={idx}>
-                          <TableCell className="font-medium">{info?.item_name}</TableCell>
-                          <TableCell className="text-right font-bold">{item.qty} {info?.base_unit}</TableCell>
+                        <TableRow key={idx} className={isBelowMin ? 'bg-destructive/10' : ''}>
+                          <TableCell className="font-medium">
+                            {info?.item_name}
+                            {isBelowMin && (
+                              <span className="block text-[10px] text-destructive font-semibold">Below min requirement ({minQty} {info?.base_unit})!</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground text-xs">{minQty ? `${minQty} ${info?.base_unit}` : '-'}</TableCell>
+                          <TableCell className={`text-right font-bold ${isBelowMin ? 'text-destructive' : ''}`}>{item.qty} {info?.base_unit}</TableCell>
                           <TableCell className="text-center">
                             <Button
                               type="button"
@@ -1066,7 +1107,8 @@ export const Transfers: React.FC = () => {
                         profile.branch_id !== selectedTransfer.source_branch_id && (
                           profile.role_name === 'super_admin' || 
                           profile.role_name === 'inventory_manager' || 
-                          profile.branch_id === selectedTransfer.target_branch_id
+                          profile.branch_id === selectedTransfer.target_branch_id ||
+                          (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
                         );
 
                       if (selectedTransfer.status === 'approved' && canReceive) {
@@ -1216,7 +1258,8 @@ export const Transfers: React.FC = () => {
                     profile.branch_id !== selectedTransfer.source_branch_id && (
                       profile.role_name === 'super_admin' || 
                       profile.role_name === 'inventory_manager' || 
-                      profile.branch_id === selectedTransfer.target_branch_id
+                      profile.branch_id === selectedTransfer.target_branch_id ||
+                      (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
                     );
 
                   const hasDiscrepancy = selectedTransfer.status === 'approved' && transferItems.some(item => {
@@ -1260,7 +1303,7 @@ export const Transfers: React.FC = () => {
                       </div>
                     );
                   } else if (selectedTransfer.status === 'pending_receipt_approval' && 
-                             (profile?.role_name === 'super_admin' || profile?.role_name === 'inventory_manager')) {
+                             (profile?.role_name === 'super_admin' || profile?.role_name === 'inventory_manager' || (profile?.allowed_tabs && profile.allowed_tabs.includes('transfers')))) {
                     return (
                       <div className="w-full space-y-4">
                         {!showRejectDialog ? (

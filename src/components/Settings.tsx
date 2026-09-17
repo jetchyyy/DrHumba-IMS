@@ -642,36 +642,98 @@ WHERE email = 'your-email@example.com';`}</pre>
                 </CardContent>
               </Card>
 
-              {/* SECTION 3: User Management */}
+              {/* SECTION 3: User Management & Roles */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base font-bold flex items-center space-x-2">
                     <UserCheck className="w-5 h-5 text-primary" />
-                    <span>Step 3 — Creating Staff Accounts &amp; Roles</span>
+                    <span>Step 3 — Staff Accounts, System Roles &amp; Custom Role Configuration</span>
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Each staff member needs a user account with the correct role and branch assignment.
+                    Configure staff user credentials, system access roles, branch contexts, and granular custom role permissions.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <CardContent className="space-y-4 text-sm text-muted-foreground">
                   <ol className="list-decimal pl-5 space-y-2">
-                    <li>Navigate to <strong className="text-foreground">User Management</strong> in the sidebar.</li>
-                    <li>Click <strong className="text-foreground">+ Invite User</strong> — enter the staff email. They will receive an invitation to set a password.</li>
-                    <li>Once registered, assign them a <strong className="text-foreground">Role</strong> and a <strong className="text-foreground">Branch</strong> from the user list.</li>
+                    <li>Navigate to <strong className="text-foreground">Staff Account Management</strong> in the sidebar.</li>
+                    <li>Click <strong className="text-foreground">Provision Staff Account</strong> to create a new user account with their email, password, and assigned role.</li>
+                    <li>For existing accounts, click the <strong className="text-foreground">Edit</strong> button to change their system role, assigned branch, or feature permission overrides.</li>
                   </ol>
-                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                    {[
-                      { role: 'super_admin', desc: 'Full system access. Manages all branches, users, settings, and reports.' },
-                      { role: 'inventory_manager', desc: 'Manages inventory catalog, stock receiving, adjustments, and approvals.' },
-                      { role: 'branch_manager', desc: 'Oversees one branch — can approve transfers within their scope.' },
-                      { role: 'cashier', desc: 'Operates the POS terminal. Can view their branch sales history.' },
-                      { role: 'auditor', desc: 'Read-only access to all transactions, analytics, and reports.' },
-                    ].map(({ role, desc }) => (
-                      <div key={role} className="p-2.5 bg-muted/40 border rounded">
-                        <code className="text-primary font-mono text-[10px] font-bold">{role.replace(/_/g, '_')}</code>
-                        <p className="text-[11px] mt-1 text-muted-foreground">{desc}</p>
+
+                  {/* Standard System Roles */}
+                  <div className="space-y-2 pt-2">
+                    <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">Standard System Roles &amp; Access Matrix</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {[
+                        { 
+                          role: 'super_admin', 
+                          title: 'Super Admin',
+                          desc: 'Full system-wide control across all branches. Can provision staff, create custom roles, manage tenant branding, settings, and perform all inventory, sales, and audit actions.' 
+                        },
+                        { 
+                          role: 'inventory_manager', 
+                          title: 'Inventory Manager',
+                          desc: 'Corporate-wide inventory control. Manages item catalog, stock receiving, approves/dispatches transfers, approves waste adjustments, and manages portioning & recipes.' 
+                        },
+                        { 
+                          role: 'branch_manager', 
+                          title: 'Branch Manager',
+                          desc: 'Branch-level supervisor. Oversees branch operations, operates POS, views sales history, requests stock transfers, and approves incoming stock deliveries for their branch.' 
+                        },
+                        { 
+                          role: 'cashier', 
+                          title: 'Cashier',
+                          desc: 'Front-of-house staff. Operates the POS terminal for customer transactions, prints thermal sales invoices, and views branch sales history.' 
+                        },
+                        { 
+                          role: 'auditor', 
+                          title: 'Auditor',
+                          desc: 'Read-only compliance auditor. Has view-only access to all branch balances, movements, sales, z-reads, audit logs, and financial analytics.' 
+                        },
+                      ].map(({ role, title, desc }) => (
+                        <div key={role} className="p-3 bg-muted/40 border rounded-lg space-y-1">
+                          <div className="flex items-center justify-between">
+                            <Badge variant="outline" className="uppercase text-[9px] font-bold border-primary/40 text-primary">
+                              {title}
+                            </Badge>
+                            <code className="text-[10px] text-muted-foreground font-mono">{role}</code>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">{desc}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Custom Roles & Feature Overrides */}
+                  <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl space-y-3">
+                    <h4 className="text-xs font-bold text-primary uppercase tracking-wider flex items-center space-x-1.5">
+                      <span>✨ Custom Roles &amp; Granular Permission Overrides</span>
+                    </h4>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Administrators can create tailored <strong className="text-foreground">Custom Roles</strong> (such as <em>"Commissary Staff"</em>, <em>"Kitchen Lead"</em>, or <em>"Purchasing Agent"</em>) to grant specific operational privileges without elevating a user to full Super Admin.
+                    </p>
+
+                    <div className="space-y-2 text-xs">
+                      <div className="p-2.5 bg-background/80 border rounded-md space-y-1">
+                        <span className="font-semibold text-foreground block">1. Creating a Custom Role</span>
+                        <p className="text-muted-foreground">Select <strong className="text-foreground">+ Create Custom Role...</strong> in the System Role dropdown, and type a custom role name (e.g. <em>Commissary Staff</em>).</p>
                       </div>
-                    ))}
+
+                      <div className="p-2.5 bg-background/80 border rounded-md space-y-1">
+                        <span className="font-semibold text-foreground block">2. Branch Assignment Context</span>
+                        <p className="text-muted-foreground">Assign the staff member to their specific branch (e.g. <em>Commissary</em> or <em>Main Outlet</em>). Custom roles automatically operate within their assigned branch context.</p>
+                      </div>
+
+                      <div className="p-2.5 bg-background/80 border rounded-md space-y-1">
+                        <span className="font-semibold text-foreground block">3. Transfer Request &amp; Receiving Authorization</span>
+                        <p className="text-muted-foreground">Toggle <strong className="text-foreground">Allow Requesting Transfers</strong> to grant the staff member permission to create stock transfer requests from the warehouse/main branch, send shipments, and confirm physical receipt of stock items when they arrive at their branch.</p>
+                      </div>
+
+                      <div className="p-2.5 bg-background/80 border rounded-md space-y-1">
+                        <span className="font-semibold text-foreground block">4. Direct Stock Actions &amp; Feature Overrides</span>
+                        <p className="text-muted-foreground">Optionally enable <strong className="text-foreground">Allow Direct Stock Actions</strong> to permit editing stock balances directly. Custom feature grid checkboxes allow toggling access to Overview, POS, Inventory Items, Stock Receiving, Transfers, Adjustments, Portioning, Expenses, and Recipes individually.</p>
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

@@ -39,6 +39,7 @@ interface InventoryItem {
   available_branches?: string[] | null;
   foodpanda_price?: number | null;
   grab_price?: number | null;
+  min_transfer_qty?: number | null;
 }
 
 interface Balance {
@@ -76,6 +77,7 @@ export const Inventory: React.FC = () => {
   const [purchaseUnit, setPurchaseUnit] = useState('g');
   const [conversionFactor, setConversionFactor] = useState(1);
   const [reorderLevel, setReorderLevel] = useState(500);
+  const [minTransferQty, setMinTransferQty] = useState<number | ''>('');
   const [costPerBaseUnit, setCostPerBaseUnit] = useState(0.01);
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [initialQty, setInitialQty] = useState<number>(0);
@@ -164,6 +166,7 @@ export const Inventory: React.FC = () => {
     setPurchaseUnit(isRestaurant ? 'g' : 'pc');
     setConversionFactor(1);
     setReorderLevel(isRestaurant ? 500 : 5);
+    setMinTransferQty('');
     setCostPerBaseUnit(10.00);
     setStatus('active');
     setInitialQty(0);
@@ -188,6 +191,7 @@ export const Inventory: React.FC = () => {
     setPurchaseUnit(item.purchase_unit);
     setConversionFactor(item.conversion_factor);
     setReorderLevel(item.reorder_level);
+    setMinTransferQty(item.min_transfer_qty !== null && item.min_transfer_qty !== undefined ? item.min_transfer_qty : '');
     setCostPerBaseUnit(item.cost_per_base_unit);
     setStatus(item.status);
     setSellingPrice(item.selling_price || '');
@@ -240,6 +244,7 @@ export const Inventory: React.FC = () => {
       const finalSellingPrice = isPOSListed && sellingPrice !== '' ? Number(sellingPrice) : (hasAnyBranchPrice && sellingPrice === '' ? 0.01 : null);
       const finalFoodpandaPrice = foodpandaPrice !== '' ? Number(foodpandaPrice) : null;
       const finalGrabPrice = grabPrice !== '' ? Number(grabPrice) : null;
+      const finalMinTransferQty = minTransferQty !== '' ? Number(minTransferQty) : null;
       const itemPayload = {
         sku: sku.trim(),
         item_name: itemName.trim(),
@@ -248,6 +253,7 @@ export const Inventory: React.FC = () => {
         purchase_unit: purchaseUnit,
         conversion_factor: Number(conversionFactor),
         reorder_level: Number(reorderLevel),
+        min_transfer_qty: finalMinTransferQty,
         cost_per_base_unit: Number(costPerBaseUnit),
         status,
         selling_price: finalSellingPrice,
@@ -280,7 +286,8 @@ export const Inventory: React.FC = () => {
           p_selling_price: finalSellingPrice,
           p_available_branches: allBranches ? null : availableBranches,
           p_foodpanda_price: finalFoodpandaPrice,
-          p_grab_price: finalGrabPrice
+          p_grab_price: finalGrabPrice,
+          p_min_transfer_qty: finalMinTransferQty
         });
         if (error) throw error;
         savedItemId = newItemId as string;
@@ -663,6 +670,7 @@ export const Inventory: React.FC = () => {
                     <TableHead>Purchase Unit</TableHead>
                     <TableHead>Conversion</TableHead>
                     <TableHead>Reorder Min</TableHead>
+                    <TableHead>Min Transfer Qty</TableHead>
                     <TableHead>Cost / Base</TableHead>
                     <TableHead>Status</TableHead>
                     {isEditor && <TableHead className="text-right pr-6">Actions</TableHead>}
@@ -703,6 +711,7 @@ export const Inventory: React.FC = () => {
                         1 {item.purchase_unit} = {item.conversion_factor} {item.base_unit}
                       </TableCell>
                       <TableCell className="text-muted-foreground">{item.reorder_level} {item.base_unit}</TableCell>
+                      <TableCell className="text-muted-foreground font-semibold">{item.min_transfer_qty ? `${item.min_transfer_qty} ${item.base_unit}` : '-'}</TableCell>
                       <TableCell className="text-muted-foreground">₱{item.cost_per_base_unit.toFixed(2)}</TableCell>
                       <TableCell>
                         <Badge variant={item.status === 'active' ? 'default' : 'secondary'} className="uppercase text-[9px]">
@@ -911,9 +920,14 @@ export const Inventory: React.FC = () => {
                     <Input type="number" required value={reorderLevel} onChange={(e) => setReorderLevel(Number(e.target.value))} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Est. Cost per {baseUnit} (₱)</Label>
-                    <Input type="number" step="0.0001" required value={costPerBaseUnit} onChange={(e) => setCostPerBaseUnit(Number(e.target.value))} />
+                    <Label>Min Transfer / Request ({baseUnit}) <span className="text-muted-foreground font-normal">(Optional)</span></Label>
+                    <Input type="number" min="0" step="any" value={minTransferQty} onChange={(e) => setMinTransferQty(e.target.value === '' ? '' : Number(e.target.value))} placeholder="e.g. 10 (Optional)" />
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Est. Cost per {baseUnit} (₱)</Label>
+                  <Input type="number" step="0.0001" required value={costPerBaseUnit} onChange={(e) => setCostPerBaseUnit(Number(e.target.value))} />
                 </div>
 
                 <div className="flex items-center space-x-2 pt-2 pb-1">
