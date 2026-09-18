@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { settingsService } from '../lib/settingsService';
 import { printStockInReceipt } from '../lib/printService';
-import { PlusIcon as Plus, TrashIcon as Trash2, EyeOpenIcon as Eye, ClipboardIcon as ClipboardCheck, ReloadIcon as RefreshCw, FileTextIcon as Printer, FilePlusIcon as FilePlus } from '@radix-ui/react-icons';
+import { PlusIcon as Plus, TrashIcon as Trash2, EyeOpenIcon as Eye, ClipboardIcon as ClipboardCheck, ReloadIcon as RefreshCw, FileTextIcon as Printer, FilePlusIcon as FilePlus, CaretSortIcon, MagnifyingGlassIcon } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -88,6 +88,8 @@ export const StockReceiving: React.FC = () => {
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState<number | string>(1);
   const [currentCost, setCurrentCost] = useState(10);
+  const [itemPopoverOpen, setItemPopoverOpen] = useState(false);
+  const [itemSearchTerm, setItemSearchTerm] = useState('');
   
   const [processingReceiptId, setProcessingReceiptId] = useState<string | null>(null);
 
@@ -120,6 +122,8 @@ export const StockReceiving: React.FC = () => {
     setInvoiceNo('');
     setDateReceived(new Date().toISOString().split('T')[0]);
     setAddedItems([]);
+    setCurrentSelectedItemId('');
+    setItemSearchTerm('');
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
       setCurrentQty('');
@@ -145,6 +149,8 @@ export const StockReceiving: React.FC = () => {
         cost: Number(currentCost)
       }
     ]);
+    setCurrentSelectedItemId('');
+    setItemSearchTerm('');
   };
 
   const handleRemoveItemFromReceiptForm = (index: number) => {
@@ -517,135 +523,192 @@ export const StockReceiving: React.FC = () => {
 
       {/* CREATE MODAL */}
       <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-6 pb-4 border-b shrink-0">
             <DialogTitle>New Stock Delivery Draft</DialogTitle>
             <DialogDescription>
               Create a draft invoice for items received from a supplier.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSaveReceipt} className="space-y-6 pt-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Supplier Name *</Label>
-                <Input
-                  required
-                  value={supplier}
-                  onChange={(e) => setSupplier(e.target.value)}
-                  placeholder="e.g. Sysco Foods"
-                />
+          <form onSubmit={handleSaveReceipt} className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Supplier Name *</Label>
+                  <Input
+                    required
+                    value={supplier}
+                    onChange={(e) => setSupplier(e.target.value)}
+                    placeholder="e.g. Sysco Foods"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Invoice / Receipt No.</Label>
+                  <Input
+                    value={invoiceNo}
+                    onChange={(e) => setInvoiceNo(e.target.value)}
+                    placeholder="e.g. INV-99384"
+                    className="font-mono"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Date Received *</Label>
+                  <Input
+                    type="date"
+                    required
+                    value={dateReceived}
+                    onChange={(e) => setDateReceived(e.target.value)}
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Invoice / Receipt No.</Label>
-                <Input
-                  value={invoiceNo}
-                  onChange={(e) => setInvoiceNo(e.target.value)}
-                  placeholder="e.g. INV-99384"
-                  className="font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Date Received *</Label>
-                <Input
-                  type="date"
-                  required
-                  value={dateReceived}
-                  onChange={(e) => setDateReceived(e.target.value)}
-                />
+
+              {/* Add Item Sub-Form */}
+              <Card className="bg-muted/50">
+                <CardContent className="p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <div className="md:col-span-2 space-y-2">
+                      <Label>Select Item</Label>
+                      <Popover open={itemPopoverOpen} onOpenChange={setItemPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button 
+                            variant="outline" 
+                            role="combobox" 
+                            aria-expanded={itemPopoverOpen} 
+                            className="w-full justify-between text-left font-normal bg-background h-10 border-input"
+                          >
+                            {currentSelectedItemId ? (
+                              (() => {
+                                const item = catalog.find(c => c.id === currentSelectedItemId);
+                                return item ? `${item.item_name} (${item.purchase_unit})` : "Select an item";
+                              })()
+                            ) : (
+                              <span className="text-muted-foreground">Select an item</span>
+                            )}
+                            <CaretSortIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                          <div className="flex flex-col h-[300px]">
+                            <div className="flex items-center border-b px-3 py-2 sticky top-0 bg-background z-10">
+                              <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                              <Input
+                                placeholder="Search catalog items..."
+                                value={itemSearchTerm}
+                                onChange={(e) => setItemSearchTerm(e.target.value)}
+                                className="h-8 w-full bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0 py-0 text-sm outline-none"
+                              />
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-1">
+                              {(() => {
+                                const filtered = catalog.filter(item => 
+                                  item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())
+                                );
+                                if (filtered.length === 0) {
+                                  return (
+                                    <div className="py-6 text-center text-sm text-muted-foreground">
+                                      No items found.
+                                    </div>
+                                  );
+                                }
+                                return filtered.map(item => {
+                                  const isSelected = currentSelectedItemId === item.id;
+                                  return (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setCurrentSelectedItemId(item.id);
+                                        setItemPopoverOpen(false);
+                                        setItemSearchTerm('');
+                                      }}
+                                      className={`w-full text-left px-3 py-2 rounded-sm text-sm transition-colors hover:bg-accent hover:text-accent-foreground flex items-center justify-between ${isSelected ? 'bg-accent/50 font-medium' : ''}`}
+                                    >
+                                      <span className="truncate">{item.item_name}</span>
+                                      <span className="text-xs text-muted-foreground shrink-0 pl-2">
+                                        ({item.purchase_unit})
+                                      </span>
+                                    </button>
+                                  );
+                                });
+                              })()}
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Qty</Label>
+                      <Input
+                        type="number"
+                        value={currentQty}
+                        onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Unit Cost (₱)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={currentCost}
+                        onChange={(e) => setCurrentCost(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <Button type="button" variant="secondary" onClick={handleAddItemToReceiptForm}>
+                      <Plus className="mr-2 h-4 w-4" /> Add Item to Invoice
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Added Items List */}
+              <div>
+                <h4 className="text-sm font-semibold mb-3">Invoice Summary ({addedItems.length} items)</h4>
+                <div className="border rounded-md max-h-48 overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item Name</TableHead>
+                        <TableHead className="text-right">Quantity</TableHead>
+                        <TableHead className="text-right">Unit Cost</TableHead>
+                        <TableHead className="text-right">Subtotal</TableHead>
+                        <TableHead className="w-[80px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {addedItems.map((item, idx) => {
+                        const info = catalog.find(c => c.id === item.item_id);
+                        const sub = item.qty * item.cost;
+                        return (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium">{info?.item_name}</TableCell>
+                            <TableCell className="text-right">{item.qty} {info?.purchase_unit}</TableCell>
+                            <TableCell className="text-right">₱{item.cost.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-semibold">₱{sub.toFixed(2)}</TableCell>
+                            <TableCell className="text-center">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive"
+                                onClick={() => handleRemoveItemFromReceiptForm(idx)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             </div>
 
-            {/* Add Item Sub-Form */}
-            <Card className="bg-muted/50">
-              <CardContent className="p-4">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                  <div className="md:col-span-2 space-y-2">
-                    <Label>Select Item</Label>
-                    <Select value={currentSelectedItemId} onValueChange={setCurrentSelectedItemId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select an item" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {catalog.map(item => (
-                          <SelectItem key={item.id} value={item.id}>
-                            {item.item_name} ({item.purchase_unit})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Qty</Label>
-                    <Input
-                      type="number"
-                      value={currentQty}
-                      onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Unit Cost (₱)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={currentCost}
-                      onChange={(e) => setCurrentCost(Number(e.target.value))}
-                    />
-                  </div>
-                </div>
-                <div className="mt-4 flex justify-end">
-                  <Button type="button" variant="secondary" onClick={handleAddItemToReceiptForm}>
-                    <Plus className="mr-2 h-4 w-4" /> Add Item to Invoice
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Added Items List */}
-            <div>
-              <h4 className="text-sm font-semibold mb-3">Invoice Summary ({addedItems.length} items)</h4>
-              <div className="border rounded-md max-h-48 overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Item Name</TableHead>
-                      <TableHead className="text-right">Quantity</TableHead>
-                      <TableHead className="text-right">Unit Cost</TableHead>
-                      <TableHead className="text-right">Subtotal</TableHead>
-                      <TableHead className="w-[80px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {addedItems.map((item, idx) => {
-                      const info = catalog.find(c => c.id === item.item_id);
-                      const sub = item.qty * item.cost;
-                      return (
-                        <TableRow key={idx}>
-                          <TableCell className="font-medium">{info?.item_name}</TableCell>
-                          <TableCell className="text-right">{item.qty} {info?.purchase_unit}</TableCell>
-                          <TableCell className="text-right">₱{item.cost.toFixed(2)}</TableCell>
-                          <TableCell className="text-right font-semibold">₱{sub.toFixed(2)}</TableCell>
-                          <TableCell className="text-center">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive"
-                              onClick={() => handleRemoveItemFromReceiptForm(idx)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-
-            <DialogFooter>
+            <DialogFooter className="p-6 pt-4 border-t shrink-0">
               <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
                 Discard Draft
               </Button>

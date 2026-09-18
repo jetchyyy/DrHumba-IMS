@@ -33,6 +33,86 @@ interface ProfileRecord {
   branches?: { name: string };
 }
 
+interface ActionPermission {
+  id: string;
+  category: 'Inventory Operations' | 'Sales & Cashier' | 'Audit & Financial';
+  name: string;
+  description: string;
+  featureKey?: string;
+}
+
+const ACTION_PERMISSIONS: ActionPermission[] = [
+  {
+    id: 'receiving',
+    category: 'Inventory Operations',
+    name: 'Receive Stock & Deliveries',
+    description: 'Create and log inbound supplier deliveries, purchase orders, and stock-in receipts.',
+    featureKey: 'receiving',
+  },
+  {
+    id: 'transfers',
+    category: 'Inventory Operations',
+    name: 'Request Stock Transfers',
+    description: 'Create outbound stock transfer requests to transfer stock between branches.',
+    featureKey: 'transfers',
+  },
+  {
+    id: 'transfers_dispatch',
+    category: 'Inventory Operations',
+    name: 'Approve & Dispatch Transfers',
+    description: 'Approve pending transfer requests, deduct inventory, and dispatch shipments.',
+    featureKey: 'transfers',
+  },
+  {
+    id: 'transfers_receive',
+    category: 'Inventory Operations',
+    name: 'Confirm & Receive Transfers',
+    description: 'Acknowledge shipments and receive inbound transferred stock into destination inventory.',
+    featureKey: 'transfers',
+  },
+  {
+    id: 'adjustments',
+    category: 'Inventory Operations',
+    name: 'Log Stock Adjustments & Spoilage',
+    description: 'Record stock level adjustments, wastage, spoilage, or physical inventory discrepancies.',
+    featureKey: 'adjustments',
+  },
+  {
+    id: 'portioning',
+    category: 'Inventory Operations',
+    name: 'Portioning & Yield Production',
+    description: 'Execute batch portioning and transform bulk raw materials into portioned components.',
+    featureKey: 'portioning',
+  },
+  {
+    id: 'action_buttons',
+    category: 'Inventory Operations',
+    name: 'Direct Stock Balance Override & Delete Logs',
+    description: 'Manually override on-hand stock balances directly and delete receiving/transfer/adjustment log records.',
+  },
+  {
+    id: 'pos',
+    category: 'Sales & Cashier',
+    name: 'Point of Sale (POS Orders)',
+    description: 'Process customer sales, register cash & digital payments, and generate transaction receipts.',
+    featureKey: 'pos',
+  },
+  {
+    id: 'sales_void',
+    category: 'Sales & Cashier',
+    name: 'Void Sales & Authorize Refunds',
+    description: 'Authorize voiding completed transactions and release inventory holds.',
+    featureKey: 'sales_history',
+  },
+  {
+    id: 'expenses',
+    category: 'Audit & Financial',
+    name: 'Record Store Expenses',
+    description: 'Create and log petty cash expenditures and branch operating expenses.',
+    featureKey: 'expenses',
+  },
+];
+
 export const UserManagement: React.FC = () => {
   const { profile, branches } = useAuth();
   const { tenant } = useTenant();
@@ -52,8 +132,6 @@ export const UserManagement: React.FC = () => {
   const [editRole, setEditRole] = useState<string>('cashier');
   const [editBranchId, setEditBranchId] = useState('');
   const [editAllowedTabs, setEditAllowedTabs] = useState<string[]>([]);
-  const [editAllowTransfers, setEditAllowTransfers] = useState(false);
-  const [editAllowActionButtons, setEditAllowActionButtons] = useState(false);
   const [editCustomRole, setEditCustomRole] = useState('');
 
   // Creation Form State
@@ -61,9 +139,9 @@ export const UserManagement: React.FC = () => {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<string>('cashier');
   const [branchId, setBranchId] = useState('');
-  const [allowedTabs, setAllowedTabs] = useState<string[]>(['pos', 'sales-history', 'inventory', 'global-inventory']);
-  const [allowTransfers, setAllowTransfers] = useState(false);
-  const [allowActionButtons, setAllowActionButtons] = useState(false);
+  const [allowedTabs, setAllowedTabs] = useState<string[]>([
+    'dashboard', 'pos', 'sales-history', 'z-read-history', 'inventory', 'global-inventory', 'settings'
+  ]);
   const [customRole, setCustomRole] = useState('');
 
   // Transaction processing states
@@ -97,11 +175,29 @@ export const UserManagement: React.FC = () => {
   }, [staff.length, searchQuery, filterRole, filterBranch, filterStatus, filterDateFrom, filterDateTo]);
 
   const ROLE_DEFAULTS: Record<string, string[]> = {
-    super_admin: ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'users', 'expenses', 'action_buttons', 'settings'],
-    inventory_manager: ['dashboard', 'inventory', 'global-inventory', 'receiving', 'transfers', 'adjustments', 'recipes', 'analytics', 'action_buttons', 'settings'],
-    branch_manager: ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'analytics', 'expenses', 'settings'],
-    cashier: ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings'],
-    auditor: ['dashboard', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'branches', 'analytics', 'audit-logs', 'expenses', 'settings'],
+    super_admin: [
+      'dashboard', 'pos', 'queue-caller', 'sales-history', 'z-read-history', 'expenses', 'inventory', 'global-inventory',
+      'receiving', 'transfers', 'transfers_dispatch', 'transfers_receive', 'adjustments', 'portioning',
+      'transactions', 'kitchen-receipts', 'recipes', 'branches', 'analytics', 'audit-logs', 'users', 'settings',
+      'action_buttons', 'sales_void'
+    ],
+    inventory_manager: [
+      'dashboard', 'inventory', 'global-inventory', 'receiving', 'transfers', 'transfers_dispatch',
+      'transfers_receive', 'adjustments', 'portioning', 'transactions', 'recipes', 'analytics', 'settings',
+      'action_buttons'
+    ],
+    branch_manager: [
+      'dashboard', 'pos', 'sales-history', 'z-read-history', 'expenses', 'inventory', 'global-inventory',
+      'transfers', 'transfers_receive', 'adjustments', 'recipes', 'analytics', 'settings',
+      'sales_void'
+    ],
+    cashier: [
+      'dashboard', 'pos', 'sales-history', 'z-read-history', 'inventory', 'global-inventory', 'settings'
+    ],
+    auditor: [
+      'dashboard', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'branches',
+      'analytics', 'audit-logs', 'expenses', 'transactions', 'settings'
+    ],
   };
 
   const TAB_FEATURE_KEYS: Record<string, string> = {
@@ -128,10 +224,20 @@ export const UserManagement: React.FC = () => {
   };
 
   const planFeatures = (tenant?.features ?? {}) as Record<string, boolean>;
-  // NOTE: 'transfers' appears both in the grid and as a dedicated toggle — they are kept
-  // in sync bidirectionally. 'action_buttons' is only in the dedicated toggle.
+
+  const availableActionPermissions = ACTION_PERMISSIONS.filter(action => {
+    if (!action.featureKey || !tenant?.features) return true;
+    return planFeatures[action.featureKey] !== false;
+  });
+
+  const permissionCategories: Array<'Inventory Operations' | 'Sales & Cashier' | 'Audit & Financial'> = [
+    'Inventory Operations',
+    'Sales & Cashier',
+    'Audit & Financial'
+  ];
+
   const ALL_AVAILABLE_TABS = [
-    { id: 'dashboard', name: 'Overview' },
+    { id: 'dashboard', name: 'Overview / Dashboard' },
     { id: 'pos', name: 'POS (Sales)' },
     { id: 'queue-caller', name: 'Queue Caller' },
     { id: 'sales-history', name: 'Sales History' },
@@ -162,27 +268,35 @@ export const UserManagement: React.FC = () => {
     setRole(v);
     if (v === 'custom') {
       setAllowedTabs(['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings']);
-      setAllowTransfers(false);
-      setAllowActionButtons(false);
     } else {
       const defaults = ROLE_DEFAULTS[v] || ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings'];
-      setAllowedTabs(defaults.filter(t => t !== 'transfers' && t !== 'action_buttons'));
-      setAllowTransfers(defaults.includes('transfers'));
-      setAllowActionButtons(defaults.includes('action_buttons'));
+      setAllowedTabs([...defaults]);
     }
   };
 
   const handleEditRoleChange = (v: string) => {
     setEditRole(v);
     if (v === 'custom') {
-      setEditAllowedTabs(['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings']);
-      setEditAllowTransfers(false);
-      setEditAllowActionButtons(false);
+      // Keep existing custom selections or give sensible defaults
     } else {
       const defaults = ROLE_DEFAULTS[v] || ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings'];
-      setEditAllowedTabs(defaults.filter(t => t !== 'transfers' && t !== 'action_buttons'));
-      setEditAllowTransfers(defaults.includes('transfers'));
-      setEditAllowActionButtons(defaults.includes('action_buttons'));
+      setEditAllowedTabs([...defaults]);
+    }
+  };
+
+  const toggleAllowedTab = (id: string, isChecked: boolean) => {
+    if (isChecked) {
+      setAllowedTabs(prev => prev.includes(id) ? prev : [...prev, id]);
+    } else {
+      setAllowedTabs(prev => prev.filter(t => t !== id));
+    }
+  };
+
+  const toggleEditAllowedTab = (id: string, isChecked: boolean) => {
+    if (isChecked) {
+      setEditAllowedTabs(prev => prev.includes(id) ? prev : [...prev, id]);
+    } else {
+      setEditAllowedTabs(prev => prev.filter(t => t !== id));
     }
   };
 
@@ -256,16 +370,7 @@ export const UserManagement: React.FC = () => {
       return;
     }
 
-    // allowedTabs already contains 'transfers' if the grid checkbox is checked
-    // (kept in sync with allowTransfers). Deduplicate before saving.
-    const finalAllowedTabs = Array.from(new Set([
-      ...allowedTabs,
-      ...(allowTransfers ? ['transfers'] : []),
-    ]));
-    if (allowActionButtons) {
-      finalAllowedTabs.push('action_buttons');
-    }
-
+    const finalAllowedTabs = Array.from(new Set(allowedTabs));
     const isGlobal = ['inventory_manager', 'auditor', 'super_admin'].includes(finalRole);
 
     setSubmitting(true);
@@ -285,9 +390,7 @@ export const UserManagement: React.FC = () => {
       setPassword('');
       setRole('cashier');
       setCustomRole('');
-      setAllowTransfers(false);
-      setAllowActionButtons(false);
-      setAllowedTabs(ROLE_DEFAULTS['cashier'].filter(t => t !== 'transfers' && t !== 'action_buttons'));
+      setAllowedTabs(ROLE_DEFAULTS['cashier'] || []);
       setIsCreateModalOpen(false);
       loadStaff();
     } catch (err: any) {
@@ -313,16 +416,7 @@ export const UserManagement: React.FC = () => {
       return;
     }
 
-    // editAllowedTabs already contains 'transfers' if the grid checkbox is checked
-    // (kept in sync with editAllowTransfers). Deduplicate before saving.
-    const finalAllowedTabs = Array.from(new Set([
-      ...editAllowedTabs,
-      ...(editAllowTransfers ? ['transfers'] : []),
-    ]));
-    if (editAllowActionButtons) {
-      finalAllowedTabs.push('action_buttons');
-    }
-
+    const finalAllowedTabs = Array.from(new Set(editAllowedTabs));
     const isGlobal = ['inventory_manager', 'auditor', 'super_admin'].includes(finalRole);
 
     setSubmitting(true);
@@ -404,13 +498,8 @@ export const UserManagement: React.FC = () => {
       setEditCustomRole('');
     }
 
-    const hasTransfers = tabs.includes('transfers');
     setEditBranchId(member.branch_id || (branches.length > 0 ? branches[0].id : ''));
-    // Keep 'transfers' in editAllowedTabs so the grid checkbox stays in sync,
-    // but also track it separately via editAllowTransfers for the dedicated toggle.
-    setEditAllowedTabs(tabs.filter(t => t !== 'action_buttons'));
-    setEditAllowTransfers(hasTransfers);
-    setEditAllowActionButtons(tabs.includes('action_buttons'));
+    setEditAllowedTabs([...tabs]);
     setIsEditModalOpen(true);
   };
 
@@ -720,7 +809,7 @@ export const UserManagement: React.FC = () => {
 
       {/* CREATE MODAL */}
       <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col p-0">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
           <DialogHeader className="p-6 border-b shrink-0">
             <DialogTitle className="flex items-center">
               <Plus className="w-5 h-5 mr-2 text-primary" />
@@ -728,7 +817,7 @@ export const UserManagement: React.FC = () => {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCreateStaff} className="flex-1 min-h-0 flex flex-col">
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
               <div className="space-y-2">
                 <Label>Email Address</Label>
                 <div className="relative">
@@ -796,73 +885,132 @@ export const UserManagement: React.FC = () => {
                 </div>
               )}
 
-              <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
-                <Checkbox
-                  id="allow-transfers"
-                  checked={allowTransfers}
-                  onCheckedChange={(checked) => {
-                    const isOn = !!checked;
-                    setAllowTransfers(isOn);
-                    // Keep the grid Transfers checkbox in sync
-                    if (isOn) {
-                      setAllowedTabs(prev => prev.includes('transfers') ? prev : [...prev, 'transfers']);
-                    } else {
-                      setAllowedTabs(prev => prev.filter(t => t !== 'transfers'));
-                    }
-                  }}
-                />
-                <div className="grid gap-1 leading-none">
-                  <Label htmlFor="allow-transfers" className="text-sm font-semibold cursor-pointer">
-                    Allow Requesting Transfers (Subject to Admin Approval)
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Allow this staff member to create stock transfer requests.
-                  </p>
+              {/* ── Operational & Action Permissions ── */}
+              <div className="space-y-3 pt-3 border-t">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <div>
+                    <Label className="text-sm font-semibold text-foreground">Operational & Action Permissions</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Select exact workflows and actions this staff member is authorized to perform.
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const ids = availableActionPermissions.map(a => a.id);
+                        setAllowedTabs(prev => Array.from(new Set([...prev, ...ids])));
+                      }}
+                      className="text-primary hover:underline font-medium"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-muted-foreground">|</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const idSet = new Set(availableActionPermissions.map(a => a.id));
+                        setAllowedTabs(prev => prev.filter(id => !idSet.has(id)));
+                      }}
+                      className="text-muted-foreground hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                  {permissionCategories.map(category => {
+                    const items = availableActionPermissions.filter(p => p.category === category);
+                    if (items.length === 0) return null;
+                    return (
+                      <div key={category} className="space-y-1.5">
+                        <span className="text-[10px] font-bold tracking-wider uppercase text-muted-foreground px-1">
+                          {category}
+                        </span>
+                        <div className="space-y-1.5">
+                          {items.map(action => {
+                            const isChecked = allowedTabs.includes(action.id);
+                            return (
+                              <label
+                                key={action.id}
+                                htmlFor={`create-action-${action.id}`}
+                                className={`flex items-start space-x-3 p-2.5 rounded-lg border transition-all cursor-pointer ${
+                                  isChecked
+                                    ? 'bg-primary/5 border-primary/40 shadow-xs'
+                                    : 'bg-muted/10 border-border/70 hover:bg-muted/30'
+                                }`}
+                              >
+                                <Checkbox
+                                  id={`create-action-${action.id}`}
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) => toggleAllowedTab(action.id, !!checked)}
+                                  className="mt-0.5"
+                                />
+                                <div className="grid gap-0.5 leading-snug">
+                                  <span className="text-xs font-semibold text-foreground">{action.name}</span>
+                                  <span className="text-[11px] text-muted-foreground">{action.description}</span>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
-                <Checkbox
-                  id="allow-action-buttons"
-                  checked={allowActionButtons}
-                  onCheckedChange={(checked) => setAllowActionButtons(!!checked)}
-                />
-                <div className="grid gap-1 leading-none">
-                  <Label htmlFor="allow-action-buttons" className="text-sm font-semibold cursor-pointer">
-                    Allow Direct Stock Actions (Edit Balances, Delete Logs)
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Allow editing stock balances directly, and deleting stock receiving, transfer, or adjustment logs.
-                  </p>
+              {/* ── Page Navigation & Feature Visibility ── */}
+              <div className="space-y-2 pt-3 border-t">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <div>
+                    <Label className="text-sm font-semibold text-foreground">Page Navigation & Feature Visibility</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Control which menu items appear in the sidebar for this staff account.
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const ids = ALL_AVAILABLE_TABS.map(t => t.id);
+                        setAllowedTabs(prev => Array.from(new Set([...prev, ...ids])));
+                      }}
+                      className="text-primary hover:underline font-medium"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-muted-foreground">|</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const idSet = new Set(ALL_AVAILABLE_TABS.map(t => t.id));
+                        setAllowedTabs(prev => prev.filter(id => !idSet.has(id)));
+                      }}
+                      className="text-muted-foreground hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label>Allowed Features (Permissions Override)</Label>
-                <div className="grid grid-cols-2 gap-2 p-4 border rounded-md max-h-40 overflow-y-auto bg-muted/30">
+                <div className="grid grid-cols-2 gap-2 p-3 border rounded-lg max-h-40 overflow-y-auto bg-muted/20">
                   {ALL_AVAILABLE_TABS.map((tab) => {
                     const isChecked = allowedTabs.includes(tab.id);
                     return (
-                      <div key={tab.id} className="flex items-center space-x-2">
+                      <label
+                        key={tab.id}
+                        htmlFor={`create-tab-${tab.id}`}
+                        className="flex items-center space-x-2 p-1.5 rounded hover:bg-muted/40 cursor-pointer"
+                      >
                         <Checkbox
-                          id={`tab-${tab.id}`}
+                          id={`create-tab-${tab.id}`}
                           checked={isChecked}
-                          onCheckedChange={(checked) => {
-                            if (!checked) {
-                              setAllowedTabs(allowedTabs.filter(t => t !== tab.id));
-                              // Keep dedicated Transfers toggle in sync
-                              if (tab.id === 'transfers') setAllowTransfers(false);
-                            } else {
-                              setAllowedTabs([...allowedTabs, tab.id]);
-                              // Keep dedicated Transfers toggle in sync
-                              if (tab.id === 'transfers') setAllowTransfers(true);
-                            }
-                          }}
+                          onCheckedChange={(checked) => toggleAllowedTab(tab.id, !!checked)}
                         />
-                        <Label htmlFor={`tab-${tab.id}`} className="text-xs font-normal cursor-pointer">
-                          {tab.name}
-                        </Label>
-                      </div>
+                        <span className="text-xs font-medium">{tab.name}</span>
+                      </label>
                     );
                   })}
                 </div>
@@ -881,7 +1029,7 @@ export const UserManagement: React.FC = () => {
 
       {/* EDIT MODAL */}
       <Dialog open={isEditModalOpen} onOpenChange={(open) => { if (!open) { setIsEditModalOpen(false); setEditingStaff(null); } }}>
-        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col p-0">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
           <DialogHeader className="p-6 border-b shrink-0">
             <DialogTitle className="flex items-center">
               <Edit className="w-5 h-5 mr-2 text-primary" />
@@ -889,7 +1037,7 @@ export const UserManagement: React.FC = () => {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleEditStaffSubmit} className="flex-1 min-h-0 flex flex-col">
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>System Role</Label>
@@ -941,73 +1089,132 @@ export const UserManagement: React.FC = () => {
                 </div>
               )}
 
-              <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
-                <Checkbox
-                  id="edit-allow-transfers"
-                  checked={editAllowTransfers}
-                  onCheckedChange={(checked) => {
-                    const isOn = !!checked;
-                    setEditAllowTransfers(isOn);
-                    // Keep the grid Transfers checkbox in sync
-                    if (isOn) {
-                      setEditAllowedTabs(prev => prev.includes('transfers') ? prev : [...prev, 'transfers']);
-                    } else {
-                      setEditAllowedTabs(prev => prev.filter(t => t !== 'transfers'));
-                    }
-                  }}
-                />
-                <div className="grid gap-1 leading-none">
-                  <Label htmlFor="edit-allow-transfers" className="text-sm font-semibold cursor-pointer">
-                    Allow Requesting Transfers (Subject to Admin Approval)
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Allow this staff member to create stock transfer requests.
-                  </p>
+              {/* ── Operational & Action Permissions ── */}
+              <div className="space-y-3 pt-3 border-t">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <div>
+                    <Label className="text-sm font-semibold text-foreground">Operational & Action Permissions</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Select exact workflows and actions this staff member is authorized to perform.
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const ids = availableActionPermissions.map(a => a.id);
+                        setEditAllowedTabs(prev => Array.from(new Set([...prev, ...ids])));
+                      }}
+                      className="text-primary hover:underline font-medium"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-muted-foreground">|</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const idSet = new Set(availableActionPermissions.map(a => a.id));
+                        setEditAllowedTabs(prev => prev.filter(id => !idSet.has(id)));
+                      }}
+                      className="text-muted-foreground hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                  {permissionCategories.map(category => {
+                    const items = availableActionPermissions.filter(p => p.category === category);
+                    if (items.length === 0) return null;
+                    return (
+                      <div key={category} className="space-y-1.5">
+                        <span className="text-[10px] font-bold tracking-wider uppercase text-muted-foreground px-1">
+                          {category}
+                        </span>
+                        <div className="space-y-1.5">
+                          {items.map(action => {
+                            const isChecked = editAllowedTabs.includes(action.id);
+                            return (
+                              <label
+                                key={action.id}
+                                htmlFor={`edit-action-${action.id}`}
+                                className={`flex items-start space-x-3 p-2.5 rounded-lg border transition-all cursor-pointer ${
+                                  isChecked
+                                    ? 'bg-primary/5 border-primary/40 shadow-xs'
+                                    : 'bg-muted/10 border-border/70 hover:bg-muted/30'
+                                }`}
+                              >
+                                <Checkbox
+                                  id={`edit-action-${action.id}`}
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) => toggleEditAllowedTab(action.id, !!checked)}
+                                  className="mt-0.5"
+                                />
+                                <div className="grid gap-0.5 leading-snug">
+                                  <span className="text-xs font-semibold text-foreground">{action.name}</span>
+                                  <span className="text-[11px] text-muted-foreground">{action.description}</span>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="flex items-center space-x-3 p-3 border rounded-lg bg-muted/20">
-                <Checkbox
-                  id="edit-allow-action-buttons"
-                  checked={editAllowActionButtons}
-                  onCheckedChange={(checked) => setEditAllowActionButtons(!!checked)}
-                />
-                <div className="grid gap-1 leading-none">
-                  <Label htmlFor="edit-allow-action-buttons" className="text-sm font-semibold cursor-pointer">
-                    Allow Direct Stock Actions (Edit Balances, Delete Logs)
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Allow editing stock balances directly, and deleting stock receiving, transfer, or adjustment logs.
-                  </p>
+              {/* ── Page Navigation & Feature Visibility ── */}
+              <div className="space-y-2 pt-3 border-t">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <div>
+                    <Label className="text-sm font-semibold text-foreground">Page Navigation & Feature Visibility</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Control which menu items appear in the sidebar for this staff account.
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const ids = ALL_AVAILABLE_TABS.map(t => t.id);
+                        setEditAllowedTabs(prev => Array.from(new Set([...prev, ...ids])));
+                      }}
+                      className="text-primary hover:underline font-medium"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-muted-foreground">|</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const idSet = new Set(ALL_AVAILABLE_TABS.map(t => t.id));
+                        setEditAllowedTabs(prev => prev.filter(id => !idSet.has(id)));
+                      }}
+                      className="text-muted-foreground hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label>Allowed Features (Permissions Override)</Label>
-                <div className="grid grid-cols-2 gap-2 p-4 border rounded-md max-h-40 overflow-y-auto bg-muted/30">
+                <div className="grid grid-cols-2 gap-2 p-3 border rounded-lg max-h-40 overflow-y-auto bg-muted/20">
                   {ALL_AVAILABLE_TABS.map((tab) => {
                     const isChecked = editAllowedTabs.includes(tab.id);
                     return (
-                      <div key={tab.id} className="flex items-center space-x-2">
+                      <label
+                        key={tab.id}
+                        htmlFor={`edit-tab-${tab.id}`}
+                        className="flex items-center space-x-2 p-1.5 rounded hover:bg-muted/40 cursor-pointer"
+                      >
                         <Checkbox
                           id={`edit-tab-${tab.id}`}
                           checked={isChecked}
-                          onCheckedChange={(checked) => {
-                            if (!checked) {
-                              setEditAllowedTabs(editAllowedTabs.filter(t => t !== tab.id));
-                              // Keep dedicated Transfers toggle in sync
-                              if (tab.id === 'transfers') setEditAllowTransfers(false);
-                            } else {
-                              setEditAllowedTabs([...editAllowedTabs, tab.id]);
-                              // Keep dedicated Transfers toggle in sync
-                              if (tab.id === 'transfers') setEditAllowTransfers(true);
-                            }
-                          }}
+                          onCheckedChange={(checked) => toggleEditAllowedTab(tab.id, !!checked)}
                         />
-                        <Label htmlFor={`edit-tab-${tab.id}`} className="text-xs font-normal cursor-pointer">
-                          {tab.name}
-                        </Label>
-                      </div>
+                        <span className="text-xs font-medium">{tab.name}</span>
+                      </label>
                     );
                   })}
                 </div>

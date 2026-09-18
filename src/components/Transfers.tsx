@@ -795,222 +795,224 @@ export const Transfers: React.FC = () => {
 
       {/* CREATE MODAL */}
       <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-6 pb-4 border-b shrink-0">
             <DialogTitle>{isProactive ? 'Send Stock Shipment' : 'New Transfer Request'}</DialogTitle>
             <DialogDescription>
               {isProactive ? 'Ship inventory from your branch to another location.' : 'Request inventory from a warehouse or branch.'}
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSaveTransferRequest} className="space-y-6 pt-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Source Branch (From) *</Label>
-                <Select value={sourceBranchId} onValueChange={setSourceBranchId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="-- Select Source --" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {branches.map(b => (
-                      <SelectItem key={b.id} value={b.id}>
-                        {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          <form onSubmit={handleSaveTransferRequest} className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Source Branch (From) *</Label>
+                  <Select value={sourceBranchId} onValueChange={setSourceBranchId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="-- Select Source --" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map(b => (
+                        <SelectItem key={b.id} value={b.id}>
+                          {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Target Branch (To) *</Label>
+                  <Select value={targetBranchId} onValueChange={setTargetBranchId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="-- Select Target --" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map(b => (
+                        <SelectItem key={b.id} value={b.id}>
+                          {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+
               <div className="space-y-2">
-                <Label>Target Branch (To) *</Label>
-                <Select value={targetBranchId} onValueChange={setTargetBranchId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="-- Select Target --" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {branches.map(b => (
-                      <SelectItem key={b.id} value={b.id}>
-                        {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Remarks / Purpose</Label>
+                <Input
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="e.g. Weekly restock"
+                />
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label>Remarks / Purpose</Label>
-              <Input
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                placeholder="e.g. Weekly restock"
-              />
-            </div>
-
-            {/* Add Item Sub-Form */}
-            <Card className="bg-muted/50">
-              <CardContent className="p-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                  <div className="md:col-span-2 space-y-2">
-                    <Label>Select Item</Label>
-                    <Popover open={itemPopoverOpen} onOpenChange={setItemPopoverOpen}>
-                      <PopoverTrigger asChild>
-                        <Button 
-                          variant="outline" 
-                          role="combobox" 
-                          aria-expanded={itemPopoverOpen} 
-                          className="w-full justify-between text-left font-normal bg-background h-10 border-input"
-                        >
-                          {currentSelectedItemId ? (
-                            (() => {
-                              const item = catalog.find(c => c.id === currentSelectedItemId);
-                              const qty = sourceInventory[currentSelectedItemId] || 0;
-                              return item ? `${item.item_name} (Available: ${qty} ${item.base_unit})` : "Select an item";
-                            })()
-                          ) : (
-                            <span className="text-muted-foreground">Select an item</span>
-                          )}
-                          <CaretSortIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                        <div className="flex flex-col h-[300px]">
-                          <div className="flex items-center border-b px-3 py-2 sticky top-0 bg-background z-10">
-                            <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                            <Input
-                              placeholder="Search catalog items..."
-                              value={itemSearchTerm}
-                              onChange={(e) => setItemSearchTerm(e.target.value)}
-                              className="h-8 w-full bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0 py-0 text-sm outline-none"
-                            />
-                          </div>
-                          <div className="flex-1 overflow-y-auto p-1">
-                            {(() => {
-                              const filtered = catalog.filter(item => 
-                                item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())
-                              );
-                              if (filtered.length === 0) {
-                                return (
-                                  <div className="py-6 text-center text-sm text-muted-foreground">
-                                    No items found.
-                                  </div>
-                                );
-                              }
-                              return filtered.map(item => {
-                                const qty = sourceInventory[item.id] || 0;
-                                const isSelected = currentSelectedItemId === item.id;
-                                return (
-                                  <button
-                                    key={item.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setCurrentSelectedItemId(item.id);
-                                      setItemPopoverOpen(false);
-                                      setItemSearchTerm('');
-                                    }}
-                                    className={`w-full text-left px-3 py-2 rounded-sm text-sm transition-colors hover:bg-accent hover:text-accent-foreground flex items-center justify-between ${isSelected ? 'bg-accent/50 font-medium' : ''}`}
-                                  >
-                                    <span className="truncate">{item.item_name}</span>
-                                    <span className="text-xs text-muted-foreground shrink-0 pl-2">
-                                      {qty} {item.base_unit}
-                                    </span>
-                                  </button>
-                                );
-                              });
-                            })()}
-                          </div>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                    {currentSelectedItemId && (() => {
-                      const item = catalog.find(c => c.id === currentSelectedItemId);
-                      const minQty = item?.min_transfer_qty && item.min_transfer_qty > 0 ? item.min_transfer_qty : null;
-                      const currentQtyNum = Number(currentQty);
-                      const isBelowMin = minQty !== null && currentQty !== '' && !isNaN(currentQtyNum) && currentQtyNum < minQty;
-                      return (
-                        <div className="space-y-1 mt-1">
-                          <div className="flex flex-wrap items-center gap-2 text-xs">
-                            <span className="text-muted-foreground">Current stock at source: <strong className="text-foreground">{sourceInventory[currentSelectedItemId] || 0} {item?.base_unit}</strong></span>
-                            {minQty !== null && (
-                              <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-bold">
-                                Min Required: {minQty} {item?.base_unit}
-                              </Badge>
+              {/* Add Item Sub-Form */}
+              <Card className="bg-muted/50">
+                <CardContent className="p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                    <div className="md:col-span-2 space-y-2">
+                      <Label>Select Item</Label>
+                      <Popover open={itemPopoverOpen} onOpenChange={setItemPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button 
+                            variant="outline" 
+                            role="combobox" 
+                            aria-expanded={itemPopoverOpen} 
+                            className="w-full justify-between text-left font-normal bg-background h-10 border-input"
+                          >
+                            {currentSelectedItemId ? (
+                              (() => {
+                                const item = catalog.find(c => c.id === currentSelectedItemId);
+                                const qty = sourceInventory[currentSelectedItemId] || 0;
+                                return item ? `${item.item_name} (Available: ${qty} ${item.base_unit})` : "Select an item";
+                              })()
+                            ) : (
+                              <span className="text-muted-foreground">Select an item</span>
                             )}
+                            <CaretSortIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                          <div className="flex flex-col h-[300px]">
+                            <div className="flex items-center border-b px-3 py-2 sticky top-0 bg-background z-10">
+                              <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                              <Input
+                                placeholder="Search catalog items..."
+                                value={itemSearchTerm}
+                                onChange={(e) => setItemSearchTerm(e.target.value)}
+                                className="h-8 w-full bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0 py-0 text-sm outline-none"
+                              />
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-1">
+                              {(() => {
+                                const filtered = catalog.filter(item => 
+                                  item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())
+                                );
+                                if (filtered.length === 0) {
+                                  return (
+                                    <div className="py-6 text-center text-sm text-muted-foreground">
+                                      No items found.
+                                    </div>
+                                  );
+                                }
+                                return filtered.map(item => {
+                                  const qty = sourceInventory[item.id] || 0;
+                                  const isSelected = currentSelectedItemId === item.id;
+                                  return (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setCurrentSelectedItemId(item.id);
+                                        setItemPopoverOpen(false);
+                                        setItemSearchTerm('');
+                                      }}
+                                      className={`w-full text-left px-3 py-2 rounded-sm text-sm transition-colors hover:bg-accent hover:text-accent-foreground flex items-center justify-between ${isSelected ? 'bg-accent/50 font-medium' : ''}`}
+                                    >
+                                      <span className="truncate">{item.item_name}</span>
+                                      <span className="text-xs text-muted-foreground shrink-0 pl-2">
+                                        {qty} {item.base_unit}
+                                      </span>
+                                    </button>
+                                  );
+                                });
+                              })()}
+                            </div>
                           </div>
-                          {isBelowMin && (
-                            <p className="text-xs text-destructive font-semibold flex items-center mt-1">
-                              ⚠️ Quantity must be at least {minQty} {item?.base_unit}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Qty</Label>
-                    <Input
-                      type="number"
-                      value={currentQty}
-                      onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
-                      placeholder="0"
-                    />
-                  </div>
-                </div>
-                <div className="mt-4 flex justify-end">
-                  <Button type="button" variant="secondary" onClick={handleAddItemToTransfer}>
-                    Add Item
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Added Items List */}
-            <div>
-              <h4 className="text-sm font-semibold mb-3">Items to Transfer ({addedItems.length})</h4>
-              <div className="border rounded-md max-h-40 overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Item Name</TableHead>
-                      <TableHead className="text-right">Min Required</TableHead>
-                      <TableHead className="text-right">Quantity</TableHead>
-                      <TableHead className="w-[80px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {addedItems.map((item, idx) => {
-                      const info = catalog.find(c => c.id === item.item_id);
-                      const minQty = info?.min_transfer_qty && info.min_transfer_qty > 0 ? info.min_transfer_qty : null;
-                      const isBelowMin = minQty !== null && item.qty < minQty;
-                      return (
-                        <TableRow key={idx} className={isBelowMin ? 'bg-destructive/10' : ''}>
-                          <TableCell className="font-medium">
-                            {info?.item_name}
+                        </PopoverContent>
+                      </Popover>
+                      {currentSelectedItemId && (() => {
+                        const item = catalog.find(c => c.id === currentSelectedItemId);
+                        const minQty = item?.min_transfer_qty && item.min_transfer_qty > 0 ? item.min_transfer_qty : null;
+                        const currentQtyNum = Number(currentQty);
+                        const isBelowMin = minQty !== null && currentQty !== '' && !isNaN(currentQtyNum) && currentQtyNum < minQty;
+                        return (
+                          <div className="space-y-1 mt-1">
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                              <span className="text-muted-foreground">Current stock at source: <strong className="text-foreground">{sourceInventory[currentSelectedItemId] || 0} {item?.base_unit}</strong></span>
+                              {minQty !== null && (
+                                <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-bold">
+                                  Min Required: {minQty} {item?.base_unit}
+                                </Badge>
+                              )}
+                            </div>
                             {isBelowMin && (
-                              <span className="block text-[10px] text-destructive font-semibold">Below min requirement ({minQty} {info?.base_unit})!</span>
+                              <p className="text-xs text-destructive font-semibold flex items-center mt-1">
+                                ⚠️ Quantity must be at least {minQty} {item?.base_unit}
+                              </p>
                             )}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground text-xs">{minQty ? `${minQty} ${info?.base_unit}` : '-'}</TableCell>
-                          <TableCell className={`text-right font-bold ${isBelowMin ? 'text-destructive' : ''}`}>{item.qty} {info?.base_unit}</TableCell>
-                          <TableCell className="text-center">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive"
-                              onClick={() => handleRemoveItem(idx)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Qty</Label>
+                      <Input
+                        type="number"
+                        value={currentQty}
+                        onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <Button type="button" variant="secondary" onClick={handleAddItemToTransfer}>
+                      Add Item
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Added Items List */}
+              <div>
+                <h4 className="text-sm font-semibold mb-3">Items to Transfer ({addedItems.length})</h4>
+                <div className="border rounded-md max-h-40 overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item Name</TableHead>
+                        <TableHead className="text-right">Min Required</TableHead>
+                        <TableHead className="text-right">Quantity</TableHead>
+                        <TableHead className="w-[80px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {addedItems.map((item, idx) => {
+                        const info = catalog.find(c => c.id === item.item_id);
+                        const minQty = info?.min_transfer_qty && info.min_transfer_qty > 0 ? info.min_transfer_qty : null;
+                        const isBelowMin = minQty !== null && item.qty < minQty;
+                        return (
+                          <TableRow key={idx} className={isBelowMin ? 'bg-destructive/10' : ''}>
+                            <TableCell className="font-medium">
+                              {info?.item_name}
+                              {isBelowMin && (
+                                <span className="block text-[10px] text-destructive font-semibold">Below min requirement ({minQty} {info?.base_unit})!</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right text-muted-foreground text-xs">{minQty ? `${minQty} ${info?.base_unit}` : '-'}</TableCell>
+                            <TableCell className={`text-right font-bold ${isBelowMin ? 'text-destructive' : ''}`}>{item.qty} {info?.base_unit}</TableCell>
+                            <TableCell className="text-center">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive"
+                                onClick={() => handleRemoveItem(idx)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             </div>
 
-            <DialogFooter>
+            <DialogFooter className="p-6 pt-4 border-t shrink-0">
               <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
                 Cancel
               </Button>
@@ -1024,8 +1026,8 @@ export const Transfers: React.FC = () => {
 
       {/* VIEW MODAL */}
       <Dialog open={showViewModal} onOpenChange={setShowViewModal}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
+        <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-6 pb-4 border-b shrink-0">
             <div className="flex items-center justify-between">
               <div>
                 <DialogTitle>Transfer: {selectedTransfer?.control_number || 'Pending'}</DialogTitle>
@@ -1046,212 +1048,214 @@ export const Transfers: React.FC = () => {
           </DialogHeader>
 
           {selectedTransfer && (
-            <div className="space-y-6 pt-4">
-              <div className="grid grid-cols-2 gap-4 text-sm bg-muted/30 p-4 rounded-lg">
-                <div>
-                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">From (Source)</span>
-                  <span className="font-medium">{selectedTransfer.source_branch?.name}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">To (Target)</span>
-                  <span className="font-medium text-primary">{selectedTransfer.target_branch?.name}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Requested Date</span>
-                  <span className="font-medium">{new Date(selectedTransfer.created_at).toLocaleString()}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Status</span>
-                  <Badge variant={
-                    selectedTransfer.status === 'completed' ? 'default' :
-                    selectedTransfer.status === 'approved' ? 'default' :
-                    selectedTransfer.status === 'pending_receipt_approval' ? 'secondary' :
-                    selectedTransfer.status === 'rejected' ? 'destructive' : 'secondary'
-                  } className="uppercase mt-1 text-[10px]">
-                    {selectedTransfer.status === 'approved' ? 'In Transit' : 
-                     selectedTransfer.status === 'pending_receipt_approval' ? 'Pending Receipt Approval' : 
-                     selectedTransfer.status}
-                  </Badge>
-                </div>
-                <div className="col-span-2">
-                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Remarks</span>
-                  <span className="font-medium">{selectedTransfer.remarks || 'No remarks'}</span>
-                </div>
-                {selectedTransfer.receipt_requested_by && (
+            <>
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                <div className="grid grid-cols-2 gap-4 text-sm bg-muted/30 p-4 rounded-lg">
                   <div>
-                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Received/Checked By</span>
-                    <span className="font-medium font-mono text-xs">User ID: {selectedTransfer.receipt_requested_by.substring(0, 8)}</span>
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">From (Source)</span>
+                    <span className="font-medium">{selectedTransfer.source_branch?.name}</span>
                   </div>
-                )}
-                {selectedTransfer.receipt_approved_by && (
                   <div>
-                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Receipt Approved By</span>
-                    <span className="font-medium font-mono text-xs">User ID: {selectedTransfer.receipt_approved_by.substring(0, 8)}</span>
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">To (Target)</span>
+                    <span className="font-medium text-primary">{selectedTransfer.target_branch?.name}</span>
                   </div>
-                )}
-                {selectedTransfer.receipt_remarks && (
+                  <div>
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Requested Date</span>
+                    <span className="font-medium">{new Date(selectedTransfer.created_at).toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Status</span>
+                    <Badge variant={
+                      selectedTransfer.status === 'completed' ? 'default' :
+                      selectedTransfer.status === 'approved' ? 'default' :
+                      selectedTransfer.status === 'pending_receipt_approval' ? 'secondary' :
+                      selectedTransfer.status === 'rejected' ? 'destructive' : 'secondary'
+                    } className="uppercase mt-1 text-[10px]">
+                      {selectedTransfer.status === 'approved' ? 'In Transit' : 
+                       selectedTransfer.status === 'pending_receipt_approval' ? 'Pending Receipt Approval' : 
+                       selectedTransfer.status}
+                    </Badge>
+                  </div>
                   <div className="col-span-2">
-                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold text-red-500">Receipt Rejection Remarks</span>
-                    <span className="font-medium text-red-600 dark:text-red-400">{selectedTransfer.receipt_remarks}</span>
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Remarks</span>
+                    <span className="font-medium">{selectedTransfer.remarks || 'No remarks'}</span>
+                  </div>
+                  {selectedTransfer.receipt_requested_by && (
+                    <div>
+                      <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Received/Checked By</span>
+                      <span className="font-medium font-mono text-xs">User ID: {selectedTransfer.receipt_requested_by.substring(0, 8)}</span>
+                    </div>
+                  )}
+                  {selectedTransfer.receipt_approved_by && (
+                    <div>
+                      <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Receipt Approved By</span>
+                      <span className="font-medium font-mono text-xs">User ID: {selectedTransfer.receipt_approved_by.substring(0, 8)}</span>
+                    </div>
+                  )}
+                  {selectedTransfer.receipt_remarks && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold text-red-500">Receipt Rejection Remarks</span>
+                      <span className="font-medium text-red-600 dark:text-red-400">{selectedTransfer.receipt_remarks}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold mb-3">Transfer Items</h4>
+                  <div className="border rounded-md overflow-x-auto">
+                    <Table>
+                      {(() => {
+                        const canReceive = profile && 
+                          profile.id !== selectedTransfer.approved_by && 
+                          profile.branch_id !== selectedTransfer.source_branch_id && (
+                            profile.role_name === 'super_admin' || 
+                            profile.role_name === 'inventory_manager' || 
+                            profile.branch_id === selectedTransfer.target_branch_id ||
+                            (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
+                          );
+
+                        if (selectedTransfer.status === 'approved' && canReceive) {
+                          return (
+                            <>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Item Name</TableHead>
+                                  <TableHead className="text-right">Sent Qty</TableHead>
+                                  <TableHead className="text-right w-28">Arrived Qty</TableHead>
+                                  <TableHead className="w-48">Discrepancy Note</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {transferItems.map((item, idx) => {
+                                  const name = item.inventory_items?.item_name || 'Deleted Item';
+                                  const unit = item.inventory_items?.base_unit || 'unit';
+                                  const receivedVal = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
+                                  const isMissing = receivedVal < item.quantity_base_unit;
+
+                                  return (
+                                    <TableRow key={idx}>
+                                      <TableCell className="font-medium">{name}</TableCell>
+                                      <TableCell className="text-right font-semibold">{item.quantity_base_unit} {unit}</TableCell>
+                                      <TableCell className="text-right">
+                                        <Input 
+                                          type="number" 
+                                          min={0} 
+                                          max={item.quantity_base_unit} 
+                                          step="any"
+                                          value={receivedVal} 
+                                          onChange={(e) => {
+                                            const val = Number(e.target.value);
+                                            setReceivedQuantities(prev => ({ ...prev, [item.item_id]: val }));
+                                          }} 
+                                          className="w-20 text-right h-8" 
+                                        />
+                                      </TableCell>
+                                      <TableCell>
+                                        {isMissing ? (
+                                          <Input 
+                                            placeholder="Why is it missing?" 
+                                            value={missingReasons[item.item_id] || ''} 
+                                            onChange={(e) => {
+                                              const val = e.target.value;
+                                              setMissingReasons(prev => ({ ...prev, [item.item_id]: val }));
+                                            }} 
+                                            className="w-full text-xs h-8 border-red-300 focus-visible:ring-red-400" 
+                                          />
+                                        ) : (
+                                          <span className="text-xs text-muted-foreground italic">-</span>
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </>
+                          );
+                        } else if (selectedTransfer.status === 'pending_receipt_approval' || selectedTransfer.status === 'completed') {
+                          return (
+                            <>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Item Name</TableHead>
+                                  <TableHead className="text-right">Sent Qty</TableHead>
+                                  <TableHead className="text-right">Arrived Qty</TableHead>
+                                  <TableHead className="text-right">Missing Qty</TableHead>
+                                  <TableHead>Reason for Discrepancy</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {transferItems.map((item, idx) => {
+                                  const name = item.inventory_items?.item_name || 'Deleted Item';
+                                  const unit = item.inventory_items?.base_unit || 'unit';
+                                  const received = item.received_quantity_base_unit ?? item.quantity_base_unit;
+                                  const missing = item.quantity_base_unit - received;
+
+                                  return (
+                                    <TableRow key={idx}>
+                                      <TableCell className="font-medium">{name}</TableCell>
+                                      <TableCell className="text-right font-semibold">{item.quantity_base_unit} {unit}</TableCell>
+                                      <TableCell className="text-right font-semibold text-green-600">{received} {unit}</TableCell>
+                                      <TableCell className="text-right font-semibold text-red-500">
+                                        {missing > 0 ? `${missing} ${unit}` : '0'}
+                                      </TableCell>
+                                      <TableCell className="text-xs italic text-muted-foreground">
+                                        {missing > 0 ? (item.missing_reason || 'No reason provided') : '-'}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </>
+                          );
+                        } else {
+                          return (
+                            <>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Item Name</TableHead>
+                                  <TableHead className="text-right pr-4">Quantity</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {transferItems.map((item, idx) => {
+                                  const name = item.inventory_items?.item_name || 'Deleted Item';
+                                  const unit = item.inventory_items?.base_unit || 'unit';
+                                  return (
+                                    <TableRow key={idx}>
+                                      <TableCell className="font-medium">{name}</TableCell>
+                                      <TableCell className="text-right font-semibold pr-4">{item.quantity_base_unit} {unit}</TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </>
+                          );
+                        }
+                      })()}
+                    </Table>
+                  </div>
+                </div>
+
+                {selectedTransfer.status === 'approved' && selectedTransfer.receipt_remarks && (
+                  <div className="text-sm text-red-600 bg-red-50 border border-red-200 p-3 rounded-md text-center dark:bg-red-950/30 dark:border-red-900/50 dark:text-red-400 font-medium">
+                    ❌ Previous delivery receipt was rejected by admin: "{selectedTransfer.receipt_remarks}"
+                  </div>
+                )}
+
+                {selectedTransfer.status === 'approved' && (
+                  <div className="text-sm text-yellow-600 bg-yellow-50 border border-yellow-200 p-3 rounded-md text-center dark:bg-yellow-950 dark:border-yellow-900/50 dark:text-yellow-500">
+                    🚚 Stock is currently in transit. Please verify the physical delivery before confirming receipt.
+                  </div>
+                )}
+
+                {selectedTransfer.status === 'pending_receipt_approval' && (
+                  <div className="text-sm text-orange-600 bg-orange-50 border border-orange-200 p-3 rounded-md text-center dark:bg-orange-950/30 dark:border-orange-900/50 dark:text-orange-400 font-medium">
+                    ⚠️ Awaiting admin approval for delivery receipt discrepancies.
                   </div>
                 )}
               </div>
 
-              <div>
-                <h4 className="text-sm font-semibold mb-3">Transfer Items</h4>
-                <div className="border rounded-md">
-                  <Table>
-                    {(() => {
-                      const canReceive = profile && 
-                        profile.id !== selectedTransfer.approved_by && 
-                        profile.branch_id !== selectedTransfer.source_branch_id && (
-                          profile.role_name === 'super_admin' || 
-                          profile.role_name === 'inventory_manager' || 
-                          profile.branch_id === selectedTransfer.target_branch_id ||
-                          (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
-                        );
-
-                      if (selectedTransfer.status === 'approved' && canReceive) {
-                        return (
-                          <>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Item Name</TableHead>
-                                <TableHead className="text-right">Sent Qty</TableHead>
-                                <TableHead className="text-right w-28">Arrived Qty</TableHead>
-                                <TableHead className="w-48">Discrepancy Note</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {transferItems.map((item, idx) => {
-                                const name = item.inventory_items?.item_name || 'Deleted Item';
-                                const unit = item.inventory_items?.base_unit || 'unit';
-                                const receivedVal = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
-                                const isMissing = receivedVal < item.quantity_base_unit;
-
-                                return (
-                                  <TableRow key={idx}>
-                                    <TableCell className="font-medium">{name}</TableCell>
-                                    <TableCell className="text-right font-semibold">{item.quantity_base_unit} {unit}</TableCell>
-                                    <TableCell className="text-right">
-                                      <Input 
-                                        type="number" 
-                                        min={0} 
-                                        max={item.quantity_base_unit} 
-                                        step="any"
-                                        value={receivedVal} 
-                                        onChange={(e) => {
-                                          const val = Number(e.target.value);
-                                          setReceivedQuantities(prev => ({ ...prev, [item.item_id]: val }));
-                                        }} 
-                                        className="w-20 text-right h-8" 
-                                      />
-                                    </TableCell>
-                                    <TableCell>
-                                      {isMissing ? (
-                                        <Input 
-                                          placeholder="Why is it missing?" 
-                                          value={missingReasons[item.item_id] || ''} 
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-                                            setMissingReasons(prev => ({ ...prev, [item.item_id]: val }));
-                                          }} 
-                                          className="w-full text-xs h-8 border-red-300 focus-visible:ring-red-400" 
-                                        />
-                                      ) : (
-                                        <span className="text-xs text-muted-foreground italic">-</span>
-                                      )}
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              })}
-                            </TableBody>
-                          </>
-                        );
-                      } else if (selectedTransfer.status === 'pending_receipt_approval' || selectedTransfer.status === 'completed') {
-                        return (
-                          <>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Item Name</TableHead>
-                                <TableHead className="text-right">Sent Qty</TableHead>
-                                <TableHead className="text-right">Arrived Qty</TableHead>
-                                <TableHead className="text-right">Missing Qty</TableHead>
-                                <TableHead>Reason for Discrepancy</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {transferItems.map((item, idx) => {
-                                const name = item.inventory_items?.item_name || 'Deleted Item';
-                                const unit = item.inventory_items?.base_unit || 'unit';
-                                const received = item.received_quantity_base_unit ?? item.quantity_base_unit;
-                                const missing = item.quantity_base_unit - received;
-
-                                return (
-                                  <TableRow key={idx}>
-                                    <TableCell className="font-medium">{name}</TableCell>
-                                    <TableCell className="text-right font-semibold">{item.quantity_base_unit} {unit}</TableCell>
-                                    <TableCell className="text-right font-semibold text-green-600">{received} {unit}</TableCell>
-                                    <TableCell className="text-right font-semibold text-red-500">
-                                      {missing > 0 ? `${missing} ${unit}` : '0'}
-                                    </TableCell>
-                                    <TableCell className="text-xs italic text-muted-foreground">
-                                      {missing > 0 ? (item.missing_reason || 'No reason provided') : '-'}
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              })}
-                            </TableBody>
-                          </>
-                        );
-                      } else {
-                        return (
-                          <>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Item Name</TableHead>
-                                <TableHead className="text-right pr-4">Quantity</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {transferItems.map((item, idx) => {
-                                const name = item.inventory_items?.item_name || 'Deleted Item';
-                                const unit = item.inventory_items?.base_unit || 'unit';
-                                return (
-                                  <TableRow key={idx}>
-                                    <TableCell className="font-medium">{name}</TableCell>
-                                    <TableCell className="text-right font-semibold pr-4">{item.quantity_base_unit} {unit}</TableCell>
-                                  </TableRow>
-                                );
-                              })}
-                            </TableBody>
-                          </>
-                        );
-                      }
-                    })()}
-                  </Table>
-                </div>
-              </div>
-
-              {selectedTransfer.status === 'approved' && selectedTransfer.receipt_remarks && (
-                <div className="text-sm text-red-600 bg-red-50 border border-red-200 p-3 rounded-md text-center dark:bg-red-950/30 dark:border-red-900/50 dark:text-red-400 font-medium">
-                  ❌ Previous delivery receipt was rejected by admin: "{selectedTransfer.receipt_remarks}"
-                </div>
-              )}
-
-              {selectedTransfer.status === 'approved' && (
-                <div className="text-sm text-yellow-600 bg-yellow-50 border border-yellow-200 p-3 rounded-md text-center dark:bg-yellow-950 dark:border-yellow-900/50 dark:text-yellow-500">
-                  🚚 Stock is currently in transit. Please verify the physical delivery before confirming receipt.
-                </div>
-              )}
-
-              {selectedTransfer.status === 'pending_receipt_approval' && (
-                <div className="text-sm text-orange-600 bg-orange-50 border border-orange-200 p-3 rounded-md text-center dark:bg-orange-950/30 dark:border-orange-900/50 dark:text-orange-400 font-medium">
-                  ⚠️ Awaiting admin approval for delivery receipt discrepancies.
-                </div>
-              )}
-
-              <DialogFooter className="flex flex-col space-y-2 sm:space-y-0">
+              <DialogFooter className="p-6 pt-4 border-t shrink-0 flex flex-col space-y-2 sm:space-y-0">
                 {(() => {
                   const canReceive = profile && 
                     profile.id !== selectedTransfer.approved_by && 
@@ -1361,7 +1365,7 @@ export const Transfers: React.FC = () => {
                   }
                 })()}
               </DialogFooter>
-            </div>
+            </>
           )}
         </DialogContent>
       </Dialog>

@@ -133,7 +133,7 @@ export const SalesHistory: React.FC = () => {
   const [voidReason, setVoidReason] = useState('');
   const [voiding, setVoiding] = useState(false);
 
-  const canVoid = ['super_admin', 'branch_manager'].includes(profile?.role_name || '');
+  const canVoid = ['super_admin', 'branch_manager'].includes(profile?.role_name || '') || (profile?.allowed_tabs && profile.allowed_tabs.includes('sales_void'));
 
   const isAdminRole = ['super_admin', 'inventory_manager', 'auditor'].includes(profile?.role_name || '');
 
