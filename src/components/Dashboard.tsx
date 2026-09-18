@@ -9,11 +9,13 @@ import {
   ArrowRight,
   RefreshCw,
   Clock,
-  LayoutDashboard
+  LayoutDashboard,
+  Search
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import {
@@ -53,6 +55,8 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
   const [inventoryGrid, setInventoryGrid] = useState<ItemStockGrid[]>([]);
   const [lowStockItems, setLowStockItems] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -60,7 +64,7 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
   
   useEffect(() => {
     setCurrentPage(1);
-  }, [inventoryGrid.length]);
+  }, [inventoryGrid.length, searchTerm]);
 
   const loadData = async () => {
     setRefreshing(true);
@@ -110,6 +114,7 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
       });
 
       setInventoryGrid(grid);
+      setLastRefreshed(new Date());
     } catch (err) {
       console.error('Error loading dashboard data:', err);
     } finally {
@@ -143,53 +148,67 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
     return 'text-muted-foreground';
   };
 
-  const totalPages = Math.ceil(inventoryGrid.length / itemsPerPage);
-  const paginatedGrid = inventoryGrid.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const filteredGrid = inventoryGrid.filter(item => 
+    item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.category.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredGrid.length / itemsPerPage));
+  const paginatedGrid = filteredGrid.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
+      <div className="flex flex-col md:flex-row md:items-start justify-between mb-8 space-y-4 md:space-y-0">
         <div>
           <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
             <LayoutDashboard className="w-8 h-8 text-primary" />
             <span>Overview Dashboard</span>
           </h2>
-          <p className="text-muted-foreground">Real-time status across all warehouses and restaurant branches.</p>
+          <p className="text-muted-foreground mt-1">Real-time status across all warehouses and restaurant branches.</p>
         </div>
-        <Button onClick={loadData} disabled={refreshing} variant="outline" size="sm">
-          <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-3 shrink-0">
+          {lastRefreshed && (
+            <span className="text-xs text-muted-foreground">
+              Last updated: <span className="font-semibold">{lastRefreshed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            </span>
+          )}
+          <Button onClick={loadData} disabled={refreshing} variant="outline" size="icon" className="h-9 w-9 shrink-0">
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
       </div>
 
       {/* Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <Card className="glass-dark border-border/50">
-          <CardContent className="p-6 flex items-center space-x-4">
-            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center border border-primary/20 text-primary">
-              <Layers className="w-6 h-6" />
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Inventory Value</CardDescription>
+            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+              <Layers className="w-4 h-4" />
             </div>
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Inventory Value</p>
-              <h3 className="text-2xl font-bold mt-1">
-                {formatCurrency(stats?.totalInventoryValue || 0)}
-              </h3>
-            </div>
+          </CardHeader>
+          <CardContent>
+            <CardTitle className="text-2xl font-bold">
+              {formatCurrency(stats?.totalInventoryValue || 0)}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">Across {stats?.totalBranches || branches.length} active locations</p>
           </CardContent>
         </Card>
 
         <Card className="glass-dark border-border/50">
-          <CardContent className="p-6 flex items-center space-x-4">
-            <div className="w-12 h-12 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 text-emerald-500">
-              <DollarSign className="w-6 h-6" />
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Today's Sales</CardDescription>
+            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
+              <DollarSign className="w-4 h-4" />
             </div>
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Today's Sales</p>
-              <h3 className="text-2xl font-bold mt-1">
-                {formatCurrency(stats?.todayRevenue || 0)}
-              </h3>
-            </div>
+          </CardHeader>
+          <CardContent>
+            <CardTitle className="text-2xl font-bold">
+              {formatCurrency(stats?.todayRevenue || 0)}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">From all POS terminals today</p>
           </CardContent>
         </Card>
 
@@ -197,17 +216,18 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
           className="glass-dark border-border/50 cursor-pointer hover:border-amber-500/30 transition-all group"
           onClick={() => setActiveTab('notifications')}
         >
-          <CardContent className="p-6 flex items-center space-x-4">
-            <div className="w-12 h-12 rounded-lg bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-500">
-              <AlertTriangle className="w-6 h-6" />
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-amber-500 transition-colors">Low Stock Alerts</CardDescription>
+            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500">
+              <AlertTriangle className="w-4 h-4" />
             </div>
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-amber-500 transition-colors">Low Stock Alerts</p>
-              <h3 className="text-2xl font-bold mt-1 flex items-center justify-between">
-                <span>{stats?.lowStockCount || 0} items</span>
-                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-1 transition-transform" />
-              </h3>
-            </div>
+          </CardHeader>
+          <CardContent>
+            <CardTitle className="text-2xl font-bold flex items-center justify-between">
+              <span>{stats?.lowStockCount || 0} items</span>
+              <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-1 transition-transform" />
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">Below reorder levels</p>
           </CardContent>
         </Card>
 
@@ -215,26 +235,35 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
           className="glass-dark border-border/50 cursor-pointer hover:border-primary/30 transition-all group"
           onClick={() => setActiveTab('transfers')}
         >
-          <CardContent className="p-6 flex items-center space-x-4">
-            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center border border-primary/20 text-primary">
-              <Store className="w-6 h-6" />
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-primary transition-colors">Pending Transfers</CardDescription>
+            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+              <Store className="w-4 h-4" />
             </div>
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-primary transition-colors">Pending Transfers</p>
-              <h3 className="text-2xl font-bold mt-1 flex items-center justify-between">
-                <span>{stats?.pendingTransfersCount || 0} reqs</span>
-                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-1 transition-transform" />
-              </h3>
-            </div>
+          </CardHeader>
+          <CardContent>
+            <CardTitle className="text-2xl font-bold flex items-center justify-between">
+              <span>{stats?.pendingTransfersCount || 0} reqs</span>
+              <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-1 transition-transform" />
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">Awaiting approval or receipt</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Critical Stock Alerts List */}
       {lowStockItems.length > 0 && (
-        <Alert variant="destructive" className="mb-8 border-amber-500/50 text-amber-500 bg-amber-500/5">
+        <Alert variant="destructive" className="mb-8 border-amber-500/50 text-amber-500 bg-amber-500/5 relative">
           <AlertTriangle className="h-4 w-4" color="currentColor" />
           <AlertTitle className="uppercase tracking-wider font-bold text-xs mb-3">Critical Reorder Alerts</AlertTitle>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setActiveTab('notifications')} 
+            className="absolute top-2 right-2 h-7 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
+          >
+            View all <ArrowRight className="ml-1 w-3 h-3" />
+          </Button>
           <AlertDescription>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
               {lowStockItems.slice(0, 6).map((alert, i) => (
@@ -256,9 +285,21 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
 
       {/* Multi-Branch Inventory Visibility Grid */}
       <Card>
-        <CardHeader className="px-6 py-4">
-          <CardTitle>Multi-Branch Inventory Grid</CardTitle>
-          <CardDescription>Real-time stock balance compared across all locations.</CardDescription>
+        <CardHeader className="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <CardTitle>Multi-Branch Inventory Grid</CardTitle>
+            <CardDescription>Real-time stock balance compared across all locations.</CardDescription>
+          </div>
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              type="text"
+              placeholder="Search items, SKU, category..."
+              className="pl-9"
+              value={searchTerm}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+            />
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
