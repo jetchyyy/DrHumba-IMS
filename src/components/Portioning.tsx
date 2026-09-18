@@ -449,14 +449,14 @@ export const Portioning: React.FC = () => {
     : '0.00';
 
   return (
-    <div className="space-y-6">
+    <div className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6">
       {/* Top Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <ChefHat className="h-7 w-7 text-amber-500" /> Portioning & Yield Conversions
-          </h1>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <ChefHat className="h-8 w-8 text-amber-500" /> Portioning & Yield Conversions
+          </h2>
+          <p className="text-muted-foreground mt-1">
             Request, track, and approve conversions from bulk raw items (kg/L) into portioned pieces (pcs).
           </p>
         </div>
@@ -556,12 +556,12 @@ export const Portioning: React.FC = () => {
       </Card>
 
       {/* Main Table */}
-      <Card border-border>
+      <Card className="border-border">
         <CardContent className="p-0">
           <Table>
-            <TableHeader>
+            <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
-                <TableHead>Control #</TableHead>
+                <TableHead className="pl-6">Control #</TableHead>
                 <TableHead>Branch</TableHead>
                 <TableHead>Source Raw Item</TableHead>
                 <TableHead>Target Portion Yield</TableHead>
@@ -575,8 +575,8 @@ export const Portioning: React.FC = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                    <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
+                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
                     Loading portioning records...
                   </TableCell>
                 </TableRow>
@@ -588,8 +588,8 @@ export const Portioning: React.FC = () => {
                 </TableRow>
               ) : (
                 paginatedRequests.map(req => (
-                  <TableRow key={req.id}>
-                    <TableCell className="font-mono font-medium text-amber-500">
+                  <TableRow key={req.id} className="hover:bg-muted/40 transition-colors">
+                    <TableCell className="pl-6 font-mono font-medium text-amber-500">
                       {req.control_number || 'PRT-PENDING'}
                     </TableCell>
                     <TableCell>{req.branches?.name || 'Main'}</TableCell>

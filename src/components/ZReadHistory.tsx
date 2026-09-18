@@ -10,7 +10,6 @@ import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Label } from './ui/label';
 import {
   FileTextIcon as FileText,
   FileTextIcon as Printer,
@@ -176,83 +175,74 @@ export const ZReadHistory: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header controls */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">BIR Z-Read Report History</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h2 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <FileText className="w-8 h-8 text-primary" />
+            BIR Z-Read Report History
+          </h2>
+          <p className="text-muted-foreground mt-1">
             Audit history of closed drawer shifts, cumulative lifetime totals, and sequential Z-Read counters.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={loadSessions} className="gap-1.5 h-9" disabled={loading}>
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Refresh Logs
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="icon" onClick={loadSessions} className="h-9 w-9" disabled={loading}>
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
       </div>
 
-      {/* Filter panel */}
-      <Card className="bg-background/60 backdrop-blur-sm shadow-sm border border-muted/50">
-        <CardContent className="p-4 flex flex-col md:flex-row gap-4 items-end">
-          <div className="flex-1 min-w-0 space-y-1">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">Search reports</Label>
-            <div className="relative">
-              <Search className="absolute left-3 top-3 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search by cashier email, branch or Z-Count..."
-                value={searchTerm}
-                onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                className="pl-9"
-              />
-            </div>
+      {/* Filter bar */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            type="text"
+            placeholder="Search by cashier email, branch or Z-Count..."
+            value={searchTerm}
+            onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+            className="pl-9"
+          />
+        </div>
+        {isAdminRole ? (
+          <Select value={filterBranchId} onValueChange={val => { setFilterBranchId(val); setCurrentPage(1); }}>
+            <SelectTrigger className="w-full sm:w-[200px]">
+              <SelectValue placeholder="All Branches" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">All Branches</SelectItem>
+              {branches.filter(b => !b.parent_id).map(b => (
+                <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <div className="text-sm font-semibold bg-muted/40 border rounded-lg h-9 px-3 py-2 leading-none flex items-center">
+            {branches.find(b => b.id === filterBranchId)?.name || 'My Branch'}
           </div>
-          <div className="w-full md:w-52 space-y-1">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">Branch Location</Label>
-            {isAdminRole ? (
-              <Select value={filterBranchId} onValueChange={val => { setFilterBranchId(val); setCurrentPage(1); }}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="All Branches" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Branches</SelectItem>
-                  {branches.filter(b => !b.parent_id).map(b => (
-                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <div className="text-sm font-semibold bg-muted/40 border rounded-lg h-9 px-3 py-2 leading-none flex items-center">
-                {branches.find(b => b.id === filterBranchId)?.name || 'My Branch'}
-              </div>
-            )}
-          </div>
-          <div className="w-full md:w-44 space-y-1">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">Start Date</Label>
-            <Input
-              type="date"
-              value={startDate}
-              onChange={e => { setStartDate(e.target.value); setCurrentPage(1); }}
-            />
-          </div>
-          <div className="w-full md:w-44 space-y-1">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">End Date</Label>
-            <Input
-              type="date"
-              value={endDate}
-              onChange={e => { setEndDate(e.target.value); setCurrentPage(1); }}
-            />
-          </div>
-        </CardContent>
-      </Card>
+        )}
+        <Input
+          type="date"
+          value={startDate}
+          onChange={e => { setStartDate(e.target.value); setCurrentPage(1); }}
+          className="w-full sm:w-[150px]"
+        />
+        <Input
+          type="date"
+          value={endDate}
+          onChange={e => { setEndDate(e.target.value); setCurrentPage(1); }}
+          className="w-full sm:w-[150px]"
+        />
+      </div>
 
       {/* Table Card */}
-      <Card className="shadow-md overflow-hidden">
-        <div className="overflow-x-auto">
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
           <Table>
-            <TableHeader className="bg-muted/40">
+            <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
                 <TableHead className="pl-6 w-24">Z-Counter</TableHead>
                 <TableHead>Closed Date</TableHead>
@@ -268,8 +258,9 @@ export const ZReadHistory: React.FC = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                    Loading cashier sessions logs...
+                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
+                    Loading cashier session logs...
                   </TableCell>
                 </TableRow>
               ) : paginatedSessions.length === 0 ? (
@@ -347,49 +338,44 @@ export const ZReadHistory: React.FC = () => {
               )}
             </TableBody>
           </Table>
-        </div>
-
-        {/* Pagination navigation */}
-        {totalPages > 1 && (
-          <div className="p-4 border-t bg-muted/20">
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handlePageChange(currentPage - 1)}
-                    disabled={currentPage === 1}
-                    className="gap-1"
-                  >
-                    <PaginationPrevious />
-                  </Button>
-                </PaginationItem>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                  <PaginationItem key={page}>
-                    <PaginationLink
-                      isActive={page === currentPage}
-                      onClick={() => handlePageChange(page)}
-                    >
-                      {page}
-                    </PaginationLink>
-                  </PaginationItem>
-                ))}
-                <PaginationItem>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handlePageChange(currentPage + 1)}
-                    disabled={currentPage === totalPages}
-                    className="gap-1"
-                  >
-                    <PaginationNext />
-                  </Button>
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
           </div>
-        )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="py-4 border-t flex items-center justify-between px-6">
+              <span className="text-xs text-muted-foreground hidden sm:block">
+                Page {currentPage} of {totalPages} &bull; {filteredSessions.length} sessions
+              </span>
+              <Pagination className="mx-0 w-auto">
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      className={currentPage === 1 ? 'pointer-events-none opacity-40' : 'cursor-pointer'}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                    <PaginationItem key={page}>
+                      <PaginationLink
+                        isActive={page === currentPage}
+                        onClick={() => handlePageChange(page)}
+                        className="cursor-pointer"
+                      >
+                        {page}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      className={currentPage === totalPages ? 'pointer-events-none opacity-40' : 'cursor-pointer'}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
+        </CardContent>
       </Card>
 
       {/* ─── Detailed Report Dialog ─── */}

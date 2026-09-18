@@ -14,7 +14,6 @@ import {
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -213,87 +212,75 @@ export const KitchenReceipts: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Kitchen Orders Queue</h1>
-          <p className="text-muted-foreground text-sm">
+          <h2 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <ChefHat className="w-8 h-8 text-primary" />
+            Kitchen Orders Queue
+          </h2>
+          <p className="text-muted-foreground mt-1">
             Monitor, prepare, and manage food production tickets generated from POS checkouts.
           </p>
         </div>
-        <Button onClick={loadKitchenReceipts} variant="outline" size="sm" className="w-fit self-end md:self-auto">
-          <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
+        <Button onClick={loadKitchenReceipts} variant="outline" size="icon" className="h-9 w-9 shrink-0">
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </Button>
       </div>
 
       {/* Filters Bar */}
-      <Card className="bg-muted/10">
-        <CardContent className="p-4 flex flex-col md:flex-row items-center gap-4">
-          {/* Search Term */}
-          <div className="w-full md:flex-1 space-y-1">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">Search Tickets</Label>
-            <div className="relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search by Ticket KIT # or Invoice INV #..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-          </div>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            type="text"
+            placeholder="Search by Ticket KIT # or Invoice INV #..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
+        </div>
 
-          {/* Branch Context Selector */}
-          <div className="w-full md:w-52 space-y-1">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">Branch Location</Label>
-            {isAdminRole ? (
-              <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="All Branches" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Branches</SelectItem>
-                  {branches.filter(b => !b.parent_id).map(b => (
-                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <div className="text-sm font-semibold bg-muted/40 border rounded-lg h-9 px-3 py-2 leading-none flex items-center">
-                {branches.find(b => b.id === selectedBranchId)?.name || 'My Branch'}
-              </div>
-            )}
+        {isAdminRole ? (
+          <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
+            <SelectTrigger className="w-full sm:w-[200px]">
+              <SelectValue placeholder="All Branches" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">All Branches</SelectItem>
+              {branches.filter(b => !b.parent_id).map(b => (
+                <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <div className="text-sm font-semibold bg-muted/40 border rounded-lg h-9 px-3 py-2 leading-none flex items-center">
+            {branches.find(b => b.id === selectedBranchId)?.name || 'My Branch'}
           </div>
+        )}
 
-          {/* Status Filter */}
-          <div className="w-full md:w-44 space-y-1">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">Order Status</Label>
-            <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="All Statuses" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="All">All Statuses</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="preparing">Preparing</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+        <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+          <SelectTrigger className="w-full sm:w-[160px]">
+            <SelectValue placeholder="All Statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All Statuses</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="preparing">Preparing</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* Orders Table */}
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
-                  <TableHead className="w-[150px]">Kitchen Ticket</TableHead>
+                  <TableHead className="pl-6 w-[150px]">Kitchen Ticket</TableHead>
                   <TableHead className="w-[150px]">Invoice Number</TableHead>
                   <TableHead>Branch</TableHead>
                   <TableHead>Category</TableHead>
@@ -305,8 +292,8 @@ export const KitchenReceipts: React.FC = () => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                      <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                      <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
                       Loading kitchen queue...
                     </TableCell>
                   </TableRow>
@@ -318,8 +305,8 @@ export const KitchenReceipts: React.FC = () => {
                   </TableRow>
                 ) : (
                   filteredReceipts.map(receipt => (
-                    <TableRow key={receipt.id}>
-                      <TableCell className="font-bold">{receipt.control_number}</TableCell>
+                    <TableRow key={receipt.id} className="hover:bg-muted/40 transition-colors">
+                      <TableCell className="pl-6 font-bold">{receipt.control_number}</TableCell>
                       <TableCell className="text-muted-foreground">{receipt.sales?.control_number || 'N/A'}</TableCell>
                       <TableCell>{receipt.branches?.name || 'Unknown'}</TableCell>
                       <TableCell>

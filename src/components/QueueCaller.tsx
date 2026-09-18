@@ -203,26 +203,26 @@ export const QueueCaller: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 p-4 md:p-8 space-y-6 max-w-7xl mx-auto w-full">
-      {/* Top Banner Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-card p-6 rounded-2xl border shadow-sm">
+    <div className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black tracking-tight flex items-center gap-3">
+          <h2 className="text-3xl font-bold tracking-tight flex items-center gap-2">
             <Megaphone className="w-8 h-8 text-indigo-500" />
-            QUEUE CALLER
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
+            Queue Caller
+          </h2>
+          <p className="text-muted-foreground mt-1">
             Active branch context: <span className="font-semibold text-foreground">{selectedBranch.name}</span>
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* TTS Audio toggle */}
           <Button
             variant={ttsEnabled ? 'default' : 'outline'}
             size="sm"
             onClick={() => setTtsEnabled(!ttsEnabled)}
-            className="font-bold flex items-center gap-2"
+            className="font-bold flex items-center gap-2 h-9"
           >
             {ttsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             {ttsEnabled ? 'Voice Announcements ON' : 'Voice Announcements OFF'}
@@ -234,7 +234,7 @@ export const QueueCaller: React.FC = () => {
             target="_blank"
             rel="noopener noreferrer"
           >
-            <Button variant="default" size="sm" className="font-bold flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white dark:bg-indigo-600 dark:hover:bg-indigo-700">
+            <Button variant="default" size="sm" className="font-bold flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white h-9">
               <ExternalLink className="w-4 h-4" />
               Open TV Display Screen
             </Button>
@@ -243,7 +243,7 @@ export const QueueCaller: React.FC = () => {
       </div>
 
       {/* Quick Manual Caller Grid */}
-      <Card className="border-indigo-150/40 bg-indigo-50/10 dark:bg-indigo-950/5">
+      <Card className="bg-muted/10">
         <CardContent className="p-4 flex flex-col sm:flex-row items-center gap-3">
           <div className="flex-1 w-full space-y-1">
             <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-650 dark:text-indigo-400">
