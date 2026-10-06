@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ModalProvider } from './contexts/ModalContext';
+import { PendingApprovalsProvider } from './contexts/PendingApprovalsContext';
 import { supabase } from './lib/supabase';
 import { useTenant } from './contexts/TenantContext';
 import { TenantSuspendedPage, TenantNotFoundPage, UnauthorizedTenantPage, SaaSLandingPage } from './components/SaaSCommon';
@@ -711,9 +712,11 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <ModalProvider>
-          <AppContent />
-        </ModalProvider>
+        <PendingApprovalsProvider>
+          <ModalProvider>
+            <AppContent />
+          </ModalProvider>
+        </PendingApprovalsProvider>
       </AuthProvider>
     </ThemeProvider>
   );

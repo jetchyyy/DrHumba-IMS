@@ -34,6 +34,7 @@ import { Separator } from './ui/separator';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from './ui/sheet';
 import { FloatingNotifications } from './FloatingNotifications';
 import { getTerminalConfig } from '../lib/offlineService';
+import { usePendingApprovalCounts } from '../hooks/usePendingApprovalCounts';
 
 interface SidebarProps {
   activeTab: string;
@@ -127,6 +128,7 @@ export const useNavItems = () => {
 const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => void; onNavigate?: () => void; isCollapsed?: boolean; onToggleCollapse?: () => void }> = ({
   activeTab, setActiveTab, onNavigate, isCollapsed, onToggleCollapse
 }) => {
+  const { counts, isApprover } = usePendingApprovalCounts();
   const { profile, selectedBranch, setSelectedBranch, branches, signOut } = useAuth();
   const { tenant } = useTenant();
   const { theme, toggleTheme } = useTheme();
@@ -245,6 +247,15 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           const isLocked = (tab as any).locked;
+
+          // Badge counts for approval tabs
+          const pendingBadge = isApprover
+            ? tab.id === 'transfers' ? counts.transfers
+            : tab.id === 'adjustments' ? counts.adjustments
+            : tab.id === 'portioning' ? counts.portioning
+            : 0
+            : 0;
+
           return (
             <Button
               key={tab.id}
@@ -257,13 +268,29 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
               onClick={() => { setActiveTab(tab.id); onNavigate?.(); }}
               title={isLocked ? `${tab.name} — not available in your current plan` : tab.name}
             >
-              <Icon className={`${isCollapsed ? '' : 'mr-3'} h-4 w-4 flex-shrink-0 transition-all duration-200 ${
-                isActive ? 'text-primary-foreground' : isLocked ? 'text-muted-foreground/40' : 'text-muted-foreground'
-              }`} />
+              <div className="relative flex-shrink-0">
+                <Icon className={`${isCollapsed ? '' : 'mr-3'} h-4 w-4 transition-all duration-200 ${
+                  isActive ? 'text-primary-foreground' : isLocked ? 'text-muted-foreground/40' : 'text-muted-foreground'
+                }`} />
+                {pendingBadge > 0 && (
+                  <span className={`absolute -top-1.5 ${isCollapsed ? '-right-1.5' : 'left-2.5'} flex items-center justify-center min-w-[14px] h-[14px] px-0.5 rounded-full text-[9px] font-bold leading-none border border-background ${
+                    isActive ? 'bg-white text-primary' : 'bg-red-500 text-white'
+                  }`}>
+                    {pendingBadge > 9 ? '9+' : pendingBadge}
+                  </span>
+                )}
+              </div>
               {!isCollapsed && <span className="flex-1 text-left truncate">{tab.name}</span>}
+              {!isCollapsed && pendingBadge > 0 && (
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                  isActive ? 'bg-white/20 text-white' : 'bg-red-500/10 text-red-500 border border-red-500/30'
+                }`}>
+                  {pendingBadge}
+                </span>
+              )}
               {!isCollapsed && isLocked && (
                 <svg className="h-3 w-3 text-muted-foreground/40 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
               )}
             </Button>
@@ -297,8 +324,8 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
             </div>
           )}
           <div className={isCollapsed ? 'flex flex-col gap-3 items-center' : 'flex items-center gap-2'}>
-            {!isCollapsed && <FloatingNotifications />}
-            {isCollapsed && <div className="h-8 w-8 flex items-center justify-center"><FloatingNotifications /></div>}
+            {!isCollapsed && <FloatingNotifications onNavigate={(tab) => { setActiveTab(tab); }} />}
+            {isCollapsed && <div className="h-8 w-8 flex items-center justify-center"><FloatingNotifications onNavigate={(tab) => { setActiveTab(tab); }} /></div>}
             <Button
               variant="ghost"
               size="icon"
@@ -403,7 +430,7 @@ export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }
 
       {/* Right: logo + theme toggle */}
       <div className="flex items-center space-x-2">
-        <FloatingNotifications />
+        <FloatingNotifications onNavigate={(tab) => { setActiveTab(tab); setOpen(false); }} />
         <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" onClick={toggleTheme}>
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>

@@ -14,7 +14,8 @@ import {
   LayoutDashboard,
   Search,
   Activity,
-  Minus
+  Minus,
+  X,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -31,6 +32,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "./ui/pagination";
+import { usePendingApprovalCounts } from '../hooks/usePendingApprovalCounts';
 
 interface DashboardStats {
   totalInventoryValue: number;
@@ -56,8 +58,12 @@ interface ItemStockGrid {
 
 export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ setActiveTab }) => {
   const { branches } = useAuth();
+  const { counts, isApprover } = usePendingApprovalCounts();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [bannerDismissed, setBannerDismissed] = useState<boolean>(
+    () => sessionStorage.getItem('dashboard_approval_banner_dismissed') === 'true'
+  );
   const [inventoryGrid, setInventoryGrid] = useState<ItemStockGrid[]>([]);
   const [lowStockItems, setLowStockItems] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -95,14 +101,36 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
 
       const { data: activity, error: activityError } = await supabase
         .from('audit_logs')
-        .select('id, action, module, timestamp, profiles:user_id ( full_name )')
+        .select('id, action, module, timestamp, user_id')
         .order('timestamp', { ascending: false })
         .limit(5);
       
       if (activityError) {
         console.error('Error fetching recent activity:', activityError);
       }
-      setRecentActivity(activity || []);
+      
+      if (activity && activity.length > 0) {
+        const userIds = [...new Set(activity.map(a => a.user_id).filter(Boolean))];
+        let profilesMap: Record<string, string> = {};
+        if (userIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', userIds);
+          if (profiles) {
+            profiles.forEach(p => {
+              if (p.id) profilesMap[p.id] = p.full_name || 'User';
+            });
+          }
+        }
+        const mappedActivity = activity.map(a => ({
+          ...a,
+          profiles: { full_name: (a.user_id && profilesMap[a.user_id]) || 'System' }
+        }));
+        setRecentActivity(mappedActivity);
+      } else {
+        setRecentActivity([]);
+      }
 
       const { data: items, error: itemsError } = await supabase
         .from('inventory_items')
@@ -243,6 +271,88 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
           </Button>
         </div>
       </div>
+
+      {/* ── Pending Approvals Banner (Phase 4) ── */}
+      {isApprover && counts.total > 0 && !bannerDismissed && (
+        <div className="mb-6 animate-slide-down rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-amber-500/10 p-4 relative overflow-hidden">
+          {/* Decorative glow */}
+          <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 to-transparent pointer-events-none" />
+          <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
+                </span>
+              </div>
+              <div>
+                <p className="text-sm font-bold text-amber-400">
+                  ⚡ {counts.total} Transaction{counts.total !== 1 ? 's' : ''} Awaiting Your Approval
+                </p>
+                <p className="text-xs text-amber-400/70 mt-0.5">
+                  Please review and approve the following pending items.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {counts.transfers > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs h-8 border-blue-500/40 text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 gap-1.5"
+                  onClick={() => setActiveTab('transfers')}
+                >
+                  Transfers
+                  <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-[10px] px-1.5 py-0 h-4">
+                    {counts.transfers}
+                  </Badge>
+                  <ArrowRight className="w-3 h-3" />
+                </Button>
+              )}
+              {counts.adjustments > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs h-8 border-purple-500/40 text-purple-400 hover:bg-purple-500/10 hover:border-purple-500/60 gap-1.5"
+                  onClick={() => setActiveTab('adjustments')}
+                >
+                  Adjustments
+                  <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 text-[10px] px-1.5 py-0 h-4">
+                    {counts.adjustments}
+                  </Badge>
+                  <ArrowRight className="w-3 h-3" />
+                </Button>
+              )}
+              {counts.portioning > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs h-8 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/60 gap-1.5"
+                  onClick={() => setActiveTab('portioning')}
+                >
+                  Portioning
+                  <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[10px] px-1.5 py-0 h-4">
+                    {counts.portioning}
+                  </Badge>
+                  <ArrowRight className="w-3 h-3" />
+                </Button>
+              )}
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 text-amber-400/60 hover:text-amber-400 hover:bg-amber-500/10 flex-shrink-0"
+                title="Dismiss until next login"
+                onClick={() => {
+                  setBannerDismissed(true);
+                  sessionStorage.setItem('dashboard_approval_banner_dismissed', 'true');
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

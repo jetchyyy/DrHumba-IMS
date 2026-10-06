@@ -178,3 +178,45 @@
   50.001% { transform-origin: right; }
   100% { transform: scaleX(0); transform-origin: right; }
 }
+
+/* Bell ring animation — triggered when a new notification arrives */
+@keyframes bellRing {
+  0%   { transform: rotate(0deg); }
+  10%  { transform: rotate(14deg); }
+  20%  { transform: rotate(-10deg); }
+  30%  { transform: rotate(14deg); }
+  40%  { transform: rotate(-6deg); }
+  50%  { transform: rotate(10deg); }
+  60%  { transform: rotate(-4deg); }
+  70%  { transform: rotate(6deg); }
+  80%  { transform: rotate(-2deg); }
+  90%  { transform: rotate(4deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.animate-bell-ring {
+  animation: bellRing 0.8s ease-in-out;
+  transform-origin: top center;
+}
+
+/* Badge pop-in animation */
+@keyframes badgePop {
+  0%   { transform: scale(0.5); opacity: 0; }
+  60%  { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+.animate-badge-pop {
+  animation: badgePop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Slide-down entry for approval summary banner */
+@keyframes slideDown {
+  0%   { transform: translateY(-8px); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+
+.animate-slide-down {
+  animation: slideDown 0.3s ease-out forwards;
+}
+
