@@ -562,6 +562,7 @@ export const Transfers: React.FC = () => {
 
   const canApprove = profile && (
     ['super_admin', 'inventory_manager', 'branch_manager'].includes(profile.role_name) ||
+    profile.is_platform_admin ||
     (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
   );
 
@@ -1105,14 +1106,17 @@ export const Transfers: React.FC = () => {
                   <div className="border rounded-md overflow-x-auto">
                     <Table>
                       {(() => {
-                        const canReceive = profile && 
-                          profile.id !== selectedTransfer.approved_by && 
-                          profile.branch_id !== selectedTransfer.source_branch_id && (
-                            profile.role_name === 'super_admin' || 
-                            profile.role_name === 'inventory_manager' || 
-                            profile.branch_id === selectedTransfer.target_branch_id ||
-                            (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
-                          );
+                        const isSuperAdmin = profile?.role_name === 'super_admin' || profile?.is_platform_admin;
+                        const canReceive = profile && (
+                          isSuperAdmin || (
+                            profile.id !== selectedTransfer.approved_by && 
+                            profile.branch_id !== selectedTransfer.source_branch_id && (
+                              profile.role_name === 'inventory_manager' || 
+                              profile.branch_id === selectedTransfer.target_branch_id ||
+                              (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
+                            )
+                          )
+                        );
 
                         if (selectedTransfer.status === 'approved' && canReceive) {
                           return (
@@ -1257,14 +1261,17 @@ export const Transfers: React.FC = () => {
 
               <DialogFooter className="p-6 pt-4 border-t shrink-0 flex flex-col space-y-2 sm:space-y-0">
                 {(() => {
-                  const canReceive = profile && 
-                    profile.id !== selectedTransfer.approved_by && 
-                    profile.branch_id !== selectedTransfer.source_branch_id && (
-                      profile.role_name === 'super_admin' || 
-                      profile.role_name === 'inventory_manager' || 
-                      profile.branch_id === selectedTransfer.target_branch_id ||
-                      (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
-                    );
+                  const isSuperAdmin = profile?.role_name === 'super_admin' || profile?.is_platform_admin;
+                  const canReceive = profile && (
+                    isSuperAdmin || (
+                      profile.id !== selectedTransfer.approved_by && 
+                      profile.branch_id !== selectedTransfer.source_branch_id && (
+                        profile.role_name === 'inventory_manager' || 
+                        profile.branch_id === selectedTransfer.target_branch_id ||
+                        (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
+                      )
+                    )
+                  );
 
                   const hasDiscrepancy = selectedTransfer.status === 'approved' && transferItems.some(item => {
                     const received = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
@@ -1307,7 +1314,7 @@ export const Transfers: React.FC = () => {
                       </div>
                     );
                   } else if (selectedTransfer.status === 'pending_receipt_approval' && 
-                             (profile?.role_name === 'super_admin' || profile?.role_name === 'inventory_manager' || (profile?.allowed_tabs && profile.allowed_tabs.includes('transfers')))) {
+                             (profile?.role_name === 'super_admin' || profile?.is_platform_admin || profile?.role_name === 'inventory_manager' || (profile?.allowed_tabs && profile.allowed_tabs.includes('transfers')))) {
                     return (
                       <div className="w-full space-y-4">
                         {!showRejectDialog ? (
