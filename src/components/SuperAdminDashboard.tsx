@@ -479,7 +479,7 @@ export const SuperAdminDashboard: React.FC = () => {
       const { error } = await supabase.rpc('fn_reset_tenant_data', { p_tenant_id: resettingTenant.id });
       if (error) throw error;
       
-      showSuccess(`Successfully cleared all transactional data for "${resettingTenant.name}". Accounts, branches, menu catalogs, and settings have been preserved.`);
+      showSuccess(`Successfully cleared all transactional data for "${resettingTenant.name}". Accounts and branches have been preserved.`);
       setIsResetModalOpen(false);
       setResettingTenant(null);
       setResetConfirmText('');
