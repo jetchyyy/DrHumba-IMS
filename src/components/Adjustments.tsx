@@ -87,6 +87,7 @@ export const Adjustments: React.FC = () => {
   const [addedItems, setAddedItems] = useState<{ item_id: string; qty: number }[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState<number | string>(-10); // Default to negative deduction
+  const [itemSearchTerm, setItemSearchTerm] = useState('');
   
   const [processing, setProcessing] = useState(false);
 
@@ -246,6 +247,7 @@ export const Adjustments: React.FC = () => {
     setPhotoUrl('');
     setAddedItems([]);
     setIsCameraActive(false);
+    setItemSearchTerm('');
     stopCamera();
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
@@ -830,9 +832,37 @@ export const Adjustments: React.FC = () => {
             {/* Add Item Sub-Form */}
             <Card className="bg-muted/50">
               <CardContent className="p-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                  <div className="md:col-span-2 space-y-2">
-                    <Label>Select Item</Label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2 relative">
+                    <Label>Search Item</Label>
+                    <Input
+                      placeholder="Search to select..."
+                      value={itemSearchTerm}
+                      onChange={(e) => setItemSearchTerm(e.target.value)}
+                    />
+                    {itemSearchTerm.trim() !== '' && (
+                      <div className="absolute z-10 top-full left-0 right-0 mt-1 border bg-background rounded-md shadow-md max-h-48 overflow-y-auto">
+                        {catalog.filter(item => item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())).length > 0 ? (
+                          catalog.filter(item => item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())).map(item => (
+                            <div 
+                              key={item.id} 
+                              className={`p-2 text-sm cursor-pointer hover:bg-muted ${currentSelectedItemId === item.id ? 'bg-primary/10 font-medium' : ''}`}
+                              onClick={() => {
+                                setCurrentSelectedItemId(item.id);
+                                setItemSearchTerm(''); // Clear after selection for better UX
+                              }}
+                            >
+                              {item.item_name} ({item.base_unit})
+                            </div>
+                          ))
+                        ) : (
+                          <div className="p-3 text-sm text-muted-foreground text-center">No items found</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Or Dropdown Selection</Label>
                     <Select value={currentSelectedItemId} onValueChange={setCurrentSelectedItemId}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select an item" />
@@ -846,7 +876,10 @@ export const Adjustments: React.FC = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
+                </div>
+                
+                <div className="mt-4 flex flex-col sm:flex-row justify-between sm:items-end gap-4 border-t border-border/50 pt-4">
+                  <div className="space-y-2 w-full sm:w-48">
                     <Label>Qty (Negative to deduct)</Label>
                     <Input
                       type="number"
@@ -855,9 +888,7 @@ export const Adjustments: React.FC = () => {
                       placeholder="0"
                     />
                   </div>
-                </div>
-                <div className="mt-4 flex justify-end">
-                  <Button type="button" onClick={handleAddItem}>
+                  <Button type="button" onClick={handleAddItem} className="w-full sm:w-auto">
                     Add Item
                   </Button>
                 </div>
