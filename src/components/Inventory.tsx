@@ -126,15 +126,10 @@ export const Inventory: React.FC = () => {
 
   const loadInventoryData = async () => {
     try {
-      let query = supabase
+      const { data: itemsData, error: itemsError } = await supabase
         .from('inventory_items')
-        .select('*');
-
-      if (selectedBranch?.id) {
-        query = query.or(`available_branches.is.null,available_branches.cs.{"${selectedBranch.id}"}`);
-      }
-
-      const { data: itemsData, error: itemsError } = await query.order('item_name');
+        .select('*')
+        .order('item_name');
       if (itemsError) throw itemsError;
       setItems(itemsData || []);
 
@@ -431,19 +426,30 @@ export const Inventory: React.FC = () => {
     (profile.allowed_tabs && profile.allowed_tabs.includes('action_buttons'))
   );
 
-  const filteredItems = items.filter(item => {
+  const branchItems = useMemo(() => {
+    if (!selectedBranch) return items;
+    return items.filter(item => 
+      !item.available_branches || 
+      item.available_branches.length === 0 || 
+      item.available_branches.includes(selectedBranch.id)
+    );
+  }, [items, selectedBranch]);
+
+  const displayedItems = activeSubTab === 'balances' ? branchItems : items;
+
+  const filteredItems = displayedItems.filter(item => {
     const matchesSearch = item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           item.sku.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
 
-  const categories = ['All', ...Array.from(new Set(items.map(i => i.category)))];
+  const categories = ['All', ...Array.from(new Set(displayedItems.map(i => i.category)))];
 
   const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
   const paginatedItems = filteredItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const lowStockCount = items.filter(item => {
+  const lowStockCount = branchItems.filter(item => {
     if (item.status !== 'active') return false;
     const bal = balances.find(b => b.item_id === item.id);
     const qty = bal ? Number(bal.quantity) : 0;
