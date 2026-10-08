@@ -846,7 +846,7 @@ export const Adjustments: React.FC = () => {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="All">All Categories</SelectItem>
-                          {Array.from(new Set(catalog.map(c => c.category).filter(Boolean))).sort().map(cat => (
+                          {Array.from(new Set(catalog.filter(c => !(selectedBranch?.name?.toLowerCase().includes('main') && c.category?.toLowerCase().includes('portioned'))).map(c => c.category).filter(Boolean))).sort().map(cat => (
                             <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                           ))}
                         </SelectContent>
@@ -861,6 +861,10 @@ export const Adjustments: React.FC = () => {
                       <div className="absolute z-10 top-full left-0 right-0 mt-1 border bg-background rounded-md shadow-md max-h-48 overflow-y-auto">
                         {(() => {
                           const filtered = catalog.filter(item => {
+                            if (selectedBranch?.name?.toLowerCase().includes('main') && item.category?.toLowerCase().includes('portioned')) {
+                              return false;
+                            }
+                            
                             const isAvailable = !item.available_branches || 
                               item.available_branches.length === 0 || 
                               (selectedBranch && item.available_branches.includes(selectedBranch.id));
@@ -895,6 +899,10 @@ export const Adjustments: React.FC = () => {
                       </SelectTrigger>
                       <SelectContent>
                         {catalog.filter(item => {
+                          if (selectedBranch?.name?.toLowerCase().includes('main') && item.category?.toLowerCase().includes('portioned')) {
+                            return false;
+                          }
+                          
                           const isAvailable = !item.available_branches || 
                             item.available_branches.length === 0 || 
                             (selectedBranch && item.available_branches.includes(selectedBranch.id));

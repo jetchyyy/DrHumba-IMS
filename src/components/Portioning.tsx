@@ -757,7 +757,7 @@ export const Portioning: React.FC = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="All">All Categories</SelectItem>
-                        {Array.from(new Set(itemsCatalog.map(c => c.category).filter(Boolean))).sort().map(cat => (
+                        {Array.from(new Set(itemsCatalog.filter(c => !(selectedBranch?.name?.toLowerCase().includes('main') && c.category?.toLowerCase().includes('portioned'))).map(c => c.category).filter(Boolean))).sort().map(cat => (
                           <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                         ))}
                       </SelectContent>
@@ -782,6 +782,10 @@ export const Portioning: React.FC = () => {
                       
                       return itemsCatalog
                         .filter(i => {
+                          if (selectedBranch?.name?.toLowerCase().includes('main') && i.category?.toLowerCase().includes('portioned')) {
+                            return false;
+                          }
+                          
                           const isAvailable = !i.available_branches || 
                             i.available_branches.length === 0 || 
                             (formBranchId && i.available_branches.includes(formBranchId));
@@ -873,7 +877,7 @@ export const Portioning: React.FC = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="All">All Categories</SelectItem>
-                        {Array.from(new Set(itemsCatalog.map(c => c.category).filter(Boolean))).sort().map(cat => (
+                        {Array.from(new Set(itemsCatalog.filter(c => !(selectedBranch?.name?.toLowerCase().includes('main') && c.category?.toLowerCase().includes('portioned'))).map(c => c.category).filter(Boolean))).sort().map(cat => (
                           <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                         ))}
                       </SelectContent>
@@ -898,6 +902,10 @@ export const Portioning: React.FC = () => {
                       
                       return itemsCatalog
                         .filter(i => {
+                          if (selectedBranch?.name?.toLowerCase().includes('main') && i.category?.toLowerCase().includes('portioned')) {
+                            return false;
+                          }
+                          
                           const isAvailable = !i.available_branches || 
                             i.available_branches.length === 0 || 
                             (formBranchId && i.available_branches.includes(formBranchId));
