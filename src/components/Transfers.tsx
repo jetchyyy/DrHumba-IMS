@@ -223,7 +223,7 @@ export const Transfers: React.FC = () => {
       return;
     }
 
-    if (qtyToAdd > availableQty) {
+    if (isProactive && qtyToAdd > availableQty) {
       showError(`Cannot transfer exceeding available quantity of ${availableQty} in the source branch inventory.`);
       return;
     }
@@ -264,7 +264,7 @@ export const Transfers: React.FC = () => {
         return;
       }
       const availableQty = sourceInventory[item.item_id] || 0;
-      if (item.qty > availableQty) {
+      if (isProactive && item.qty > availableQty) {
         showError(`Cannot transfer exceeding available quantity of ${availableQty} for ${info?.item_name || 'item'} in the source branch inventory.`);
         return;
       }
@@ -926,7 +926,8 @@ export const Transfers: React.FC = () => {
                                     (targetBranchId && item.available_branches.includes(targetBranchId));
                                     
                                   const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
-                                  return qty > 0 && isAvailableToTarget && matchesCategory && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
+                                  const hasStockOrIsRequest = qty > 0 || !isProactive;
+                                  return hasStockOrIsRequest && isAvailableToTarget && matchesCategory && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
                                 });
                                 if (filtered.length === 0) {
                                   return (
