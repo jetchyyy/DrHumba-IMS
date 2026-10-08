@@ -887,7 +887,7 @@ export const Transfers: React.FC = () => {
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="All">All Categories</SelectItem>
-                                  {Array.from(new Set(catalog.filter(c => !(selectedBranch?.name?.toLowerCase().includes('main') && c.category?.toLowerCase().includes('portioned'))).map(c => c.category).filter(Boolean))).sort().map(cat => (
+                                  {Array.from(new Set(catalog.filter(c => !(branches.find(b => b.id === sourceBranchId)?.name?.toLowerCase().includes('main') && c.category?.toLowerCase().includes('portioned'))).map(c => c.category).filter(Boolean))).sort().map(cat => (
                                     <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                                   ))}
                                 </SelectContent>
@@ -915,7 +915,7 @@ export const Transfers: React.FC = () => {
                                 }
 
                                 const filtered = catalog.filter(item => {
-                                  if (selectedBranch?.name?.toLowerCase().includes('main') && item.category?.toLowerCase().includes('portioned')) {
+                                  if (branches.find(b => b.id === sourceBranchId)?.name?.toLowerCase().includes('main') && item.category?.toLowerCase().includes('portioned')) {
                                     return false;
                                   }
                                   
