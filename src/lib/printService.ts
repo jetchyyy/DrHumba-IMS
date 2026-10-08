@@ -93,8 +93,8 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
             justify-content: space-between;
             align-items: center;
             border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
           }
           .header-brand {
             display: flex;
@@ -141,8 +141,8 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
             background-color: #f8fafc;
             border: 1px solid #e2e8f0;
             border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 40px;
+            padding: 10px 16px;
+            margin-bottom: 16px;
           }
           .branch-col {
             width: 48%;
@@ -152,7 +152,7 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
             font-weight: 700;
             text-transform: uppercase;
             color: #64748b;
-            margin: 0 0 8px 0;
+            margin: 0 0 2px 0;
             letter-spacing: 0.05em;
           }
           .branch-col p {
@@ -594,16 +594,16 @@ export const printStockInReceipt = (receipt: any, items: any[], template: Transf
         <style>
           body { font-family: 'Inter', -apple-system, sans-serif; color: #1e293b; padding: 40px; background-color: #ffffff; margin: 0; }
           .receipt-container { max-width: 800px; margin: 0 auto; }
-          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 16px; }
           .header-brand { display: flex; align-items: center; gap: 16px; }
           .brand { font-size: 24px; font-weight: 800; color: #4f46e5; letter-spacing: -0.025em; text-transform: uppercase; }
           .title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
           .details-grid { display: grid; grid-template-cols: 1fr 1fr; gap: 24px; margin-bottom: 40px; }
           .info-block h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 0 0 6px 0; letter-spacing: 0.05em; }
           .info-block p { font-size: 14px; font-weight: 600; margin: 0; color: #0f172a; }
-          .branches-box { display: flex; justify-content: space-between; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 40px; }
+          .branches-box { display: flex; justify-content: space-between; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; }
           .branch-col { width: 48%; }
-          .branch-col h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 0 0 8px 0; letter-spacing: 0.05em; }
+          .branch-col h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 0 0 2px 0; letter-spacing: 0.05em; }
           .branch-col p { font-size: 15px; font-weight: 700; margin: 0; color: #0f172a; }
           .items-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
           .items-table th { background-color: #f1f5f9; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #475569; padding: 6px 8px; text-align: left; border-bottom: 1px solid #cbd5e1; letter-spacing: 0.05em; }
@@ -728,15 +728,15 @@ export const printAdjustmentSlip = (adjustment: any, items: any[], template: Tra
         <style>
           body { font-family: 'Inter', -apple-system, sans-serif; color: #1e293b; padding: 40px; background-color: #ffffff; margin: 0; }
           .receipt-container { max-width: 800px; margin: 0 auto; }
-          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 16px; }
           .header-brand { display: flex; align-items: center; gap: 16px; }
           .brand { font-size: 24px; font-weight: 800; color: #4f46e5; letter-spacing: -0.025em; text-transform: uppercase; }
           .title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
           .details-grid { display: grid; grid-template-cols: 1fr 1fr; gap: 24px; margin-bottom: 40px; }
           .info-block h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 0 0 6px 0; letter-spacing: 0.05em; }
           .info-block p { font-size: 14px; font-weight: 600; margin: 0; color: #0f172a; }
-          .branches-box { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 40px; }
-          .branches-box h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 0 0 6px 0; letter-spacing: 0.05em; }
+          .branches-box { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; }
+          .branches-box h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 0 0 2px 0; letter-spacing: 0.05em; }
           .branches-box p { font-size: 14px; font-weight: 600; margin: 0; color: #0f172a; }
           .items-table { width: 100%; border-collapse: collapse; margin-bottom: 50px; }
           .items-table th { background-color: #f1f5f9; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #475569; padding: 6px 8px; text-align: left; border-bottom: 1px solid #cbd5e1; letter-spacing: 0.05em; }
