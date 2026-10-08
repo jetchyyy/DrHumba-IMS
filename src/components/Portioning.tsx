@@ -769,15 +769,26 @@ export const Portioning: React.FC = () => {
                     />
                   </div>
                   <div className="max-h-48 overflow-y-auto space-y-1">
-                    {itemsCatalog
-                      .filter(i => {
-                        const isAvailable = !i.available_branches || 
-                          i.available_branches.length === 0 || 
-                          (formBranchId && i.available_branches.includes(formBranchId));
-                        const matchesCategory = sourceCategoryFilter === 'All' || i.category === sourceCategoryFilter;
-                        return isAvailable && matchesCategory && i.item_name.toLowerCase().includes(sourceSearchTerm.toLowerCase());
-                      })
-                      .map(item => (
+                    {(() => {
+                      const isInitialState = sourceSearchTerm.trim() === '' && sourceCategoryFilter === 'All';
+                      
+                      if (isInitialState) {
+                        return (
+                          <div className="p-4 text-center text-sm text-muted-foreground">
+                            Start typing or select a category to view items.
+                          </div>
+                        );
+                      }
+                      
+                      return itemsCatalog
+                        .filter(i => {
+                          const isAvailable = !i.available_branches || 
+                            i.available_branches.length === 0 || 
+                            (formBranchId && i.available_branches.includes(formBranchId));
+                          const matchesCategory = sourceCategoryFilter === 'All' || i.category === sourceCategoryFilter;
+                          return isAvailable && matchesCategory && i.item_name.toLowerCase().includes(sourceSearchTerm.toLowerCase());
+                        })
+                        .map(item => (
                         <div
                           key={item.id}
                           className="p-2 hover:bg-accent rounded text-sm cursor-pointer flex justify-between"
@@ -789,7 +800,8 @@ export const Portioning: React.FC = () => {
                           <span className="font-medium">{item.item_name}</span>
                           <span className="text-xs text-muted-foreground">{item.base_unit} | ₱{item.cost_per_base_unit}/unit</span>
                         </div>
-                      ))}
+                      ));
+                    })()}
                   </div>
                 </PopoverContent>
               </Popover>
@@ -873,15 +885,26 @@ export const Portioning: React.FC = () => {
                     />
                   </div>
                   <div className="max-h-48 overflow-y-auto space-y-1">
-                    {itemsCatalog
-                      .filter(i => {
-                        const isAvailable = !i.available_branches || 
-                          i.available_branches.length === 0 || 
-                          (formBranchId && i.available_branches.includes(formBranchId));
-                        const matchesCategory = targetCategoryFilter === 'All' || i.category === targetCategoryFilter;
-                        return isAvailable && matchesCategory && i.item_name.toLowerCase().includes(targetSearchTerm.toLowerCase());
-                      })
-                      .map(item => (
+                    {(() => {
+                      const isInitialState = targetSearchTerm.trim() === '' && targetCategoryFilter === 'All';
+                      
+                      if (isInitialState) {
+                        return (
+                          <div className="p-4 text-center text-sm text-muted-foreground">
+                            Start typing or select a category to view items.
+                          </div>
+                        );
+                      }
+                      
+                      return itemsCatalog
+                        .filter(i => {
+                          const isAvailable = !i.available_branches || 
+                            i.available_branches.length === 0 || 
+                            (formBranchId && i.available_branches.includes(formBranchId));
+                          const matchesCategory = targetCategoryFilter === 'All' || i.category === targetCategoryFilter;
+                          return isAvailable && matchesCategory && i.item_name.toLowerCase().includes(targetSearchTerm.toLowerCase());
+                        })
+                        .map(item => (
                         <div
                           key={item.id}
                           className="p-2 hover:bg-accent rounded text-sm cursor-pointer flex justify-between"
@@ -893,7 +916,8 @@ export const Portioning: React.FC = () => {
                           <span className="font-medium">{item.item_name}</span>
                           <span className="text-xs text-emerald-400">{item.category} ({item.base_unit})</span>
                         </div>
-                      ))}
+                      ));
+                    })()}
                   </div>
                 </PopoverContent>
               </Popover>

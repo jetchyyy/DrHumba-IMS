@@ -904,6 +904,16 @@ export const Transfers: React.FC = () => {
                             </div>
                             <div className="flex-1 overflow-y-auto p-1">
                               {(() => {
+                                const isInitialState = itemSearchTerm.trim() === '' && itemCategoryFilter === 'All';
+                                
+                                if (isInitialState) {
+                                  return (
+                                    <div className="py-6 text-center text-sm text-muted-foreground">
+                                      Start typing or select a category to view items.
+                                    </div>
+                                  );
+                                }
+
                                 const filtered = catalog.filter(item => {
                                   const qty = sourceInventory[item.id] || 0;
                                   

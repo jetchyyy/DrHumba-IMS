@@ -857,7 +857,7 @@ export const Adjustments: React.FC = () => {
                         onChange={(e) => setItemSearchTerm(e.target.value)}
                       />
                     </div>
-                    {itemSearchTerm.trim() !== '' && (
+                    {(itemSearchTerm.trim() !== '' || itemCategoryFilter !== 'All') && (
                       <div className="absolute z-10 top-full left-0 right-0 mt-1 border bg-background rounded-md shadow-md max-h-48 overflow-y-auto">
                         {(() => {
                           const filtered = catalog.filter(item => {
