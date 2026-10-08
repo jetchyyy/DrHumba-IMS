@@ -61,6 +61,7 @@ interface CatalogItem {
   base_unit: string;
   min_transfer_qty?: number | null;
   available_branches?: string[] | null;
+  category: string;
 }
 
 export const Transfers: React.FC = () => {
@@ -98,6 +99,7 @@ export const Transfers: React.FC = () => {
   const [currentQty, setCurrentQty] = useState<number | string>('');
   const [sourceInventory, setSourceInventory] = useState<Record<string, number>>({});
   const [itemSearchTerm, setItemSearchTerm] = useState('');
+  const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
   const [itemPopoverOpen, setItemPopoverOpen] = useState(false);
   
   const [approving, setApproving] = useState(false);
@@ -137,7 +139,7 @@ export const Transfers: React.FC = () => {
 
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
-        .select('id, item_name, base_unit, min_transfer_qty, available_branches')
+        .select('id, item_name, base_unit, min_transfer_qty, available_branches, category')
         .eq('status', 'active');
       if (catError) throw catError;
       setCatalog(catData || []);
@@ -193,6 +195,7 @@ export const Transfers: React.FC = () => {
     setCurrentSelectedItemId('');
     setCurrentQty('');
     setItemSearchTerm('');
+    setItemCategoryFilter('All');
     setItemPopoverOpen(false);
     setShowCreateModal(true);
   };
@@ -877,14 +880,27 @@ export const Transfers: React.FC = () => {
                         </PopoverTrigger>
                         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
                           <div className="flex flex-col h-[300px]">
-                            <div className="flex items-center border-b px-3 py-2 sticky top-0 bg-background z-10">
-                              <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                              <Input
-                                placeholder="Search catalog items..."
-                                value={itemSearchTerm}
-                                onChange={(e) => setItemSearchTerm(e.target.value)}
-                                className="h-8 w-full bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0 py-0 text-sm outline-none"
-                              />
+                            <div className="flex flex-col gap-2 border-b px-3 py-2 sticky top-0 bg-background z-10">
+                              <Select value={itemCategoryFilter} onValueChange={setItemCategoryFilter}>
+                                <SelectTrigger className="h-8 w-full">
+                                  <SelectValue placeholder="Category" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="All">All Categories</SelectItem>
+                                  {Array.from(new Set(catalog.map(c => c.category).filter(Boolean))).sort().map(cat => (
+                                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <div className="flex items-center">
+                                <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                <Input
+                                  placeholder="Search catalog items..."
+                                  value={itemSearchTerm}
+                                  onChange={(e) => setItemSearchTerm(e.target.value)}
+                                  className="h-8 w-full bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0 py-0 text-sm outline-none"
+                                />
+                              </div>
                             </div>
                             <div className="flex-1 overflow-y-auto p-1">
                               {(() => {
@@ -895,7 +911,8 @@ export const Transfers: React.FC = () => {
                                     item.available_branches.length === 0 || 
                                     (targetBranchId && item.available_branches.includes(targetBranchId));
                                     
-                                  return qty > 0 && isAvailableToTarget && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
+                                  const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
+                                  return qty > 0 && isAvailableToTarget && matchesCategory && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
                                 });
                                 if (filtered.length === 0) {
                                   return (

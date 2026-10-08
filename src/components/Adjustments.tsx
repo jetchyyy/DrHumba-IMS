@@ -52,6 +52,8 @@ interface CatalogItem {
   id: string;
   item_name: string;
   base_unit: string;
+  available_branches?: string[] | null;
+  category: string;
 }
 
 export const Adjustments: React.FC = () => {
@@ -88,6 +90,7 @@ export const Adjustments: React.FC = () => {
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState<number | string>(-10); // Default to negative deduction
   const [itemSearchTerm, setItemSearchTerm] = useState('');
+  const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
   
   const [processing, setProcessing] = useState(false);
 
@@ -228,7 +231,7 @@ export const Adjustments: React.FC = () => {
 
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
-        .select('id, item_name, base_unit')
+        .select('id, item_name, base_unit, available_branches, category')
         .eq('status', 'active');
       if (catError) throw catError;
       setCatalog(catData || []);
@@ -248,6 +251,7 @@ export const Adjustments: React.FC = () => {
     setAddedItems([]);
     setIsCameraActive(false);
     setItemSearchTerm('');
+    setItemCategoryFilter('All');
     stopCamera();
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
@@ -835,15 +839,36 @@ export const Adjustments: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2 relative">
                     <Label>Search Item</Label>
-                    <Input
-                      placeholder="Search to select..."
-                      value={itemSearchTerm}
-                      onChange={(e) => setItemSearchTerm(e.target.value)}
-                    />
+                    <div className="flex flex-col gap-2">
+                      <Select value={itemCategoryFilter} onValueChange={setItemCategoryFilter}>
+                        <SelectTrigger className="h-8 w-full">
+                          <SelectValue placeholder="Category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="All">All Categories</SelectItem>
+                          {Array.from(new Set(catalog.map(c => c.category).filter(Boolean))).sort().map(cat => (
+                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        placeholder="Search to select..."
+                        value={itemSearchTerm}
+                        onChange={(e) => setItemSearchTerm(e.target.value)}
+                      />
+                    </div>
                     {itemSearchTerm.trim() !== '' && (
                       <div className="absolute z-10 top-full left-0 right-0 mt-1 border bg-background rounded-md shadow-md max-h-48 overflow-y-auto">
-                        {catalog.filter(item => item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())).length > 0 ? (
-                          catalog.filter(item => item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())).map(item => (
+                        {(() => {
+                          const filtered = catalog.filter(item => {
+                            const isAvailable = !item.available_branches || 
+                              item.available_branches.length === 0 || 
+                              (selectedBranch && item.available_branches.includes(selectedBranch.id));
+                            const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
+                            return isAvailable && matchesCategory && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
+                          });
+                          return filtered.length > 0 ? (
+                            filtered.map(item => (
                             <div 
                               key={item.id} 
                               className={`p-2 text-sm cursor-pointer hover:bg-muted ${currentSelectedItemId === item.id ? 'bg-primary/10 font-medium' : ''}`}
@@ -857,7 +882,8 @@ export const Adjustments: React.FC = () => {
                           ))
                         ) : (
                           <div className="p-3 text-sm text-muted-foreground text-center">No items found</div>
-                        )}
+                        );
+                        })()}
                       </div>
                     )}
                   </div>
@@ -868,7 +894,13 @@ export const Adjustments: React.FC = () => {
                         <SelectValue placeholder="Select an item" />
                       </SelectTrigger>
                       <SelectContent>
-                        {catalog.map(item => (
+                        {catalog.filter(item => {
+                          const isAvailable = !item.available_branches || 
+                            item.available_branches.length === 0 || 
+                            (selectedBranch && item.available_branches.includes(selectedBranch.id));
+                          const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
+                          return isAvailable && matchesCategory;
+                        }).map(item => (
                           <SelectItem key={item.id} value={item.id}>
                             {item.item_name} ({item.base_unit})
                           </SelectItem>

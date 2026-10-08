@@ -52,6 +52,8 @@ interface CatalogItem {
   item_name: string;
   purchase_unit: string;
   conversion_factor: number;
+  available_branches?: string[] | null;
+  category: string;
 }
 
 export const StockReceiving: React.FC = () => {
@@ -90,6 +92,7 @@ export const StockReceiving: React.FC = () => {
   const [currentCost, setCurrentCost] = useState(10);
   const [itemPopoverOpen, setItemPopoverOpen] = useState(false);
   const [itemSearchTerm, setItemSearchTerm] = useState('');
+  const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
   
   const [processingReceiptId, setProcessingReceiptId] = useState<string | null>(null);
 
@@ -106,7 +109,7 @@ export const StockReceiving: React.FC = () => {
 
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
-        .select('id, item_name, purchase_unit, conversion_factor')
+        .select('id, item_name, purchase_unit, conversion_factor, available_branches, category')
         .eq('status', 'active');
       if (catError) throw catError;
       setCatalog(catData || []);
@@ -126,6 +129,7 @@ export const StockReceiving: React.FC = () => {
     setAddedItems([]);
     setCurrentSelectedItemId('');
     setItemSearchTerm('');
+    setItemCategoryFilter('All');
     if (catalog.length > 0) {
       setCurrentSelectedItemId(catalog[0].id);
       setCurrentQty('');
@@ -592,20 +596,38 @@ export const StockReceiving: React.FC = () => {
                         </PopoverTrigger>
                         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
                           <div className="flex flex-col h-[300px]">
-                            <div className="flex items-center border-b px-3 py-2 sticky top-0 bg-background z-10">
-                              <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                              <Input
-                                placeholder="Search catalog items..."
-                                value={itemSearchTerm}
-                                onChange={(e) => setItemSearchTerm(e.target.value)}
-                                className="h-8 w-full bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0 py-0 text-sm outline-none"
-                              />
+                            <div className="flex flex-col gap-2 border-b px-3 py-2 sticky top-0 bg-background z-10">
+                              <Select value={itemCategoryFilter} onValueChange={setItemCategoryFilter}>
+                                <SelectTrigger className="h-8 w-full">
+                                  <SelectValue placeholder="Category" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="All">All Categories</SelectItem>
+                                  {Array.from(new Set(catalog.map(c => c.category).filter(Boolean))).sort().map(cat => (
+                                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <div className="flex items-center">
+                                <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                <Input
+                                  placeholder="Search catalog items..."
+                                  value={itemSearchTerm}
+                                  onChange={(e) => setItemSearchTerm(e.target.value)}
+                                  className="h-8 w-full bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0 py-0 text-sm outline-none"
+                                />
+                              </div>
                             </div>
                             <div className="flex-1 overflow-y-auto p-1">
                               {(() => {
-                                const filtered = catalog.filter(item => 
-                                  item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())
-                                );
+                                const filtered = catalog.filter(item => {
+                                  const isAvailable = !item.available_branches || 
+                                    item.available_branches.length === 0 || 
+                                    (selectedBranch && item.available_branches.includes(selectedBranch.id));
+                                    
+                                  const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
+                                  return isAvailable && matchesCategory && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
+                                });
                                 if (filtered.length === 0) {
                                   return (
                                     <div className="py-6 text-center text-sm text-muted-foreground">

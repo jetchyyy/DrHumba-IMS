@@ -81,7 +81,7 @@ export const useNavItems = () => {
     { id: 'z-read-history', name: 'Z-Read History', icon: ClipboardList, show: true },
     { id: 'expenses', name: 'Expense Tracker', icon: ExpensesIcon, show: ['super_admin', 'branch_manager', 'auditor'].includes(role) },
     { id: 'inventory', name: 'Inventory Items', icon: Package, show: true },
-    { id: 'global-inventory', name: 'Overall Stock', icon: Boxes, show: true },
+    { id: 'global-inventory', name: 'Overall Stock', icon: Boxes, show: ['super_admin', 'inventory_manager', 'auditor'].includes(role) },
     { id: 'receiving', name: 'Stock Receiving', icon: FilePlus, show: ['super_admin', 'inventory_manager'].includes(role) },
     { id: 'transfers', name: 'Transfers', icon: ArrowLeftRight, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
     { id: 'adjustments', name: 'Adjustments', icon: ClipboardList, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },

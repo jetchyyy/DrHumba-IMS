@@ -63,6 +63,7 @@ interface InventoryItem {
   conversion_factor: number;
   category: string;
   cost_per_base_unit: number;
+  available_branches?: string[] | null;
 }
 
 export const Portioning: React.FC = () => {
@@ -102,7 +103,9 @@ export const Portioning: React.FC = () => {
 
   // Search popover states inside form
   const [sourceSearchTerm, setSourceSearchTerm] = useState('');
+  const [sourceCategoryFilter, setSourceCategoryFilter] = useState('All');
   const [targetSearchTerm, setTargetSearchTerm] = useState('');
+  const [targetCategoryFilter, setTargetCategoryFilter] = useState('All');
   const [sourcePopoverOpen, setSourcePopoverOpen] = useState(false);
   const [targetPopoverOpen, setTargetPopoverOpen] = useState(false);
 
@@ -188,7 +191,7 @@ export const Portioning: React.FC = () => {
       // 2. Fetch Catalog Items
       const { data: catData, error: catErr } = await supabase
         .from('inventory_items')
-        .select('*')
+        .select('*, available_branches')
         .eq('status', 'active')
         .order('item_name', { ascending: true });
 
@@ -747,15 +750,33 @@ export const Portioning: React.FC = () => {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[400px] p-2" align="start">
-                  <Input
-                    placeholder="Search raw item..."
-                    value={sourceSearchTerm}
-                    onChange={e => setSourceSearchTerm(e.target.value)}
-                    className="mb-2"
-                  />
+                  <div className="flex flex-col gap-2 mb-2">
+                    <Select value={sourceCategoryFilter} onValueChange={setSourceCategoryFilter}>
+                      <SelectTrigger className="h-8 w-full">
+                        <SelectValue placeholder="Category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="All">All Categories</SelectItem>
+                        {Array.from(new Set(itemsCatalog.map(c => c.category).filter(Boolean))).sort().map(cat => (
+                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="Search raw item..."
+                      value={sourceSearchTerm}
+                      onChange={e => setSourceSearchTerm(e.target.value)}
+                    />
+                  </div>
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {itemsCatalog
-                      .filter(i => i.item_name.toLowerCase().includes(sourceSearchTerm.toLowerCase()))
+                      .filter(i => {
+                        const isAvailable = !i.available_branches || 
+                          i.available_branches.length === 0 || 
+                          (formBranchId && i.available_branches.includes(formBranchId));
+                        const matchesCategory = sourceCategoryFilter === 'All' || i.category === sourceCategoryFilter;
+                        return isAvailable && matchesCategory && i.item_name.toLowerCase().includes(sourceSearchTerm.toLowerCase());
+                      })
                       .map(item => (
                         <div
                           key={item.id}
@@ -833,15 +854,33 @@ export const Portioning: React.FC = () => {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[400px] p-2" align="start">
-                  <Input
-                    placeholder="Search target portion item..."
-                    value={targetSearchTerm}
-                    onChange={e => setTargetSearchTerm(e.target.value)}
-                    className="mb-2"
-                  />
+                  <div className="flex flex-col gap-2 mb-2">
+                    <Select value={targetCategoryFilter} onValueChange={setTargetCategoryFilter}>
+                      <SelectTrigger className="h-8 w-full">
+                        <SelectValue placeholder="Category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="All">All Categories</SelectItem>
+                        {Array.from(new Set(itemsCatalog.map(c => c.category).filter(Boolean))).sort().map(cat => (
+                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="Search target portion item..."
+                      value={targetSearchTerm}
+                      onChange={e => setTargetSearchTerm(e.target.value)}
+                    />
+                  </div>
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {itemsCatalog
-                      .filter(i => i.item_name.toLowerCase().includes(targetSearchTerm.toLowerCase()))
+                      .filter(i => {
+                        const isAvailable = !i.available_branches || 
+                          i.available_branches.length === 0 || 
+                          (formBranchId && i.available_branches.includes(formBranchId));
+                        const matchesCategory = targetCategoryFilter === 'All' || i.category === targetCategoryFilter;
+                        return isAvailable && matchesCategory && i.item_name.toLowerCase().includes(targetSearchTerm.toLowerCase());
+                      })
                       .map(item => (
                         <div
                           key={item.id}
