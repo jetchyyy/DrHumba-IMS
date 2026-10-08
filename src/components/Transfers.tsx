@@ -567,7 +567,7 @@ export const Transfers: React.FC = () => {
   const canApprove = profile && (
     ['super_admin', 'inventory_manager', 'branch_manager'].includes(profile.role_name) ||
     profile.is_platform_admin ||
-    (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
+    (profile.allowed_tabs && profile.allowed_tabs.includes('transfers_dispatch'))
   );
 
   const filteredTransfers = transfers.filter(transfer => {
@@ -618,7 +618,7 @@ export const Transfers: React.FC = () => {
             <RefreshCw className="h-4 w-4" />
           </Button>
           
-          {(profile?.role_name === 'super_admin' || profile?.role_name === 'inventory_manager' || selectedBranch?.is_warehouse || (profile?.allowed_tabs && profile.allowed_tabs.includes('transfers'))) && (
+          {(profile?.role_name === 'super_admin' || profile?.role_name === 'inventory_manager' || selectedBranch?.is_warehouse || (profile?.allowed_tabs && profile.allowed_tabs.includes('transfers_dispatch'))) && (
             <Button variant="default" onClick={() => handleOpenCreateModal(true)}>
               <ArrowRightLeft className="mr-2 h-4 w-4" />
               Send Shipment
@@ -1152,7 +1152,7 @@ export const Transfers: React.FC = () => {
                             profile.branch_id !== selectedTransfer.source_branch_id && (
                               profile.role_name === 'inventory_manager' || 
                               profile.branch_id === selectedTransfer.target_branch_id ||
-                              (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
+                              (profile.allowed_tabs && profile.allowed_tabs.includes('transfers_receive'))
                             )
                           )
                         );
@@ -1307,7 +1307,7 @@ export const Transfers: React.FC = () => {
                       profile.branch_id !== selectedTransfer.source_branch_id && (
                         profile.role_name === 'inventory_manager' || 
                         profile.branch_id === selectedTransfer.target_branch_id ||
-                        (profile.allowed_tabs && profile.allowed_tabs.includes('transfers'))
+                        (profile.allowed_tabs && profile.allowed_tabs.includes('transfers_receive'))
                       )
                     )
                   );
@@ -1353,7 +1353,7 @@ export const Transfers: React.FC = () => {
                       </div>
                     );
                   } else if (selectedTransfer.status === 'pending_receipt_approval' && 
-                             (profile?.role_name === 'super_admin' || profile?.is_platform_admin || profile?.role_name === 'inventory_manager' || (profile?.allowed_tabs && profile.allowed_tabs.includes('transfers')))) {
+                             (profile?.role_name === 'super_admin' || profile?.is_platform_admin || profile?.role_name === 'inventory_manager' || (profile?.allowed_tabs && profile.allowed_tabs.includes('transfers_dispatch')))) {
                     return (
                       <div className="w-full space-y-4">
                         {!showRejectDialog ? (
