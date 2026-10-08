@@ -94,10 +94,12 @@ export const StockReceiving: React.FC = () => {
   const [processingReceiptId, setProcessingReceiptId] = useState<string | null>(null);
 
   const loadData = async () => {
+    if (!selectedBranch) return;
     try {
       const { data: recData, error: recError } = await supabase
         .from('stock_receipts')
         .select('*')
+        .eq('branch_id', selectedBranch.id)
         .order('created_at', { ascending: false });
       if (recError) throw recError;
       setReceipts(recData || []);
@@ -115,7 +117,7 @@ export const StockReceiving: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [selectedBranch]);
 
   const handleOpenCreateModal = () => {
     setSupplier('');

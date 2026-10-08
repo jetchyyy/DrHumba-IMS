@@ -29,19 +29,19 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
 
     if (hasDiscrepancies) {
       return `
-        <tr style="border-bottom: 1px solid #e2e8f0;">
-          <td style="padding: 12px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
-          <td style="padding: 12px; text-align: right; font-weight: 600;">${item.quantity_base_unit} ${unit}</td>
-          <td style="padding: 12px; text-align: right; font-weight: 700; color: #16a34a;">${received} ${unit}</td>
-          <td style="padding: 12px; text-align: right; font-weight: 700; color: #dc2626;">${missing > 0 ? `${missing} ${unit}` : '0'}</td>
-          <td style="padding: 12px; text-align: left; font-size: 12px; font-style: italic; color: #64748b;">${missing > 0 ? (item.missing_reason || 'No reason provided') : '-'}</td>
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 12px;">
+          <td style="padding: 4px 8px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
+          <td style="padding: 4px 8px; text-align: right; font-weight: 600;">${item.quantity_base_unit} ${unit}</td>
+          <td style="padding: 4px 8px; text-align: right; font-weight: 700; color: #16a34a;">${received} ${unit}</td>
+          <td style="padding: 4px 8px; text-align: right; font-weight: 700; color: #dc2626;">${missing > 0 ? `${missing} ${unit}` : '0'}</td>
+          <td style="padding: 4px 8px; text-align: left; font-size: 11px; font-style: italic; color: #64748b;">${missing > 0 ? (item.missing_reason || 'No reason provided') : '-'}</td>
         </tr>
       `;
     } else {
       return `
-        <tr style="border-bottom: 1px solid #e2e8f0;">
-          <td style="padding: 12px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
-          <td style="padding: 12px; text-align: right; font-weight: 700;">${item.quantity_base_unit} ${item.inventory_items?.base_unit || 'units'}</td>
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 12px;">
+          <td style="padding: 4px 8px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
+          <td style="padding: 4px 8px; text-align: right; font-weight: 700;">${item.quantity_base_unit} ${item.inventory_items?.base_unit || 'units'}</td>
         </tr>
       `;
     }
@@ -168,11 +168,11 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
           }
           .items-table th {
             background-color: #f1f5f9;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 700;
             text-transform: uppercase;
             color: #475569;
-            padding: 12px;
+            padding: 6px 8px;
             text-align: left;
             border-bottom: 1px solid #cbd5e1;
             letter-spacing: 0.05em;
@@ -239,18 +239,9 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
             <div style="text-align: right;">
               <div class="title">Delivery Slip / Transfer Receipt</div>
               <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px;">Status: ${displayStatus.toUpperCase()}</div>
-            </div>
-          </div>
-
-          <div class="details-grid">
-            <div class="info-block">
-              <h3>Control Number</h3>
-              <p style="font-weight: 700; font-size: 16px; color: #4f46e5;">${transfer.control_number || 'PENDING'}</p>
+              <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px;">Control No: <span style="color: #4f46e5;">${transfer.control_number || 'PENDING'}</span></div>
+              <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px;">Date: <span style="color: #0f172a;">${new Date(transfer.created_at || new Date()).toLocaleString()}</span></div>
               <div style="font-family: monospace; font-size: 10px; color: #94a3b8; margin-top: 4px;">System ID: ${transfer.id}</div>
-            </div>
-            <div class="info-block" style="text-align: right;">
-              <h3>Issue Date</h3>
-              <p>${new Date(transfer.created_at || new Date()).toLocaleString()}</p>
             </div>
           </div>
 
@@ -279,11 +270,11 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
             <thead>
               ${hasDiscrepancies ? `
                 <tr>
-                  <th style="text-align: left; padding: 12px;">Item Name</th>
-                  <th style="text-align: right; padding: 12px;">Sent Qty</th>
-                  <th style="text-align: right; padding: 12px;">Arrived Qty</th>
-                  <th style="text-align: right; padding: 12px;">Missing Qty</th>
-                  <th style="text-align: left; padding: 12px;">Discrepancy Reason</th>
+                  <th style="text-align: left; padding: 6px 8px;">Item Name</th>
+                  <th style="text-align: right; padding: 6px 8px;">Sent Qty</th>
+                  <th style="text-align: right; padding: 6px 8px;">Arrived Qty</th>
+                  <th style="text-align: right; padding: 6px 8px;">Missing Qty</th>
+                  <th style="text-align: left; padding: 6px 8px;">Discrepancy Reason</th>
                 </tr>
               ` : `
                 <tr>
@@ -564,11 +555,11 @@ export const printStockInReceipt = (receipt: any, items: any[], template: Transf
     const subtotal = item.quantity_purchased * item.cost_per_purchase_unit;
     grandTotal += subtotal;
     return `
-      <tr style="border-bottom: 1px solid #e2e8f0;">
-        <td style="padding: 12px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
-        <td style="padding: 12px; text-align: right; font-weight: 700;">${item.quantity_purchased} ${item.inventory_items?.purchase_unit || 'units'}</td>
-        <td style="padding: 12px; text-align: right;">₱${item.cost_per_purchase_unit.toFixed(2)}</td>
-        <td style="padding: 12px; text-align: right; font-weight: 700;">₱${subtotal.toFixed(2)}</td>
+      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 12px;">
+        <td style="padding: 4px 8px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
+        <td style="padding: 4px 8px; text-align: right; font-weight: 700;">${item.quantity_purchased} ${item.inventory_items?.purchase_unit || 'units'}</td>
+        <td style="padding: 4px 8px; text-align: right;">₱${item.cost_per_purchase_unit.toFixed(2)}</td>
+        <td style="padding: 4px 8px; text-align: right; font-weight: 700;">₱${subtotal.toFixed(2)}</td>
       </tr>
     `;
   }).join('');
@@ -615,7 +606,7 @@ export const printStockInReceipt = (receipt: any, items: any[], template: Transf
           .branch-col h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 0 0 8px 0; letter-spacing: 0.05em; }
           .branch-col p { font-size: 15px; font-weight: 700; margin: 0; color: #0f172a; }
           .items-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-          .items-table th { background-color: #f1f5f9; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #475569; padding: 12px; text-align: left; border-bottom: 1px solid #cbd5e1; letter-spacing: 0.05em; }
+          .items-table th { background-color: #f1f5f9; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #475569; padding: 6px 8px; text-align: left; border-bottom: 1px solid #cbd5e1; letter-spacing: 0.05em; }
           .total-box { display: flex; justify-content: flex-end; font-size: 16px; font-weight: 800; padding: 15px; border-top: 2px solid #cbd5e1; margin-bottom: 50px; }
           .signatures { display: flex; justify-content: space-between; margin-top: 80px; page-break-inside: avoid; }
           .sig-box { width: 45%; border-top: 1px dashed #cbd5e1; padding-top: 15px; text-align: center; }
@@ -639,18 +630,9 @@ export const printStockInReceipt = (receipt: any, items: any[], template: Transf
             <div style="text-align: right;">
               <div class="title">Stock In Receipt</div>
               <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px;">Status: ${(receipt.status || 'PENDING').toUpperCase()}</div>
-            </div>
-          </div>
-
-          <div class="details-grid">
-            <div class="info-block">
-              <h3>Control Number</h3>
-              <p style="font-weight: 700; font-size: 16px; color: #4f46e5;">${receipt.control_number || 'PENDING'}</p>
+              <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px;">Control No: <span style="color: #4f46e5;">${receipt.control_number || 'PENDING'}</span></div>
+              <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px;">Date: <span style="color: #0f172a;">${new Date(receipt.created_at || new Date()).toLocaleString()}</span></div>
               <div style="font-family: monospace; font-size: 10px; color: #94a3b8; margin-top: 4px;">System ID: ${receipt.id}</div>
-            </div>
-            <div class="info-block" style="text-align: right;">
-              <h3>Issue Date</h3>
-              <p>${new Date(receipt.created_at || new Date()).toLocaleString()}</p>
             </div>
           </div>
 
@@ -708,9 +690,9 @@ export const printAdjustmentSlip = (adjustment: any, items: any[], template: Tra
   const title = isWaste ? "Food Waste Report" : "Stock Adjustment Slip";
 
   const itemsHtml = items.map(item => `
-    <tr style="border-bottom: 1px solid #e2e8f0;">
-      <td style="padding: 12px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
-      <td style="padding: 12px; text-align: right; font-weight: 700; color: ${item.quantity_base_unit < 0 ? '#ef4444' : '#10b981'};">
+    <tr style="border-bottom: 1px solid #e2e8f0; font-size: 12px;">
+      <td style="padding: 4px 8px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
+      <td style="padding: 4px 8px; text-align: right; font-weight: 700; color: ${item.quantity_base_unit < 0 ? '#ef4444' : '#10b981'};">
         ${item.quantity_base_unit > 0 ? '+' : ''}${item.quantity_base_unit} ${item.inventory_items?.base_unit || 'units'}
       </td>
     </tr>
@@ -757,7 +739,7 @@ export const printAdjustmentSlip = (adjustment: any, items: any[], template: Tra
           .branches-box h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 0 0 6px 0; letter-spacing: 0.05em; }
           .branches-box p { font-size: 14px; font-weight: 600; margin: 0; color: #0f172a; }
           .items-table { width: 100%; border-collapse: collapse; margin-bottom: 50px; }
-          .items-table th { background-color: #f1f5f9; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #475569; padding: 12px; text-align: left; border-bottom: 1px solid #cbd5e1; letter-spacing: 0.05em; }
+          .items-table th { background-color: #f1f5f9; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #475569; padding: 6px 8px; text-align: left; border-bottom: 1px solid #cbd5e1; letter-spacing: 0.05em; }
           .signatures { display: flex; justify-content: space-between; margin-top: 80px; page-break-inside: avoid; }
           .sig-box { width: 45%; border-top: 1px dashed #cbd5e1; padding-top: 15px; text-align: center; }
           .sig-title { font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 4px; }
@@ -780,18 +762,9 @@ export const printAdjustmentSlip = (adjustment: any, items: any[], template: Tra
             <div style="text-align: right;">
               <div class="title">${title}</div>
               <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px;">Status: ${(adjustment.status || 'PENDING').toUpperCase()}</div>
-            </div>
-          </div>
-
-          <div class="details-grid">
-            <div class="info-block">
-              <h3>Control Number</h3>
-              <p style="font-weight: 700; font-size: 16px; color: #4f46e5;">${adjustment.control_number || 'PENDING'}</p>
+              <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px;">Control No: <span style="color: #4f46e5;">${adjustment.control_number || 'PENDING'}</span></div>
+              <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 4px;">Date: <span style="color: #0f172a;">${new Date(adjustment.created_at || new Date()).toLocaleString()}</span></div>
               <div style="font-family: monospace; font-size: 10px; color: #94a3b8; margin-top: 4px;">System ID: ${adjustment.id}</div>
-            </div>
-            <div class="info-block" style="text-align: right;">
-              <h3>Issue Date</h3>
-              <p>${new Date(adjustment.created_at || new Date()).toLocaleString()}</p>
             </div>
           </div>
 

@@ -175,6 +175,8 @@ export const Transfers: React.FC = () => {
     if (showCreateModal && sourceBranchId) {
       fetchSourceInventory(sourceBranchId);
       setAddedItems([]); // Reset items when source branch changes to prevent invalid stock transfer levels
+      setCurrentSelectedItemId('');
+      setCurrentQty('');
     } else {
       setSourceInventory({});
     }
@@ -187,10 +189,8 @@ export const Transfers: React.FC = () => {
     setTargetBranchId(proactive ? '' : selectedBranch?.id || '');
     setRemarks('');
     setAddedItems([]);
-    if (catalog.length > 0) {
-      setCurrentSelectedItemId(catalog[0].id);
-      setCurrentQty('');
-    }
+    setCurrentSelectedItemId('');
+    setCurrentQty('');
     setItemSearchTerm('');
     setItemPopoverOpen(false);
     setShowCreateModal(true);
@@ -887,9 +887,10 @@ export const Transfers: React.FC = () => {
                             </div>
                             <div className="flex-1 overflow-y-auto p-1">
                               {(() => {
-                                const filtered = catalog.filter(item => 
-                                  item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())
-                                );
+                                const filtered = catalog.filter(item => {
+                                  const qty = sourceInventory[item.id] || 0;
+                                  return qty > 0 && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
+                                });
                                 if (filtered.length === 0) {
                                   return (
                                     <div className="py-6 text-center text-sm text-muted-foreground">
