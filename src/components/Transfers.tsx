@@ -60,6 +60,7 @@ interface CatalogItem {
   item_name: string;
   base_unit: string;
   min_transfer_qty?: number | null;
+  available_branches?: string[] | null;
 }
 
 export const Transfers: React.FC = () => {
@@ -136,7 +137,7 @@ export const Transfers: React.FC = () => {
 
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
-        .select('id, item_name, base_unit, min_transfer_qty')
+        .select('id, item_name, base_unit, min_transfer_qty, available_branches')
         .eq('status', 'active');
       if (catError) throw catError;
       setCatalog(catData || []);
@@ -889,7 +890,12 @@ export const Transfers: React.FC = () => {
                               {(() => {
                                 const filtered = catalog.filter(item => {
                                   const qty = sourceInventory[item.id] || 0;
-                                  return qty > 0 && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
+                                  
+                                  const isAvailableToTarget = !item.available_branches || 
+                                    item.available_branches.length === 0 || 
+                                    (targetBranchId && item.available_branches.includes(targetBranchId));
+                                    
+                                  return qty > 0 && isAvailableToTarget && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
                                 });
                                 if (filtered.length === 0) {
                                   return (

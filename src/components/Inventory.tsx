@@ -435,7 +435,7 @@ export const Inventory: React.FC = () => {
     );
   }, [items, selectedBranch]);
 
-  const displayedItems = activeSubTab === 'balances' ? branchItems : items;
+  const displayedItems = branchItems;
 
   const filteredItems = displayedItems.filter(item => {
     const matchesSearch = item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
