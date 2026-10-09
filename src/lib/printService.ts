@@ -27,10 +27,27 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
       : Number(item.quantity_base_unit);
     const missing = Number(item.quantity_base_unit) - received;
 
+    const isModified = item.original_quantity_base_unit && Number(item.original_quantity_base_unit) !== Number(item.quantity_base_unit);
+    const modNote = isModified
+      ? `<span style="display: block; font-size: 10px; color: #b45309; font-weight: 600; margin-top: 1px;">Approved: ${item.quantity_base_unit} ${unit} (Requested: ${item.original_quantity_base_unit} ${unit})</span>`
+      : '';
+
+    const pcsPerPack = Number(item.pieces_per_pack) || Number(item.inventory_items?.conversion_factor) || 1;
+    const pCount = (item.package_count !== undefined && item.package_count !== null && Number(item.package_count) > 0)
+      ? Number(item.package_count)
+      : (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
+
+    const pkgInfo = (pCount && pcsPerPack > 1)
+      ? `<span style="display: block; font-size: 10px; color: #4f46e5; font-weight: 600; margin-top: 2px;">${pCount} packs × ${pcsPerPack} ${unit}/pack (= ${item.quantity_base_unit} ${unit})</span>${modNote}`
+      : modNote;
+
     if (hasDiscrepancies) {
       return `
         <tr style="border-bottom: 1px solid #e2e8f0; font-size: 12px;">
-          <td style="padding: 4px 8px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
+          <td style="padding: 4px 8px; font-weight: 500;">
+            ${item.inventory_items?.item_name || 'Item'}
+            ${pkgInfo}
+          </td>
           <td style="padding: 4px 8px; text-align: right; font-weight: 600;">${item.quantity_base_unit} ${unit}</td>
           <td style="padding: 4px 8px; text-align: right; font-weight: 700; color: #16a34a;">${received} ${unit}</td>
           <td style="padding: 4px 8px; text-align: right; font-weight: 700; color: #dc2626;">${missing > 0 ? `${missing} ${unit}` : '0'}</td>
@@ -40,7 +57,10 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
     } else {
       return `
         <tr style="border-bottom: 1px solid #e2e8f0; font-size: 12px;">
-          <td style="padding: 4px 8px; font-weight: 500;">${item.inventory_items?.item_name || 'Item'}</td>
+          <td style="padding: 4px 8px; font-weight: 500;">
+            ${item.inventory_items?.item_name || 'Item'}
+            ${pkgInfo}
+          </td>
           <td style="padding: 4px 8px; text-align: right; font-weight: 700;">${item.quantity_base_unit} ${item.inventory_items?.base_unit || 'units'}</td>
         </tr>
       `;
@@ -56,16 +76,22 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
         <div class="sig-box">
           <div class="sig-title">${template.sender_label || 'Dispatched By (Sender Signature)'}</div>
           <div class="sig-subtitle">Main Warehouse / Source Branch Authority</div>
-          <div style="margin-top: 40px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
-            <span>Name: ______________________</span>
+          <div style="margin-top: 15px; font-size: 11px; color: #475569; text-align: left;">
+            <div><strong>Email / User:</strong> ${transfer.approved_by_email || transfer.requested_by_email || 'Authorized Staff'}</div>
+          </div>
+          <div style="margin-top: 25px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
+            <span>Signature: ______________________</span>
             <span>Date: ____/____/________</span>
           </div>
         </div>
         <div class="sig-box">
           <div class="sig-title">${template.receiver_label || 'Received By (Receiver Signature)'}</div>
           <div class="sig-subtitle font-normal text-slate-400">Target Branch Manager / Cashier Authority</div>
-          <div style="margin-top: 40px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
-            <span>Name: ______________________</span>
+          <div style="margin-top: 15px; font-size: 11px; color: #475569; text-align: left;">
+            <div><strong>Email / User:</strong> ${transfer.receipt_requested_by_email || 'Target Branch Receiver'}</div>
+          </div>
+          <div style="margin-top: 25px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
+            <span>Signature: ______________________</span>
             <span>Date: ____/____/________</span>
           </div>
         </div>
@@ -259,7 +285,32 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
             </div>
           </div>
 
-          <div class="info-block" style="margin-bottom: 24px;">
+          <div class="info-block" style="margin-bottom: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 12px;">
+              <div>
+                <span style="font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 2px;">Requested By (Email)</span>
+                <span style="font-weight: 600; color: #0f172a;">${transfer.requested_by_email || 'Authorized Staff'}</span>
+              </div>
+              <div>
+                <span style="font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 2px;">Approved & Dispatched By (Email)</span>
+                <span style="font-weight: 600; color: #0f172a;">${transfer.approved_by_email || (['approved', 'completed', 'pending_receipt_approval'].includes(transfer.status) ? 'Authorized Approver' : 'Pending Approval')}</span>
+              </div>
+              ${transfer.receipt_requested_by_email ? `
+                <div>
+                  <span style="font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 2px;">Received & Checked By (Email)</span>
+                  <span style="font-weight: 600; color: #16a34a;">${transfer.receipt_requested_by_email}</span>
+                </div>
+              ` : ''}
+              ${transfer.receipt_approved_by_email ? `
+                <div>
+                  <span style="font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 2px;">Discrepancy Approved By (Email)</span>
+                  <span style="font-weight: 600; color: #0f172a;">${transfer.receipt_approved_by_email}</span>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+
+          <div class="info-block" style="margin-bottom: 20px;">
             <h3>Remarks / Purpose</h3>
             <p style="font-weight: 500; font-style: ${transfer.remarks ? 'normal' : 'italic'}; color: ${transfer.remarks ? '#1e293b' : '#94a3b8'};">
               ${transfer.remarks || 'No remarks provided'}
@@ -571,16 +622,22 @@ export const printStockInReceipt = (receipt: any, items: any[], template: Transf
   const signaturesHtml = template.show_signatures
     ? `<div class="signatures">
         <div class="sig-box">
-          <div class="sig-title">Received By</div>
-          <div style="margin-top: 40px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
-            <span>Name: ______________________</span>
+          <div class="sig-title">Received / Logged By</div>
+          <div style="margin-top: 10px; font-size: 11px; color: #475569; text-align: left;">
+            <div><strong>Email:</strong> ${receipt.received_by_email || receipt.created_by_email || 'Authorized Staff'}</div>
+          </div>
+          <div style="margin-top: 25px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
+            <span>Signature: ______________________</span>
             <span>Date: ____/____/________</span>
           </div>
         </div>
         <div class="sig-box">
           <div class="sig-title">Verified By (Manager)</div>
-          <div style="margin-top: 40px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
-            <span>Name: ______________________</span>
+          <div style="margin-top: 10px; font-size: 11px; color: #475569; text-align: left;">
+            <div><strong>Role:</strong> Branch Management Authority</div>
+          </div>
+          <div style="margin-top: 25px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
+            <span>Signature: ______________________</span>
             <span>Date: ____/____/________</span>
           </div>
         </div>
@@ -647,6 +704,19 @@ export const printStockInReceipt = (receipt: any, items: any[], template: Transf
             </div>
           </div>
 
+          <div class="info-block" style="margin-bottom: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 12px;">
+              <div>
+                <span style="font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 2px;">Received & Processed By (Email)</span>
+                <span style="font-weight: 600; color: #0f172a;">${receipt.received_by_email || receipt.created_by_email || 'Authorized Staff'}</span>
+              </div>
+              <div>
+                <span style="font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 2px;">Delivery Date</span>
+                <span style="font-weight: 600; color: #0f172a;">${receipt.date_received || new Date().toISOString().split('T')[0]}</span>
+              </div>
+            </div>
+          </div>
+
           <table class="items-table">
             <thead>
               <tr>
@@ -705,16 +775,22 @@ export const printAdjustmentSlip = (adjustment: any, items: any[], template: Tra
   const signaturesHtml = template.show_signatures
     ? `<div class="signatures">
         <div class="sig-box">
-          <div class="sig-title">Logged By</div>
-          <div style="margin-top: 40px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
-            <span>Name: ______________________</span>
+          <div class="sig-title">Logged / Prepared By</div>
+          <div style="margin-top: 10px; font-size: 11px; color: #475569; text-align: left;">
+            <div><strong>Email:</strong> ${adjustment.created_by_email || 'Authorized Staff'}</div>
+          </div>
+          <div style="margin-top: 25px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
+            <span>Signature: ______________________</span>
             <span>Date: ____/____/________</span>
           </div>
         </div>
         <div class="sig-box">
           <div class="sig-title">Approved By (Manager)</div>
-          <div style="margin-top: 40px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
-            <span>Name: ______________________</span>
+          <div style="margin-top: 10px; font-size: 11px; color: #475569; text-align: left;">
+            <div><strong>Email:</strong> ${adjustment.approved_by_email || (adjustment.status === 'approved' ? 'Manager Authority' : 'Pending Approval')}</div>
+          </div>
+          <div style="margin-top: 25px; font-size: 11px; color: #94a3b8; text-align: left; display: flex; justify-content: space-between;">
+            <span>Signature: ______________________</span>
             <span>Date: ____/____/________</span>
           </div>
         </div>
@@ -780,6 +856,19 @@ export const printAdjustmentSlip = (adjustment: any, items: any[], template: Tra
             <div style="grid-column: span 2; margin-top: 10px;">
               <h3>Remarks</h3>
               <p>${adjustment.remarks || 'No remarks provided'}</p>
+            </div>
+          </div>
+
+          <div class="info-block" style="margin-bottom: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 12px;">
+              <div>
+                <span style="font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 2px;">Requested / Logged By (Email)</span>
+                <span style="font-weight: 600; color: #0f172a;">${adjustment.created_by_email || 'Authorized Staff'}</span>
+              </div>
+              <div>
+                <span style="font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 2px;">Approved By (Email)</span>
+                <span style="font-weight: 600; color: #0f172a;">${adjustment.approved_by_email || (adjustment.status === 'approved' ? 'Authorized Manager' : 'Pending Approval')}</span>
+              </div>
             </div>
           </div>
 

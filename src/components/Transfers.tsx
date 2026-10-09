@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { settingsService } from '../lib/settingsService';
 import { printTransferSlip } from '../lib/printService';
-import { EyeOpenIcon as Eye, ReloadIcon as RefreshCw, SymbolIcon as ArrowRightLeft, TrashIcon as Trash2, FileTextIcon as Printer, CaretSortIcon, MagnifyingGlassIcon } from '@radix-ui/react-icons';
+import { EyeOpenIcon as Eye, ReloadIcon as RefreshCw, SymbolIcon as ArrowRightLeft, TrashIcon as Trash2, FileTextIcon as Printer, CaretSortIcon, MagnifyingGlassIcon, LockClosedIcon as Lock } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -36,10 +36,14 @@ interface TransferRequest {
   created_at: string;
   requested_by?: string | null;
   approved_by?: string | null;
+  requested_by_email?: string | null;
+  approved_by_email?: string | null;
   source_branch?: { name: string };
   target_branch?: { name: string };
   receipt_requested_by?: string | null;
   receipt_approved_by?: string | null;
+  receipt_requested_by_email?: string | null;
+  receipt_approved_by_email?: string | null;
   receipt_remarks?: string | null;
 }
 
@@ -47,18 +51,34 @@ interface TransferItem {
   id: string;
   item_id: string;
   quantity_base_unit: number;
+  original_quantity_base_unit?: number | null;
   received_quantity_base_unit?: number | null;
   missing_reason?: string | null;
+  packaging_unit?: string | null;
+  package_count?: number | null;
+  pieces_per_pack?: number | null;
   inventory_items?: {
     item_name: string;
     base_unit: string;
+    conversion_factor?: number | null;
   };
+  is_deleted?: boolean;
+}
+
+interface AddedTransferItem {
+  item_id: string;
+  qty: number;
+  packaging_unit?: string;
+  package_count?: number;
+  pieces_per_pack?: number;
 }
 
 interface CatalogItem {
   id: string;
   item_name: string;
   base_unit: string;
+  purchase_unit?: string | null;
+  conversion_factor?: number | null;
   min_transfer_qty?: number | null;
   available_branches?: string[] | null;
   category: string;
@@ -94,9 +114,12 @@ export const Transfers: React.FC = () => {
   const [sourceBranchId, setSourceBranchId] = useState('');
   const [targetBranchId, setTargetBranchId] = useState('');
   const [remarks, setRemarks] = useState('');
-  const [addedItems, setAddedItems] = useState<{ item_id: string; qty: number }[]>([]);
+  const [addedItems, setAddedItems] = useState<AddedTransferItem[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState<number | string>('');
+  const [entryMode, setEntryMode] = useState<'base' | 'pack'>('base');
+  const [packCount, setPackCount] = useState<number | string>('');
+  const [packSize, setPackSize] = useState<number | string>('5');
   const [sourceInventory, setSourceInventory] = useState<Record<string, number>>({});
   const [itemSearchTerm, setItemSearchTerm] = useState('');
   const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
@@ -135,11 +158,31 @@ export const Transfers: React.FC = () => {
         `)
         .order('created_at', { ascending: false });
       if (tranError) throw tranError;
-      setTransfers((tranData as any[]) || []);
+
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, email');
+
+      const userMap: Record<string, string> = {};
+      (profilesData || []).forEach((p: any) => {
+        if (p.id && p.email) {
+          userMap[p.id] = p.email;
+        }
+      });
+
+      const mappedTransfers = ((tranData as any[]) || []).map(t => ({
+        ...t,
+        requested_by_email: t.requested_by ? (userMap[t.requested_by] || null) : null,
+        approved_by_email: t.approved_by ? (userMap[t.approved_by] || null) : null,
+        receipt_requested_by_email: t.receipt_requested_by ? (userMap[t.receipt_requested_by] || null) : null,
+        receipt_approved_by_email: t.receipt_approved_by ? (userMap[t.receipt_approved_by] || null) : null,
+      }));
+
+      setTransfers(mappedTransfers);
 
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
-        .select('id, item_name, base_unit, min_transfer_qty, available_branches, category')
+        .select('id, item_name, base_unit, purchase_unit, conversion_factor, min_transfer_qty, available_branches, category')
         .eq('status', 'active');
       if (catError) throw catError;
       setCatalog(catData || []);
@@ -194,6 +237,9 @@ export const Transfers: React.FC = () => {
     setAddedItems([]);
     setCurrentSelectedItemId('');
     setCurrentQty('');
+    setPackCount('');
+    setPackSize('5');
+    setEntryMode('base');
     setItemSearchTerm('');
     setItemCategoryFilter('All');
     setItemPopoverOpen(false);
@@ -203,13 +249,33 @@ export const Transfers: React.FC = () => {
   const handleAddItemToTransfer = () => {
     if (!currentSelectedItemId) return;
     
-    const qtyToAdd = Number(currentQty);
-    if (isNaN(qtyToAdd) || qtyToAdd <= 0) {
-      showError("Please enter a valid quantity greater than zero.");
-      return;
+    const selectedCatalogItem = catalog.find(c => c.id === currentSelectedItemId);
+    let qtyToAdd = 0;
+    let pkgUnit = 'pc';
+    let pkgCount: number | undefined = undefined;
+    let pcsPerPkg: number | undefined = undefined;
+    const hasDefinedPackSize = Boolean(selectedCatalogItem?.conversion_factor && Number(selectedCatalogItem.conversion_factor) > 1);
+    const effectivePackSize = hasDefinedPackSize ? Number(selectedCatalogItem?.conversion_factor) : Number(packSize);
+
+    if (entryMode === 'pack') {
+      const pCount = Number(packCount);
+      const pSize = effectivePackSize;
+      if (isNaN(pCount) || pCount <= 0 || isNaN(pSize) || pSize <= 0) {
+        showError("Please enter a valid pack count.");
+        return;
+      }
+      qtyToAdd = pCount * pSize;
+      pkgUnit = 'pack';
+      pkgCount = pCount;
+      pcsPerPkg = pSize;
+    } else {
+      qtyToAdd = Number(currentQty);
+      if (isNaN(qtyToAdd) || qtyToAdd <= 0) {
+        showError("Please enter a valid quantity greater than zero.");
+        return;
+      }
     }
 
-    const selectedCatalogItem = catalog.find(c => c.id === currentSelectedItemId);
     const minQty = selectedCatalogItem?.min_transfer_qty && selectedCatalogItem.min_transfer_qty > 0 ? selectedCatalogItem.min_transfer_qty : null;
     if (minQty !== null && qtyToAdd < minQty) {
       showError(`Quantity for ${selectedCatalogItem?.item_name || 'item'} must be at least ${minQty} ${selectedCatalogItem?.base_unit || ''}.`);
@@ -232,10 +298,15 @@ export const Transfers: React.FC = () => {
       ...addedItems,
       {
         item_id: currentSelectedItemId,
-        qty: qtyToAdd
+        qty: qtyToAdd,
+        packaging_unit: pkgUnit,
+        package_count: pkgCount,
+        pieces_per_pack: pcsPerPkg
       }
     ]);
     setItemSearchTerm('');
+    setCurrentQty('');
+    setPackCount('');
   };
 
   const handleRemoveItem = (index: number) => {
@@ -273,7 +344,10 @@ export const Transfers: React.FC = () => {
     try {
       const itemsPayload = addedItems.map(item => ({
         item_id: item.item_id,
-        quantity_base_unit: item.qty
+        quantity_base_unit: item.qty,
+        packaging_unit: item.packaging_unit || 'pc',
+        package_count: item.package_count || null,
+        pieces_per_pack: item.pieces_per_pack || null
       }));
 
       if (isProactive) {
@@ -309,29 +383,88 @@ export const Transfers: React.FC = () => {
   const handleViewTransfer = async (transfer: TransferRequest) => {
     setSelectedTransfer(transfer);
     try {
-      const { data, error } = await supabase
-        .from('transfer_items')
-        .select(`
-          id,
-          item_id,
-          quantity_base_unit,
-          received_quantity_base_unit,
-          missing_reason,
-          inventory_items (
-            item_name,
-            base_unit
-          )
-        `)
-        .eq('transfer_id', transfer.id);
-      
-      if (error) throw error;
-      const items = data as any[] || [];
-      setTransferItems(items);
+      let items: any[] = [];
+      try {
+        const { data, error } = await supabase
+          .from('transfer_items')
+          .select(`
+            id,
+            item_id,
+            quantity_base_unit,
+            original_quantity_base_unit,
+            received_quantity_base_unit,
+            missing_reason,
+            packaging_unit,
+            package_count,
+            pieces_per_pack,
+            inventory_items (
+              item_name,
+              base_unit,
+              conversion_factor
+            )
+          `)
+          .eq('transfer_id', transfer.id);
+        
+        if (error) throw error;
+        items = data || [];
+      } catch (colErr) {
+        // Fallback for older schemas
+        const { data, error } = await supabase
+          .from('transfer_items')
+          .select(`
+            id,
+            item_id,
+            quantity_base_unit,
+            received_quantity_base_unit,
+            missing_reason,
+            inventory_items (
+              item_name,
+              base_unit,
+              conversion_factor
+            )
+          `)
+          .eq('transfer_id', transfer.id);
+        
+        if (error) throw error;
+        items = data || [];
+      }
+
+      // Fetch source branch inventory balances for live stock check during approval
+      if (transfer.source_branch_id) {
+        const { data: bData } = await supabase
+          .from('inventory_balances')
+          .select('item_id, quantity')
+          .eq('branch_id', transfer.source_branch_id);
+        if (bData) {
+          const invMap: Record<string, number> = {};
+          bData.forEach((b: any) => { invMap[b.item_id] = Number(b.quantity) || 0; });
+          setSourceInventory(invMap);
+        }
+      }
+
+      const formattedItems = items.map(it => {
+        const catalogItem = (catalog || []).find((c: any) => c.id === it.item_id);
+        const pcsPerPack = Number(it.pieces_per_pack) || Number(it.inventory_items?.conversion_factor) || Number(catalogItem?.conversion_factor) || 5;
+        const rawPackageCount = it.package_count !== null && it.package_count !== undefined ? Number(it.package_count) : null;
+        const derivedPackageCount = (rawPackageCount !== null && rawPackageCount > 0)
+          ? rawPackageCount
+          : (pcsPerPack > 0 ? Math.floor(Number(it.quantity_base_unit) / pcsPerPack) : 1);
+
+        return {
+          ...it,
+          packaging_unit: it.packaging_unit || 'pack',
+          pieces_per_pack: pcsPerPack,
+          package_count: derivedPackageCount,
+          original_quantity_base_unit: it.original_quantity_base_unit ?? it.quantity_base_unit,
+          is_deleted: false
+        };
+      });
+      setTransferItems(formattedItems);
 
       // Initialize discrepancy inputs state
       const rq: Record<string, number> = {};
       const mr: Record<string, string> = {};
-      items.forEach(item => {
+      formattedItems.forEach(item => {
         rq[item.item_id] = item.received_quantity_base_unit !== null && item.received_quantity_base_unit !== undefined
           ? item.received_quantity_base_unit
           : item.quantity_base_unit;
@@ -348,14 +481,158 @@ export const Transfers: React.FC = () => {
     }
   };
 
+  const getItemPcsPerPack = (item: any) => {
+    const directPcs = Number(item.pieces_per_pack);
+    if (directPcs > 0) return directPcs;
+    const dbConv = Number(item.inventory_items?.conversion_factor);
+    if (dbConv > 1) return dbConv;
+    const catalogItem = catalog.find(c => c.id === item.item_id);
+    const catConv = Number(catalogItem?.conversion_factor);
+    if (catConv > 1) return catConv;
+    if (item.packaging_unit === 'pack' || catalogItem?.purchase_unit === 'pack') {
+      return dbConv > 0 ? dbConv : (catConv > 0 ? catConv : 5);
+    }
+    return 1;
+  };
+
+  const handleUpdateItemPackCount = (index: number, newPackCount: number) => {
+    setTransferItems(prev => {
+      const updated = [...prev];
+      const item = updated[index];
+      if (!item) return prev;
+      const pcsPerPack = getItemPcsPerPack(item);
+      const pCount = Math.max(0, newPackCount);
+      updated[index] = {
+        ...item,
+        packaging_unit: pcsPerPack > 1 ? 'pack' : (item.packaging_unit || 'pc'),
+        package_count: pCount,
+        pieces_per_pack: pcsPerPack,
+        quantity_base_unit: pcsPerPack > 1 ? pCount * pcsPerPack : pCount
+      };
+      return updated;
+    });
+  };
+
+  const handleStepItemPackCount = (index: number, delta: number) => {
+    setTransferItems(prev => {
+      const updated = [...prev];
+      const item = updated[index];
+      if (!item) return prev;
+      const pcsPerPack = getItemPcsPerPack(item);
+      const currentPacks = (item.package_count !== undefined && item.package_count !== null)
+        ? Number(item.package_count)
+        : (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : Number(item.quantity_base_unit));
+      const newPacks = Math.max(0, currentPacks + delta);
+      updated[index] = {
+        ...item,
+        packaging_unit: pcsPerPack > 1 ? 'pack' : (item.packaging_unit || 'pc'),
+        package_count: newPacks,
+        pieces_per_pack: pcsPerPack,
+        quantity_base_unit: pcsPerPack > 1 ? newPacks * pcsPerPack : newPacks
+      };
+      return updated;
+    });
+  };
+
+  const handleUpdateItemDirectQty = (index: number, newQty: number) => {
+    setTransferItems(prev => {
+      const updated = [...prev];
+      const item = updated[index];
+      if (!item) return prev;
+      const qty = Math.max(0, newQty);
+      const pcsPerPack = getItemPcsPerPack(item);
+      const newPackCount = pcsPerPack > 1 ? Math.floor(qty / pcsPerPack) : (item.package_count || 1);
+      updated[index] = {
+        ...item,
+        quantity_base_unit: qty,
+        package_count: newPackCount,
+        pieces_per_pack: pcsPerPack
+      };
+      return updated;
+    });
+  };
+
+  const handleToggleDeleteItem = (index: number) => {
+    setTransferItems(prev => {
+      const updated = [...prev];
+      if (updated[index]) {
+        updated[index] = {
+          ...updated[index],
+          is_deleted: !updated[index].is_deleted
+        };
+      }
+      return updated;
+    });
+  };
+
   const handleApproveTransfer = async (transferId: string) => {
-    if (!await confirm(
-      'Approve & Dispatch Transfer',
-      'Are you sure you want to approve and dispatch this transfer? Stock will be immediately deducted from the source branch and marked as in transit.'
-    )) return;
+    const activeItems = transferItems.filter(i => !i.is_deleted);
+    if (activeItems.length === 0) {
+      showError("Cannot approve a transfer with 0 items. Please reject the transfer request if you do not wish to dispatch any items.");
+      return;
+    }
+
+    for (const item of activeItems) {
+      if (isNaN(item.quantity_base_unit) || item.quantity_base_unit <= 0) {
+        showError(`Please specify a valid quantity greater than 0 for ${item.inventory_items?.item_name || 'item'}.`);
+        return;
+      }
+      const availStock = sourceInventory[item.item_id] ?? 0;
+      if (item.quantity_base_unit > availStock) {
+        showError(`Source branch has insufficient stock for ${item.inventory_items?.item_name || 'item'}. Available: ${availStock}, Approved: ${item.quantity_base_unit}`);
+        return;
+      }
+    }
+
+    const hasModifications = transferItems.some(item => 
+      item.is_deleted || (item.original_quantity_base_unit && Number(item.original_quantity_base_unit) !== Number(item.quantity_base_unit))
+    );
+
+    const confirmMessage = hasModifications
+      ? 'You have adjusted quantities or removed items for this shipment. Are you sure you want to approve and dispatch these items?'
+      : 'Are you sure you want to approve and dispatch this transfer? Stock will be immediately deducted from the source branch and marked as in transit.';
+
+    if (!await confirm('Approve & Dispatch Transfer', confirmMessage)) return;
 
     setApproving(true);
     try {
+      // 1. Apply any deletions and quantity updates in transfer_items table
+      for (const item of transferItems) {
+        if (item.is_deleted) {
+          const { error: delErr } = await supabase
+            .from('transfer_items')
+            .delete()
+            .eq('id', item.id);
+          if (delErr) throw delErr;
+        } else {
+          const { error: updateErr } = await supabase
+            .from('transfer_items')
+            .update({
+              quantity_base_unit: item.quantity_base_unit,
+              package_count: item.package_count ?? null,
+              pieces_per_pack: item.pieces_per_pack ?? null,
+              original_quantity_base_unit: item.original_quantity_base_unit || item.quantity_base_unit
+            })
+            .eq('id', item.id);
+          if (updateErr) {
+            // Fallback in case original_quantity_base_unit column is pending migration reload
+            if (updateErr.message?.includes('original_quantity_base_unit') || (updateErr as any).code === '42703') {
+              await supabase
+                .from('transfer_items')
+                .update({
+                  quantity_base_unit: item.quantity_base_unit,
+                  package_count: item.package_count ?? null,
+                  pieces_per_pack: item.pieces_per_pack ?? null
+                })
+                .eq('id', item.id);
+            } else {
+              throw updateErr;
+            }
+          }
+        }
+      }
+
+      // 2. Execute approve transfer deduction RPC
       const { error } = await supabase.rpc('fn_approve_transfer', {
         p_transfer_id: transferId
       });
@@ -853,152 +1130,277 @@ export const Transfers: React.FC = () => {
               </div>
 
               {/* Add Item Sub-Form */}
-              <Card className="bg-muted/50">
-                <CardContent className="p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                    <div className="md:col-span-2 space-y-2">
-                      <Label>Select Item</Label>
-                      <Popover open={itemPopoverOpen} onOpenChange={setItemPopoverOpen}>
-                        <PopoverTrigger asChild>
-                          <Button 
-                            variant="outline" 
-                            role="combobox" 
-                            aria-expanded={itemPopoverOpen} 
-                            className="w-full justify-between text-left font-normal bg-background h-10 border-input"
-                          >
-                            {currentSelectedItemId ? (
-                              (() => {
-                                const item = catalog.find(c => c.id === currentSelectedItemId);
-                                const qty = sourceInventory[currentSelectedItemId] || 0;
-                                return item ? `${item.item_name} (Available: ${qty} ${item.base_unit})` : "Select an item";
-                              })()
-                            ) : (
-                              <span className="text-muted-foreground">Select an item</span>
-                            )}
-                            <CaretSortIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                          <div className="flex flex-col h-[300px]">
-                            <div className="flex flex-col gap-2 border-b px-3 py-2 sticky top-0 bg-background z-10">
-                              <Select value={itemCategoryFilter} onValueChange={setItemCategoryFilter}>
-                                <SelectTrigger className="h-8 w-full">
-                                  <SelectValue placeholder="Category" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="All">All Categories</SelectItem>
-                                  {Array.from(new Set(catalog.filter(c => !(branches.find(b => b.id === sourceBranchId)?.name?.toLowerCase().includes('main') && c.category?.toLowerCase().includes('portioned'))).map(c => c.category).filter(Boolean))).sort().map(cat => (
-                                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <div className="flex items-center">
-                                <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                <Input
-                                  placeholder="Search catalog items..."
-                                  value={itemSearchTerm}
-                                  onChange={(e) => setItemSearchTerm(e.target.value)}
-                                  className="h-8 w-full bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0 py-0 text-sm outline-none"
-                                />
-                              </div>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-1">
-                              {(() => {
-                                const isInitialState = itemSearchTerm.trim() === '' && itemCategoryFilter === 'All';
-                                
-                                if (isInitialState) {
-                                  return (
-                                    <div className="py-6 text-center text-sm text-muted-foreground">
-                                      Start typing or select a category to view items.
-                                    </div>
-                                  );
-                                }
-
-                                const filtered = catalog.filter(item => {
-                                  if (branches.find(b => b.id === sourceBranchId)?.name?.toLowerCase().includes('main') && item.category?.toLowerCase().includes('portioned')) {
-                                    return false;
-                                  }
-                                  
-                                  const qty = sourceInventory[item.id] || 0;
-                                  
-                                  const isAvailableToTarget = !item.available_branches || 
-                                    item.available_branches.length === 0 || 
-                                    (targetBranchId && item.available_branches.includes(targetBranchId));
-                                    
-                                  const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
-                                  const hasStockOrIsRequest = qty > 0 || !isProactive;
-                                  return hasStockOrIsRequest && isAvailableToTarget && matchesCategory && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
-                                });
-                                if (filtered.length === 0) {
-                                  return (
-                                    <div className="py-6 text-center text-sm text-muted-foreground">
-                                      No items found.
-                                    </div>
-                                  );
-                                }
-                                return filtered.map(item => {
-                                  const qty = sourceInventory[item.id] || 0;
-                                  const isSelected = currentSelectedItemId === item.id;
-                                  return (
-                                    <button
-                                      key={item.id}
-                                      type="button"
-                                      onClick={() => {
-                                        setCurrentSelectedItemId(item.id);
-                                        setItemPopoverOpen(false);
-                                        setItemSearchTerm('');
-                                      }}
-                                      className={`w-full text-left px-3 py-2 rounded-sm text-sm transition-colors hover:bg-accent hover:text-accent-foreground flex items-center justify-between ${isSelected ? 'bg-accent/50 font-medium' : ''}`}
-                                    >
-                                      <span className="truncate">{item.item_name}</span>
-                                      <span className="text-xs text-muted-foreground shrink-0 pl-2">
-                                        {qty} {item.base_unit}
-                                      </span>
-                                    </button>
-                                  );
-                                });
-                              })()}
-                            </div>
-                          </div>
-                        </PopoverContent>
-                      </Popover>
+              <Card className="bg-muted/30 border border-border/70 shadow-xs">
+                <CardContent className="p-4 space-y-4">
+                  {/* Item Selector */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold text-foreground">Select Item</Label>
                       {currentSelectedItemId && (() => {
                         const item = catalog.find(c => c.id === currentSelectedItemId);
                         const minQty = item?.min_transfer_qty && item.min_transfer_qty > 0 ? item.min_transfer_qty : null;
-                        const currentQtyNum = Number(currentQty);
-                        const isBelowMin = minQty !== null && currentQty !== '' && !isNaN(currentQtyNum) && currentQtyNum < minQty;
                         return (
-                          <div className="space-y-1 mt-1">
-                            <div className="flex flex-wrap items-center gap-2 text-xs">
-                              <span className="text-muted-foreground">Current stock at source: <strong className="text-foreground">{sourceInventory[currentSelectedItemId] || 0} {item?.base_unit}</strong></span>
-                              {minQty !== null && (
-                                <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-bold">
-                                  Min Required: {minQty} {item?.base_unit}
-                                </Badge>
-                              )}
-                            </div>
-                            {isBelowMin && (
-                              <p className="text-xs text-destructive font-semibold flex items-center mt-1">
-                                ⚠️ Quantity must be at least {minQty} {item?.base_unit}
-                              </p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              Available: <strong className="text-foreground">{sourceInventory[currentSelectedItemId] || 0} {item?.base_unit}</strong>
+                            </span>
+                            {minQty !== null && (
+                              <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-bold">
+                                Min: {minQty} {item?.base_unit}
+                              </Badge>
                             )}
                           </div>
                         );
                       })()}
                     </div>
-                    <div className="space-y-2">
-                      <Label>Qty</Label>
-                      <Input
-                        type="number"
-                        value={currentQty}
-                        onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="0"
-                      />
-                    </div>
+                    <Popover open={itemPopoverOpen} onOpenChange={setItemPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button 
+                          variant="outline" 
+                          role="combobox" 
+                          aria-expanded={itemPopoverOpen} 
+                          className="w-full justify-between text-left font-normal bg-background h-10 border-input shadow-2xs"
+                        >
+                          {currentSelectedItemId ? (
+                            (() => {
+                              const item = catalog.find(c => c.id === currentSelectedItemId);
+                              const qty = sourceInventory[currentSelectedItemId] || 0;
+                              return item ? (
+                                <div className="flex items-center justify-between w-full pr-2">
+                                  <span className="font-medium text-foreground truncate">{item.item_name}</span>
+                                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono shrink-0 ml-2">
+                                    {qty} {item.base_unit}
+                                  </span>
+                                </div>
+                              ) : "Select an item";
+                            })()
+                          ) : (
+                            <span className="text-muted-foreground">Search and select item to transfer...</span>
+                          )}
+                          <CaretSortIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 shadow-lg" align="start">
+                        <div className="flex flex-col h-[300px]">
+                          <div className="flex flex-col gap-2 border-b px-3 py-2 sticky top-0 bg-background z-10">
+                            <Select value={itemCategoryFilter} onValueChange={setItemCategoryFilter}>
+                              <SelectTrigger className="h-8 w-full">
+                                <SelectValue placeholder="Category" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="All">All Categories</SelectItem>
+                                {Array.from(new Set(catalog.filter(c => !(branches.find(b => b.id === sourceBranchId)?.name?.toLowerCase().includes('main') && c.category?.toLowerCase().includes('portioned'))).map(c => c.category).filter(Boolean))).sort().map(cat => (
+                                  <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <div className="flex items-center">
+                              <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                              <Input
+                                placeholder="Search catalog items..."
+                                value={itemSearchTerm}
+                                onChange={(e) => setItemSearchTerm(e.target.value)}
+                                className="h-8 w-full bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0 py-0 text-sm outline-none"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex-1 overflow-y-auto p-1">
+                            {(() => {
+                              const isInitialState = itemSearchTerm.trim() === '' && itemCategoryFilter === 'All';
+                              
+                              if (isInitialState) {
+                                return (
+                                  <div className="py-6 text-center text-sm text-muted-foreground">
+                                    Start typing or select a category to view items.
+                                  </div>
+                                );
+                              }
+
+                              const filtered = catalog.filter(item => {
+                                if (branches.find(b => b.id === sourceBranchId)?.name?.toLowerCase().includes('main') && item.category?.toLowerCase().includes('portioned')) {
+                                  return false;
+                                }
+                                
+                                const qty = sourceInventory[item.id] || 0;
+                                
+                                const isAvailableToTarget = !item.available_branches || 
+                                  item.available_branches.length === 0 || 
+                                  (targetBranchId && item.available_branches.includes(targetBranchId));
+                                  
+                                const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
+                                const hasStockOrIsRequest = qty > 0 || !isProactive;
+                                return hasStockOrIsRequest && isAvailableToTarget && matchesCategory && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
+                              });
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="py-6 text-center text-sm text-muted-foreground">
+                                    No items found.
+                                  </div>
+                                );
+                              }
+                              return filtered.map(item => {
+                                const qty = sourceInventory[item.id] || 0;
+                                const isSelected = currentSelectedItemId === item.id;
+                                return (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setCurrentSelectedItemId(item.id);
+                                      setItemPopoverOpen(false);
+                                      setItemSearchTerm('');
+                                      if (item.conversion_factor && Number(item.conversion_factor) > 1) {
+                                        setEntryMode('pack');
+                                        setPackSize(Number(item.conversion_factor));
+                                      }
+                                    }}
+                                    className={`w-full text-left px-3 py-2 rounded-sm text-sm transition-colors hover:bg-accent hover:text-accent-foreground flex items-center justify-between ${isSelected ? 'bg-accent/50 font-medium' : ''}`}
+                                  >
+                                    <span className="truncate">{item.item_name}</span>
+                                    <span className="text-xs text-muted-foreground shrink-0 pl-2">
+                                      {item.conversion_factor && Number(item.conversion_factor) > 1 ? `${item.conversion_factor} ${item.base_unit}/pk | ` : ''}{qty} {item.base_unit}
+                                    </span>
+                                  </button>
+                                );
+                              });
+                            })()}
+                          </div>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </div>
-                  <div className="mt-4 flex justify-end">
-                    <Button type="button" variant="secondary" onClick={handleAddItemToTransfer}>
-                      Add Item
+
+                  {/* Quantity & Packaging Mode Sub-Panel */}
+                  <div className="p-3.5 bg-background border border-border/80 rounded-xl space-y-3 shadow-2xs">
+                    <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
+                      <Label className="text-xs font-semibold text-foreground">Packaging & Quantity Format</Label>
+                      <div className="inline-flex rounded-lg border bg-muted/60 p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setEntryMode('base')}
+                          className={`px-3 py-1 text-xs rounded-md font-medium transition-all cursor-pointer ${
+                            entryMode === 'base'
+                              ? 'bg-background text-foreground shadow-xs font-semibold'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          Direct ({catalog.find(c => c.id === currentSelectedItemId)?.base_unit || 'Base Units'})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEntryMode('pack')}
+                          className={`px-3 py-1 text-xs rounded-md font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                            entryMode === 'pack'
+                              ? 'bg-primary text-primary-foreground shadow-xs font-semibold'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          <span>By Pack (Packs × Pcs)</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {entryMode === 'pack' ? (() => {
+                      const selectedCatalogItem = catalog.find(c => c.id === currentSelectedItemId);
+                      const hasDefinedPackSize = Boolean(selectedCatalogItem?.conversion_factor && Number(selectedCatalogItem.conversion_factor) > 1);
+                      const effectivePackSize = hasDefinedPackSize ? Number(selectedCatalogItem?.conversion_factor) : (Number(packSize) || 5);
+                      const pieceUnit = (!selectedCatalogItem?.base_unit || selectedCatalogItem.base_unit.toLowerCase() === 'pack') ? 'pcs' : selectedCatalogItem.base_unit;
+                      const pCount = Number(packCount) || 0;
+
+                      return (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <Label className="text-xs font-medium text-muted-foreground">Number of Packs / Bags</Label>
+                              <Input
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={packCount}
+                                onChange={(e) => setPackCount(e.target.value === '' ? '' : Number(e.target.value))}
+                                placeholder="e.g. 5"
+                                className="bg-background h-9"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-xs font-medium text-muted-foreground">Pieces per Pack</Label>
+                                {hasDefinedPackSize && (
+                                  <span className="text-[10px] text-primary flex items-center gap-1 font-medium bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">
+                                    <Lock className="h-3 w-3" /> Locked ({effectivePackSize} {pieceUnit}/pk)
+                                  </span>
+                                )}
+                              </div>
+                              <Input
+                                type="number"
+                                min="1"
+                                step="any"
+                                value={hasDefinedPackSize ? effectivePackSize : packSize}
+                                readOnly={hasDefinedPackSize}
+                                disabled={hasDefinedPackSize}
+                                onChange={(e) => {
+                                  if (!hasDefinedPackSize) {
+                                    setPackSize(e.target.value === '' ? '' : Number(e.target.value));
+                                  }
+                                }}
+                                placeholder="e.g. 5 or 10"
+                                className={`h-9 ${hasDefinedPackSize ? 'bg-muted/70 text-foreground font-semibold cursor-not-allowed border-muted-foreground/30' : 'bg-background'}`}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Live Conversion Banner */}
+                          <div className="flex items-center justify-between px-3.5 py-2.5 rounded-lg bg-primary/10 border border-primary/20 text-xs">
+                            <span className="text-foreground font-medium">
+                              <span>Total Computed Quantity:</span>
+                            </span>
+                            <span className="font-bold text-primary font-mono text-sm">
+                              {pCount > 0 && effectivePackSize > 0 
+                                ? `${pCount} ${pCount === 1 ? 'pack' : 'packs'} × ${effectivePackSize} ${pieceUnit}/pack = ${pCount * effectivePackSize} ${pieceUnit} (${pCount} ${pCount === 1 ? 'pack' : 'packs'})`
+                                : `0 ${pieceUnit}`}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })() : (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium text-muted-foreground">
+                          Enter Quantity ({catalog.find(c => c.id === currentSelectedItemId)?.base_unit || 'units'})
+                        </Label>
+                        <Input
+                          type="number"
+                          value={currentQty}
+                          onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
+                          placeholder="0"
+                          className="bg-background h-9"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    {currentSelectedItemId && (() => {
+                      const item = catalog.find(c => c.id === currentSelectedItemId);
+                      const minQty = item?.min_transfer_qty && item.min_transfer_qty > 0 ? item.min_transfer_qty : null;
+                      const hasDefinedPackSize = Boolean(item?.conversion_factor && Number(item.conversion_factor) > 1);
+                      const effectivePackSize = hasDefinedPackSize ? Number(item?.conversion_factor) : (Number(packSize) || 5);
+                      const calculatedQty = entryMode === 'pack' 
+                        ? ((Number(packCount) || 0) * effectivePackSize)
+                        : (Number(currentQty) || 0);
+                      const isBelowMin = minQty !== null && calculatedQty > 0 && calculatedQty < minQty;
+                      return isBelowMin ? (
+                        <p className="text-xs text-destructive font-semibold">
+                          Quantity must be at least {minQty} {item?.base_unit}
+                        </p>
+                      ) : <span />;
+                    })()}
+                    <Button 
+                      type="button" 
+                      onClick={handleAddItemToTransfer}
+                      disabled={!currentSelectedItemId}
+                      className="px-5 font-semibold shrink-0 cursor-pointer"
+                    >
+                      + Add Item
                     </Button>
                   </div>
                 </CardContent>
@@ -1007,14 +1409,15 @@ export const Transfers: React.FC = () => {
               {/* Added Items List */}
               <div>
                 <h4 className="text-sm font-semibold mb-3">Items to Transfer ({addedItems.length})</h4>
-                <div className="border rounded-md max-h-40 overflow-y-auto">
+                <div className="border rounded-md max-h-48 overflow-y-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Item Name</TableHead>
+                        <TableHead className="text-right">Packaging Details</TableHead>
                         <TableHead className="text-right">Min Required</TableHead>
-                        <TableHead className="text-right">Quantity</TableHead>
-                        <TableHead className="w-[80px]"></TableHead>
+                        <TableHead className="text-right">Total Quantity</TableHead>
+                        <TableHead className="w-[60px]"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1028,6 +1431,15 @@ export const Transfers: React.FC = () => {
                               {info?.item_name}
                               {isBelowMin && (
                                 <span className="block text-[10px] text-destructive font-semibold">Below min requirement ({minQty} {info?.base_unit})!</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right text-xs">
+                              {item.package_count && item.pieces_per_pack ? (
+                                <Badge variant="outline" className="text-[11px] bg-primary/10 text-primary border-primary/30 font-semibold">
+                                  {item.package_count} packs × {item.pieces_per_pack} {info?.base_unit || 'pcs'}/pack
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
                               )}
                             </TableCell>
                             <TableCell className="text-right text-muted-foreground text-xs">{minQty ? `${minQty} ${info?.base_unit}` : '-'}</TableCell>
@@ -1066,7 +1478,7 @@ export const Transfers: React.FC = () => {
 
       {/* VIEW MODAL */}
       <Dialog open={showViewModal} onOpenChange={setShowViewModal}>
-        <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0">
+        <DialogContent className="max-w-3xl sm:max-w-3xl max-h-[90vh] flex flex-col p-0">
           <DialogHeader className="p-6 pb-4 border-b shrink-0">
             <div className="flex items-center justify-between">
               <div>
@@ -1116,22 +1528,32 @@ export const Transfers: React.FC = () => {
                        selectedTransfer.status}
                     </Badge>
                   </div>
+                  <div>
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Requested By</span>
+                    <span className="font-medium text-foreground">{selectedTransfer.requested_by_email || 'Authorized Staff'}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Approved & Dispatched By</span>
+                    <span className="font-medium text-foreground">
+                      {selectedTransfer.approved_by_email || (['approved', 'completed', 'pending_receipt_approval'].includes(selectedTransfer.status) ? 'Authorized Approver' : 'Pending Approval')}
+                    </span>
+                  </div>
+                  {selectedTransfer.receipt_requested_by_email && (
+                    <div>
+                      <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Received/Checked By</span>
+                      <span className="font-medium text-emerald-600 dark:text-emerald-400">{selectedTransfer.receipt_requested_by_email}</span>
+                    </div>
+                  )}
+                  {selectedTransfer.receipt_approved_by_email && (
+                    <div>
+                      <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Receipt Approved By</span>
+                      <span className="font-medium text-foreground">{selectedTransfer.receipt_approved_by_email}</span>
+                    </div>
+                  )}
                   <div className="col-span-2">
                     <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Remarks</span>
                     <span className="font-medium">{selectedTransfer.remarks || 'No remarks'}</span>
                   </div>
-                  {selectedTransfer.receipt_requested_by && (
-                    <div>
-                      <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Received/Checked By</span>
-                      <span className="font-medium font-mono text-xs">User ID: {selectedTransfer.receipt_requested_by.substring(0, 8)}</span>
-                    </div>
-                  )}
-                  {selectedTransfer.receipt_approved_by && (
-                    <div>
-                      <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Receipt Approved By</span>
-                      <span className="font-medium font-mono text-xs">User ID: {selectedTransfer.receipt_approved_by.substring(0, 8)}</span>
-                    </div>
-                  )}
                   {selectedTransfer.receipt_remarks && (
                     <div className="col-span-2">
                       <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold text-red-500">Receipt Rejection Remarks</span>
@@ -1172,13 +1594,29 @@ export const Transfers: React.FC = () => {
                                 {transferItems.map((item, idx) => {
                                   const name = item.inventory_items?.item_name || 'Deleted Item';
                                   const unit = item.inventory_items?.base_unit || 'unit';
+                                  const pcsPerPack = getItemPcsPerPack(item);
+                                  const pCount = item.package_count || (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
                                   const receivedVal = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
                                   const isMissing = receivedVal < item.quantity_base_unit;
 
                                   return (
                                     <TableRow key={idx}>
-                                      <TableCell className="font-medium">{name}</TableCell>
-                                      <TableCell className="text-right font-semibold">{item.quantity_base_unit} {unit}</TableCell>
+                                      <TableCell className="font-medium">
+                                        <div>{name}</div>
+                                        {pcsPerPack > 1 && pCount ? (
+                                          <div className="text-[11px] font-semibold text-primary">
+                                            {pCount} packs × {pcsPerPack} {unit}/pack
+                                          </div>
+                                        ) : null}
+                                      </TableCell>
+                                      <TableCell className="text-right font-semibold">
+                                        {item.quantity_base_unit} {unit}
+                                        {pcsPerPack > 1 && pCount && (
+                                          <span className="block text-[10px] text-muted-foreground font-normal">
+                                            ({pCount} {pCount === 1 ? 'pack' : 'packs'})
+                                          </span>
+                                        )}
+                                      </TableCell>
                                       <TableCell className="text-right">
                                         <Input 
                                           type="number" 
@@ -1230,12 +1668,21 @@ export const Transfers: React.FC = () => {
                                 {transferItems.map((item, idx) => {
                                   const name = item.inventory_items?.item_name || 'Deleted Item';
                                   const unit = item.inventory_items?.base_unit || 'unit';
+                                  const pcsPerPack = getItemPcsPerPack(item);
+                                  const pCount = item.package_count || (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
                                   const received = item.received_quantity_base_unit ?? item.quantity_base_unit;
                                   const missing = item.quantity_base_unit - received;
 
                                   return (
                                     <TableRow key={idx}>
-                                      <TableCell className="font-medium">{name}</TableCell>
+                                      <TableCell className="font-medium">
+                                        <div>{name}</div>
+                                        {pcsPerPack > 1 && pCount ? (
+                                          <div className="text-[11px] font-semibold text-primary">
+                                            {pCount} packs × {pcsPerPack} {unit}/pack
+                                          </div>
+                                        ) : null}
+                                      </TableCell>
                                       <TableCell className="text-right font-semibold">{item.quantity_base_unit} {unit}</TableCell>
                                       <TableCell className="text-right font-semibold text-green-600">{received} {unit}</TableCell>
                                       <TableCell className="text-right font-semibold text-red-500">
@@ -1243,6 +1690,185 @@ export const Transfers: React.FC = () => {
                                       </TableCell>
                                       <TableCell className="text-xs italic text-muted-foreground">
                                         {missing > 0 ? (item.missing_reason || 'No reason provided') : '-'}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </>
+                          );
+                        } else if (selectedTransfer.status === 'requested' && canApprove) {
+                          return (
+                            <>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Item Name</TableHead>
+                                  <TableHead className="text-right">Requested</TableHead>
+                                  <TableHead className="text-right">Source Available</TableHead>
+                                  <TableHead className="text-right w-64">Approve Qty</TableHead>
+                                  <TableHead className="w-16 text-center">Action</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {transferItems.map((item, idx) => {
+                                  const name = item.inventory_items?.item_name || 'Deleted Item';
+                                  const unit = item.inventory_items?.base_unit || 'unit';
+                                  const reqQty = item.original_quantity_base_unit ?? item.quantity_base_unit;
+                                  const avail = sourceInventory[item.item_id] ?? 0;
+                                  const pcsPerPack = getItemPcsPerPack(item);
+                                  const isPack = pcsPerPack > 1 || Boolean(item.package_count && Number(item.package_count) > 0);
+                                  const currentPacks = (item.package_count !== undefined && item.package_count !== null)
+                                    ? Number(item.package_count)
+                                    : (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : Number(item.quantity_base_unit));
+                                  const reqPacks = pcsPerPack > 1 ? Math.floor(reqQty / pcsPerPack) : null;
+                                  const availPacks = pcsPerPack > 1 ? Math.floor(avail / pcsPerPack) : null;
+                                  const isModified = !item.is_deleted && Number(item.quantity_base_unit) !== Number(reqQty);
+                                  const isOverStock = !item.is_deleted && item.quantity_base_unit > avail;
+
+                                  if (item.is_deleted) {
+                                    return (
+                                      <TableRow key={idx} className="bg-destructive/10 opacity-75">
+                                        <TableCell className="font-medium">
+                                          <span className="line-through text-muted-foreground">{name}</span>
+                                          <Badge variant="outline" className="ml-2 text-[10px] text-destructive border-destructive/30">
+                                            Excluded from dispatch
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right text-muted-foreground line-through">{reqQty} {unit}</TableCell>
+                                        <TableCell className="text-right text-muted-foreground">{avail} {unit}</TableCell>
+                                        <TableCell className="text-right text-muted-foreground">-</TableCell>
+                                        <TableCell className="text-center">
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleToggleDeleteItem(idx)}
+                                            className="h-7 text-xs px-2 cursor-pointer"
+                                          >
+                                            Undo
+                                          </Button>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  }
+
+                                  return (
+                                    <TableRow key={idx} className={isOverStock ? 'bg-destructive/10' : ''}>
+                                      <TableCell className="font-medium">
+                                        <div>{name}</div>
+                                        {isPack ? (
+                                          <div className="text-[11px] font-semibold text-primary">
+                                            Standard: {pcsPerPack} {unit}/pack
+                                          </div>
+                                        ) : null}
+                                        {isModified && (
+                                          <Badge variant="outline" className="mt-1 text-[10px] text-amber-500 border-amber-500/30 bg-amber-500/10">
+                                            Modified from request
+                                          </Badge>
+                                        )}
+                                        {isOverStock && (
+                                          <div className="text-[10px] text-destructive font-semibold">
+                                            Exceeds source stock ({avail} {unit} available)!
+                                          </div>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="text-right font-medium text-muted-foreground">
+                                        <div>{reqQty} {unit}</div>
+                                        {reqPacks !== null && (
+                                          <span className="block text-[10px] text-muted-foreground font-normal">
+                                            ({reqPacks} {reqPacks === 1 ? 'pack' : 'packs'} @ {pcsPerPack} {unit}/pk)
+                                          </span>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="text-right font-medium text-xs">
+                                        <div className={avail < item.quantity_base_unit ? 'text-destructive font-bold' : 'text-muted-foreground'}>
+                                          {avail} {unit}
+                                        </div>
+                                        {availPacks !== null && (
+                                          <span className="block text-[10px] text-muted-foreground font-normal">
+                                            ({availPacks} {availPacks === 1 ? 'pack' : 'packs'})
+                                          </span>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        {isPack ? (
+                                          <div className="flex flex-col items-end gap-1.5 min-w-[210px]">
+                                            {/* Pack Stepper Row */}
+                                            <div className="flex items-center gap-1.5 justify-end">
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleStepItemPackCount(idx, -1)}
+                                                disabled={currentPacks <= 0}
+                                                className="h-7 px-2 text-xs font-bold text-destructive hover:bg-destructive/10 cursor-pointer"
+                                                title="Deduct 1 pack"
+                                              >
+                                                -1 pk
+                                              </Button>
+                                              <Input
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                value={currentPacks}
+                                                onChange={(e) => handleUpdateItemPackCount(idx, Number(e.target.value))}
+                                                className="w-16 text-center h-7 font-bold text-xs bg-background"
+                                              />
+                                              <span className="text-xs font-semibold text-muted-foreground">pk</span>
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleStepItemPackCount(idx, 1)}
+                                                className="h-7 px-2 text-xs font-bold text-primary hover:bg-primary/10 cursor-pointer"
+                                                title="Add 1 pack"
+                                              >
+                                                +1 pk
+                                              </Button>
+                                            </div>
+
+                                            {/* Base unit equivalent & direct input */}
+                                            <div className="flex items-center gap-1.5 justify-end text-xs">
+                                              <span className="text-muted-foreground text-[11px] font-mono">=</span>
+                                              <Input
+                                                type="number"
+                                                min="0"
+                                                step="any"
+                                                value={item.quantity_base_unit ?? 0}
+                                                onChange={(e) => handleUpdateItemDirectQty(idx, Number(e.target.value))}
+                                                className="w-20 text-right h-7 font-bold text-xs bg-background text-primary"
+                                              />
+                                              <span className="text-[11px] font-semibold text-muted-foreground">{unit}</span>
+                                            </div>
+                                            <span className="text-[10px] text-muted-foreground font-mono">
+                                              {currentPacks} pk × {pcsPerPack} {unit}/pk
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center gap-1.5 justify-end">
+                                            <Input
+                                              type="number"
+                                              min="0.01"
+                                              step="any"
+                                              value={item.quantity_base_unit || ''}
+                                              onChange={(e) => handleUpdateItemDirectQty(idx, Number(e.target.value))}
+                                              className="w-24 text-right h-8 font-semibold bg-background"
+                                            />
+                                            <span className="text-xs font-medium text-muted-foreground">{unit}</span>
+                                          </div>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="text-center">
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() => handleToggleDeleteItem(idx)}
+                                          className="h-8 w-8 text-destructive hover:bg-destructive/10 cursor-pointer"
+                                          title="Remove item from this transfer"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
                                       </TableCell>
                                     </TableRow>
                                   );
@@ -1263,10 +1889,32 @@ export const Transfers: React.FC = () => {
                                 {transferItems.map((item, idx) => {
                                   const name = item.inventory_items?.item_name || 'Deleted Item';
                                   const unit = item.inventory_items?.base_unit || 'unit';
+                                  const pcsPerPack = getItemPcsPerPack(item);
+                                  const pCount = item.package_count || (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
+                                  const isModified = item.original_quantity_base_unit && Number(item.original_quantity_base_unit) !== Number(item.quantity_base_unit);
                                   return (
                                     <TableRow key={idx}>
-                                      <TableCell className="font-medium">{name}</TableCell>
-                                      <TableCell className="text-right font-semibold pr-4">{item.quantity_base_unit} {unit}</TableCell>
+                                      <TableCell className="font-medium">
+                                        <div>{name}</div>
+                                        {pcsPerPack > 1 && pCount ? (
+                                          <div className="text-[11px] font-semibold text-primary">
+                                            {pCount} packs × {pcsPerPack} {unit}/pack
+                                          </div>
+                                        ) : null}
+                                        {isModified && (
+                                          <Badge variant="outline" className="mt-1 text-[10px] text-amber-500 border-amber-500/30">
+                                            Approved: {item.quantity_base_unit} {unit} (Requested: {item.original_quantity_base_unit} {unit})
+                                          </Badge>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="text-right font-semibold pr-4">
+                                        {item.quantity_base_unit} {unit}
+                                        {pcsPerPack > 1 && pCount && (
+                                          <span className="block text-[10px] text-muted-foreground font-normal">
+                                            ({pCount} {pCount === 1 ? 'pack' : 'packs'})
+                                          </span>
+                                        )}
+                                      </TableCell>
                                     </TableRow>
                                   );
                                 })}
@@ -1277,23 +1925,34 @@ export const Transfers: React.FC = () => {
                       })()}
                     </Table>
                   </div>
+
+                  {selectedTransfer.status === 'requested' && canApprove && (
+                    <div className="mt-2 p-2.5 bg-muted/40 border border-border/70 rounded-lg text-xs flex items-center justify-between">
+                      <span className="text-muted-foreground">
+                        You can adjust the quantity to dispatch or remove items before approving.
+                      </span>
+                      <span className="font-semibold text-primary font-mono text-[11px]">
+                        {transferItems.filter(i => !i.is_deleted).length} active items
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {selectedTransfer.status === 'approved' && selectedTransfer.receipt_remarks && (
                   <div className="text-sm text-red-600 bg-red-50 border border-red-200 p-3 rounded-md text-center dark:bg-red-950/30 dark:border-red-900/50 dark:text-red-400 font-medium">
-                    ❌ Previous delivery receipt was rejected by admin: "{selectedTransfer.receipt_remarks}"
+                    Previous delivery receipt was rejected by admin: "{selectedTransfer.receipt_remarks}"
                   </div>
                 )}
 
                 {selectedTransfer.status === 'approved' && (
                   <div className="text-sm text-yellow-600 bg-yellow-50 border border-yellow-200 p-3 rounded-md text-center dark:bg-yellow-950 dark:border-yellow-900/50 dark:text-yellow-500">
-                    🚚 Stock is currently in transit. Please verify the physical delivery before confirming receipt.
+                    Stock is currently in transit. Please verify the physical delivery before confirming receipt.
                   </div>
                 )}
 
                 {selectedTransfer.status === 'pending_receipt_approval' && (
                   <div className="text-sm text-orange-600 bg-orange-50 border border-orange-200 p-3 rounded-md text-center dark:bg-orange-950/30 dark:border-orange-900/50 dark:text-orange-400 font-medium">
-                    ⚠️ Awaiting admin approval for delivery receipt discrepancies.
+                    Awaiting admin approval for delivery receipt discrepancies.
                   </div>
                 )}
               </div>

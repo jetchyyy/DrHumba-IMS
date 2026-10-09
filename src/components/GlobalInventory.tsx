@@ -31,6 +31,8 @@ interface GlobalStockItem {
   item_name: string;
   category: string;
   base_unit: string;
+  purchase_unit?: string;
+  conversion_factor?: number;
   cost_per_base_unit: number;
   reorder_level: number;
   total_quantity: number;
@@ -95,6 +97,8 @@ export const GlobalInventory: React.FC = () => {
           item_name: item.item_name,
           category: item.category,
           base_unit: item.base_unit,
+          purchase_unit: item.purchase_unit,
+          conversion_factor: item.conversion_factor ? Number(item.conversion_factor) : 1,
           cost_per_base_unit: Number(item.cost_per_base_unit),
           reorder_level: Number(item.reorder_level),
           total_quantity: totalQty,
@@ -319,14 +323,34 @@ export const GlobalInventory: React.FC = () => {
                         className="cursor-pointer hover:bg-muted/30 transition-colors"
                       >
                         <TableCell className="font-mono text-muted-foreground font-semibold pl-6">{item.sku}</TableCell>
-                        <TableCell className="font-bold">{item.item_name}</TableCell>
+                        <TableCell className="font-bold">
+                          <div className="flex flex-col">
+                            <span>{item.item_name}</span>
+                            {item.conversion_factor && Number(item.conversion_factor) > 1 && (
+                              <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold w-fit mt-0.5 font-mono">
+                                1 {item.purchase_unit || (item.base_unit === 'pack' ? 'pack' : 'pkg')} = {item.conversion_factor} {item.base_unit === 'pack' ? 'pcs' : item.base_unit}
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <Badge variant="secondary" className="text-[10px] uppercase">
                             {item.category}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right font-bold">
-                          {item.display_quantity.toLocaleString()} <span className="text-[10px] font-normal text-muted-foreground">{item.base_unit}</span>
+                          <div>
+                            <span>{item.display_quantity.toLocaleString()}</span> <span className="text-[10px] font-normal text-muted-foreground">{item.base_unit}</span>
+                          </div>
+                          {item.conversion_factor && Number(item.conversion_factor) > 1 && (
+                            <div className="text-[11px] font-normal text-muted-foreground font-mono">
+                              {item.base_unit === 'pack' ? (
+                                <span>(= {(item.display_quantity * Number(item.conversion_factor)).toLocaleString()} pcs)</span>
+                              ) : (
+                                <span>(≈ {(item.display_quantity / Number(item.conversion_factor)).toFixed(1)} packs)</span>
+                              )}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right font-bold text-emerald-500">
                           {formatPHP(item.display_valuation)}

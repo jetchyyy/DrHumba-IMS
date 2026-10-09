@@ -107,11 +107,20 @@ export const Transactions: React.FC = () => {
     if (!profile) return;
     setLoading(true);
     try {
+      // Map profiles for user emails
+      const { data: profilesData } = await supabase.from('profiles').select('id, email');
+      const userMap: Record<string, string> = {};
+      (profilesData || []).forEach((p: any) => {
+        if (p.id && p.email) {
+          userMap[p.id] = p.email;
+        }
+      });
+
       // 1. Fetch Stock Receipts (Stock In)
       let receiptsQuery = supabase
         .from('stock_receipts')
         .select(`
-          id, control_number, supplier, invoice_no, date_received, status, created_at, branch_id, branches (name)
+          id, control_number, supplier, invoice_no, date_received, status, created_at, branch_id, received_by, branches (name)
         `);
       if (!isAdminRole && profile.branch_id) {
         receiptsQuery = receiptsQuery.eq('branch_id', profile.branch_id);
@@ -123,7 +132,7 @@ export const Transactions: React.FC = () => {
       let adjQuery = supabase
         .from('stock_adjustments')
         .select(`
-          id, control_number, branch_id, reason, remarks, photo_url, status, created_at, branches (name)
+          id, control_number, branch_id, reason, remarks, photo_url, status, created_at, created_by, approved_by, branches (name)
         `);
       if (!isAdminRole && profile.branch_id) {
         adjQuery = adjQuery.eq('branch_id', profile.branch_id);
@@ -135,7 +144,7 @@ export const Transactions: React.FC = () => {
       let transQuery = supabase
         .from('transfer_requests')
         .select(`
-          id, control_number, source_branch_id, target_branch_id, status, remarks, created_at,
+          id, control_number, source_branch_id, target_branch_id, status, remarks, created_at, requested_by, approved_by, receipt_requested_by, receipt_approved_by, receipt_remarks,
           source_branch:branches!transfer_requests_source_branch_id_fkey(name),
           target_branch:branches!transfer_requests_target_branch_id_fkey(name)
         `);
@@ -157,27 +166,30 @@ export const Transactions: React.FC = () => {
       const { data: salesData, error: salesError } = await salesQuery;
       if (salesError) console.error('Error fetching sales:', salesError);
 
-      // Map profiles for cashier emails
-      const { data: profilesData } = await supabase.from('profiles').select('id, email');
-
       const unifiedList: UnifiedTransaction[] = [];
 
       // Map Stock In
       (recData || []).forEach((r: any) => {
+        const receivedByEmail = r.received_by ? (userMap[r.received_by] || null) : null;
         unifiedList.push({
           id: r.id,
           control_number: r.control_number || 'Pending',
           type: 'stock_in',
           date: r.created_at,
           branch_name: r.branches?.name || 'Unknown',
-          details_summary: `Supplier: ${r.supplier} | Invoice: ${r.invoice_no || 'N/A'}`,
+          details_summary: `Supplier: ${r.supplier} | Invoice: ${r.invoice_no || 'N/A'}${receivedByEmail ? ` | Received by: ${receivedByEmail}` : ''}`,
           status: r.status,
-          raw_data: r
+          raw_data: {
+            ...r,
+            received_by_email: receivedByEmail
+          }
         });
       });
 
       // Map Adjustments / Waste
       (adjData || []).forEach((a: any) => {
+        const createdByEmail = a.created_by ? (userMap[a.created_by] || null) : null;
+        const approvedByEmail = a.approved_by ? (userMap[a.approved_by] || null) : null;
         const isWaste = ['spoilage', 'damage', 'expired'].includes(a.reason);
         unifiedList.push({
           id: a.id,
@@ -185,39 +197,53 @@ export const Transactions: React.FC = () => {
           type: isWaste ? 'waste' : 'adjustment',
           date: a.created_at,
           branch_name: a.branches?.name || 'Unknown',
-          details_summary: `Reason: ${a.reason.replace('_', ' ')} | ${a.remarks || 'No remarks'}`,
+          details_summary: `Reason: ${a.reason.replace('_', ' ')}${createdByEmail ? ` | By: ${createdByEmail}` : ''}`,
           status: a.status,
-          raw_data: a
+          raw_data: {
+            ...a,
+            created_by_email: createdByEmail,
+            approved_by_email: approvedByEmail
+          }
         });
       });
 
       // Map Transfers
       (transData || []).forEach((t: any) => {
+        const reqByEmail = t.requested_by ? (userMap[t.requested_by] || null) : null;
+        const appByEmail = t.approved_by ? (userMap[t.approved_by] || null) : null;
+        const recReqByEmail = t.receipt_requested_by ? (userMap[t.receipt_requested_by] || null) : null;
+        const recAppByEmail = t.receipt_approved_by ? (userMap[t.receipt_approved_by] || null) : null;
         unifiedList.push({
           id: t.id,
           control_number: t.control_number || 'Pending',
           type: 'transfer',
           date: t.created_at,
           branch_name: `${t.source_branch?.name || 'Warehouse'} ➔ ${t.target_branch?.name || 'Branch'}`,
-          details_summary: t.remarks || 'No remarks',
+          details_summary: t.remarks || (reqByEmail ? `Requested by ${reqByEmail}` : 'No remarks'),
           status: t.status,
-          raw_data: t
+          raw_data: {
+            ...t,
+            requested_by_email: reqByEmail,
+            approved_by_email: appByEmail,
+            receipt_requested_by_email: recReqByEmail,
+            receipt_approved_by_email: recAppByEmail
+          }
         });
       });
 
       // Map Invoices
       (salesData || []).forEach((s: any) => {
-        const cashier = (profilesData || []).find((p: any) => p.id === s.cashier_id);
+        const cashierEmail = s.cashier_id ? (userMap[s.cashier_id] || 'System') : 'System';
         unifiedList.push({
           id: s.id,
           control_number: s.control_number || 'Pending',
           type: 'invoice',
           date: s.created_at,
           branch_name: s.branches?.name || 'Unknown',
-          details_summary: `Cashier: ${cashier?.email || 'System / Cashier'}`,
+          details_summary: `Cashier: ${cashierEmail}`,
           status: s.status,
           total_amount: Number(s.total_amount),
-          raw_data: { ...s, cashier_email: cashier?.email || 'System' }
+          raw_data: { ...s, cashier_email: cashierEmail }
         });
       });
 
@@ -709,6 +735,61 @@ export const Transactions: React.FC = () => {
                     {selectedTx.type === 'transfer' && selectedTx.status === 'approved' ? 'In Transit' : selectedTx.status === 'approved' ? 'completed' : selectedTx.status}
                   </Badge>
                 </div>
+
+                {/* Personnel Tracking Information */}
+                {selectedTx.type === 'transfer' && (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Requested By</span>
+                      <span className="font-medium text-foreground">{selectedTx.raw_data.requested_by_email || 'Authorized Staff'}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Approved & Dispatched By</span>
+                      <span className="font-medium text-foreground">
+                        {selectedTx.raw_data.approved_by_email || (['approved', 'completed', 'pending_receipt_approval'].includes(selectedTx.status) ? 'Authorized Approver' : 'Pending Approval')}
+                      </span>
+                    </div>
+                    {selectedTx.raw_data.receipt_requested_by_email && (
+                      <div>
+                        <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Received/Checked By</span>
+                        <span className="font-medium text-emerald-600 dark:text-emerald-400">{selectedTx.raw_data.receipt_requested_by_email}</span>
+                      </div>
+                    )}
+                    {selectedTx.raw_data.receipt_approved_by_email && (
+                      <div>
+                        <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Receipt Approved By</span>
+                        <span className="font-medium text-foreground">{selectedTx.raw_data.receipt_approved_by_email}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {(selectedTx.type === 'adjustment' || selectedTx.type === 'waste') && (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Requested / Logged By</span>
+                      <span className="font-medium text-foreground">{selectedTx.raw_data.created_by_email || 'Authorized Staff'}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Approved By</span>
+                      <span className="font-medium text-foreground">{selectedTx.raw_data.approved_by_email || (selectedTx.status === 'approved' ? 'Authorized Manager' : 'Pending Approval')}</span>
+                    </div>
+                  </>
+                )}
+
+                {selectedTx.type === 'stock_in' && (
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Received / Logged By</span>
+                    <span className="font-medium text-foreground">{selectedTx.raw_data.received_by_email || 'Authorized Staff'}</span>
+                  </div>
+                )}
+
+                {selectedTx.type === 'invoice' && (
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Cashier Account</span>
+                    <span className="font-medium text-foreground">{selectedTx.raw_data.cashier_email || 'Staff'}</span>
+                  </div>
+                )}
               </div>
 
               {/* Items Breakdown Table */}

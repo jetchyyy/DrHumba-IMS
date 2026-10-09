@@ -552,6 +552,11 @@ export const Inventory: React.FC = () => {
                         <TableCell className="pl-6 font-semibold flex items-center space-x-2">
                           <div className="flex flex-col">
                             <span className="font-semibold">{item.item_name}</span>
+                            {item.conversion_factor && Number(item.conversion_factor) > 1 && (
+                              <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold w-fit mt-0.5">
+                                1 {item.purchase_unit || (item.base_unit === 'pack' ? 'pack' : 'pkg')} = {item.conversion_factor} {item.base_unit === 'pack' ? 'pcs' : item.base_unit}
+                              </Badge>
+                            )}
                             {(item.foodpanda_price || item.grab_price) && (
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 {item.foodpanda_price && (
@@ -579,10 +584,26 @@ export const Inventory: React.FC = () => {
                           <Badge variant="secondary" className="text-[10px] uppercase">{item.category}</Badge>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {item.reorder_level.toLocaleString()} {item.base_unit}
+                          <div>{item.reorder_level.toLocaleString()} {item.base_unit}</div>
+                          {item.conversion_factor && Number(item.conversion_factor) > 1 && item.base_unit === 'pack' && (
+                            <div className="text-[10px] text-muted-foreground font-mono">
+                              (= {(item.reorder_level * Number(item.conversion_factor)).toLocaleString()} pcs)
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className={`text-right font-bold ${isLow ? 'text-destructive' : ''}`}>
-                          {qty.toLocaleString()} <span className="text-[10px] font-normal text-muted-foreground">{item.base_unit}</span>
+                          <div>
+                            <span>{qty.toLocaleString()}</span> <span className="text-[10px] font-normal text-muted-foreground">{item.base_unit}</span>
+                          </div>
+                          {item.conversion_factor && Number(item.conversion_factor) > 1 && (
+                            <div className="text-[11px] font-normal text-muted-foreground font-mono">
+                              {item.base_unit === 'pack' ? (
+                                <span>(= {(qty * Number(item.conversion_factor)).toLocaleString()} pcs)</span>
+                              ) : (
+                                <span>(≈ {(qty / Number(item.conversion_factor)).toFixed(1)} packs)</span>
+                              )}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           ₱{item.cost_per_base_unit.toFixed(2)}
@@ -689,6 +710,11 @@ export const Inventory: React.FC = () => {
                       <TableCell className="font-bold">
                         <div className="flex flex-col">
                           <span>{item.item_name}</span>
+                          {item.conversion_factor && Number(item.conversion_factor) > 1 && (
+                            <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold w-fit mt-0.5 font-mono">
+                              1 {item.purchase_unit || (item.base_unit === 'pack' ? 'pack' : 'pkg')} = {item.conversion_factor} {item.base_unit === 'pack' ? 'pcs' : item.base_unit}
+                            </Badge>
+                          )}
                           {(item.selling_price || item.foodpanda_price || item.grab_price) && (
                             <div className="flex flex-wrap items-center gap-1.5 mt-1 font-normal">
                               {item.selling_price && (
@@ -714,7 +740,13 @@ export const Inventory: React.FC = () => {
                       <TableCell className="font-semibold">{item.base_unit}</TableCell>
                       <TableCell className="text-muted-foreground">{item.purchase_unit}</TableCell>
                       <TableCell className="text-muted-foreground font-mono text-xs">
-                        1 {item.purchase_unit} = {item.conversion_factor} {item.base_unit}
+                        {item.conversion_factor && Number(item.conversion_factor) > 1 ? (
+                          <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold font-mono">
+                            1 {item.purchase_unit || 'pack'} = {item.conversion_factor} {item.base_unit === 'pack' ? 'pcs' : item.base_unit}
+                          </Badge>
+                        ) : (
+                          <span>1 {item.purchase_unit} = 1 {item.base_unit}</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">{item.reorder_level} {item.base_unit}</TableCell>
                       <TableCell className="text-muted-foreground font-semibold">{item.min_transfer_qty ? `${item.min_transfer_qty} ${item.base_unit}` : '-'}</TableCell>
@@ -929,6 +961,41 @@ export const Inventory: React.FC = () => {
                     <Label>Min Transfer / Request ({baseUnit}) <span className="text-muted-foreground font-normal">(Optional)</span></Label>
                     <Input type="number" min="0" step="any" value={minTransferQty} onChange={(e) => setMinTransferQty(e.target.value === '' ? '' : Number(e.target.value))} placeholder="e.g. 10 (Optional)" />
                   </div>
+                </div>
+
+                <div className="p-3 bg-muted/30 border border-border/60 rounded-lg space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-foreground">Packaging & Pack Multiplier</Label>
+                    <span className="text-[11px] text-muted-foreground">For portioned & bagged items</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Packaging Unit</Label>
+                      <Input
+                        value={purchaseUnit}
+                        onChange={(e) => setPurchaseUnit(e.target.value)}
+                        placeholder="e.g. pack, box, bag"
+                        className="h-9"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Pieces / Units per {purchaseUnit || 'Pack'}</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="any"
+                        value={conversionFactor}
+                        onChange={(e) => setConversionFactor(Number(e.target.value) || 1)}
+                        placeholder="e.g. 5 or 10"
+                        className="h-9"
+                      />
+                    </div>
+                  </div>
+                  {Number(conversionFactor) > 1 && (
+                    <p className="text-[11px] text-primary font-mono font-medium">
+                      Standard packaging: 1 {purchaseUnit || 'pack'} = {conversionFactor} {baseUnit === 'pack' ? 'pcs' : baseUnit}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -1356,6 +1423,12 @@ export const Inventory: React.FC = () => {
                 </div>
               </div>
 
+              {stockInItem.conversion_factor && Number(stockInItem.conversion_factor) > 1 && (
+                <div className="p-2 bg-primary/10 border border-primary/20 rounded text-[11px] text-primary font-mono">
+                  Packaging: 1 {stockInItem.purchase_unit || 'pack'} = {stockInItem.conversion_factor} {stockInItem.base_unit === 'pack' ? 'pcs' : stockInItem.base_unit}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label>Quantity to Add ({stockInItem.base_unit}) *</Label>
                 <Input
@@ -1367,6 +1440,13 @@ export const Inventory: React.FC = () => {
                   onChange={(e) => setStockInQty(Number(e.target.value))}
                   placeholder="Enter quantity"
                 />
+                {stockInItem.conversion_factor && Number(stockInItem.conversion_factor) > 1 && stockInQty > 0 && (
+                  <p className="text-[11px] text-muted-foreground font-mono">
+                    {stockInItem.base_unit === 'pack'
+                      ? `Total: ${(stockInQty * Number(stockInItem.conversion_factor)).toLocaleString()} pcs`
+                      : `Equivalent: ≈ ${(stockInQty / Number(stockInItem.conversion_factor)).toFixed(1)} packs`}
+                  </p>
+                )}
               </div>
 
               <DialogFooter>
@@ -1410,6 +1490,12 @@ export const Inventory: React.FC = () => {
                 </div>
               </div>
 
+              {editStockItem.conversion_factor && Number(editStockItem.conversion_factor) > 1 && (
+                <div className="p-2 bg-primary/10 border border-primary/20 rounded text-[11px] text-primary font-mono">
+                  Packaging: 1 {editStockItem.purchase_unit || 'pack'} = {editStockItem.conversion_factor} {editStockItem.base_unit === 'pack' ? 'pcs' : editStockItem.base_unit}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label>New Stock Balance Quantity ({editStockItem.base_unit}) *</Label>
                 <Input
@@ -1421,6 +1507,13 @@ export const Inventory: React.FC = () => {
                   onChange={(e) => setEditStockQty(e.target.value === '' ? 0 : Number(e.target.value))}
                   placeholder="Enter new balance"
                 />
+                {editStockItem.conversion_factor && Number(editStockItem.conversion_factor) > 1 && editStockQty > 0 && (
+                  <p className="text-[11px] text-muted-foreground font-mono">
+                    {editStockItem.base_unit === 'pack'
+                      ? `Total: ${(editStockQty * Number(editStockItem.conversion_factor)).toLocaleString()} pcs`
+                      : `Equivalent: ≈ ${(editStockQty / Number(editStockItem.conversion_factor)).toFixed(1)} packs`}
+                  </p>
+                )}
               </div>
 
               <DialogFooter>

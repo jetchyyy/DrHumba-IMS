@@ -35,6 +35,10 @@ interface Adjustment {
   photo_url: string | null;
   status: 'pending' | 'approved' | 'rejected';
   created_at: string;
+  created_by?: string | null;
+  approved_by?: string | null;
+  created_by_email?: string | null;
+  approved_by_email?: string | null;
   branches?: { name: string };
 }
 
@@ -223,11 +227,31 @@ export const Adjustments: React.FC = () => {
           photo_url,
           status,
           created_at,
+          created_by,
+          approved_by,
           branches (name)
         `)
         .order('created_at', { ascending: false });
       if (adjError) throw adjError;
-      setAdjustments((adjData as any[]) || []);
+
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, email');
+
+      const userMap: Record<string, string> = {};
+      (profilesData || []).forEach((p: any) => {
+        if (p.id && p.email) {
+          userMap[p.id] = p.email;
+        }
+      });
+
+      const mappedAdjustments = ((adjData as any[]) || []).map(a => ({
+        ...a,
+        created_by_email: a.created_by ? (userMap[a.created_by] || null) : null,
+        approved_by_email: a.approved_by ? (userMap[a.approved_by] || null) : null,
+      }));
+
+      setAdjustments(mappedAdjustments);
 
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
@@ -303,6 +327,7 @@ export const Adjustments: React.FC = () => {
           reason,
           remarks: remarks.trim() || null,
           photo_url: photoUrl.trim() || null,
+          created_by: profile?.id,
           status: 'pending'
         })
         .select()
@@ -1156,6 +1181,14 @@ export const Adjustments: React.FC = () => {
                   } className="uppercase mt-1 text-[10px]">
                     {selectedAdjustment.status}
                   </Badge>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Requested / Logged By</span>
+                  <span className="font-medium text-foreground">{selectedAdjustment.created_by_email || 'Authorized Staff'}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Approved By</span>
+                  <span className="font-medium text-foreground">{selectedAdjustment.approved_by_email || (selectedAdjustment.status === 'approved' ? 'Authorized Manager' : 'Pending Approval')}</span>
                 </div>
                 {selectedAdjustment.photo_url && (
                   <div className="col-span-2">

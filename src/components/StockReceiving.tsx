@@ -34,6 +34,8 @@ interface Receipt {
   date_received: string;
   status: 'draft' | 'completed';
   created_at: string;
+  received_by?: string | null;
+  received_by_email?: string | null;
 }
 
 interface ReceiptItem {
@@ -105,7 +107,24 @@ export const StockReceiving: React.FC = () => {
         .eq('branch_id', selectedBranch.id)
         .order('created_at', { ascending: false });
       if (recError) throw recError;
-      setReceipts(recData || []);
+
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, email');
+
+      const userMap: Record<string, string> = {};
+      (profilesData || []).forEach((p: any) => {
+        if (p.id && p.email) {
+          userMap[p.id] = p.email;
+        }
+      });
+
+      const mappedReceipts = ((recData as any[]) || []).map(r => ({
+        ...r,
+        received_by_email: r.received_by ? (userMap[r.received_by] || null) : null
+      }));
+
+      setReceipts(mappedReceipts);
 
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
@@ -189,6 +208,7 @@ export const StockReceiving: React.FC = () => {
           invoice_no: invoiceNo.trim() || null,
           date_received: dateReceived,
           branch_id: selectedBranch.id,
+          received_by: profile?.id,
           status: 'draft'
         })
         .select()
@@ -801,6 +821,10 @@ export const StockReceiving: React.FC = () => {
                   <Badge variant={selectedReceipt.status === 'completed' ? 'default' : 'secondary'} className="uppercase mt-1 text-[10px]">
                     {selectedReceipt.status}
                   </Badge>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-muted-foreground block text-xs uppercase tracking-wider font-semibold">Received / Logged By</span>
+                  <span className="font-medium text-foreground">{selectedReceipt.received_by_email || 'Authorized Staff'}</span>
                 </div>
               </div>
 
