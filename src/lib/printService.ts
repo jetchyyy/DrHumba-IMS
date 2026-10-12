@@ -27,8 +27,11 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
       : Number(item.quantity_base_unit);
     const missing = Number(item.quantity_base_unit) - received;
 
-    const isModified = item.original_quantity_base_unit && Number(item.original_quantity_base_unit) !== Number(item.quantity_base_unit);
-    const modNote = isModified
+    const isAddedByApprover = item.original_quantity_base_unit !== null && item.original_quantity_base_unit !== undefined && Number(item.original_quantity_base_unit) === 0;
+    const isModified = !isAddedByApprover && item.original_quantity_base_unit !== null && item.original_quantity_base_unit !== undefined && Number(item.original_quantity_base_unit) !== Number(item.quantity_base_unit);
+    const modNote = isAddedByApprover
+      ? `<span style="display: block; font-size: 10px; color: #7c3aed; font-weight: 600; margin-top: 1px;">Approved: ${item.quantity_base_unit} ${unit} (Added at Dispatch)</span>`
+      : isModified
       ? `<span style="display: block; font-size: 10px; color: #b45309; font-weight: 600; margin-top: 1px;">Approved: ${item.quantity_base_unit} ${unit} (Requested: ${item.original_quantity_base_unit} ${unit})</span>`
       : '';
 

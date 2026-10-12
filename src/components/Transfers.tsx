@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { settingsService } from '../lib/settingsService';
 import { printTransferSlip } from '../lib/printService';
-import { EyeOpenIcon as Eye, ReloadIcon as RefreshCw, SymbolIcon as ArrowRightLeft, TrashIcon as Trash2, FileTextIcon as Printer, CaretSortIcon, MagnifyingGlassIcon, LockClosedIcon as Lock } from '@radix-ui/react-icons';
+import { EyeOpenIcon as Eye, ReloadIcon as RefreshCw, SymbolIcon as ArrowRightLeft, TrashIcon as Trash2, FileTextIcon as Printer, CaretSortIcon, MagnifyingGlassIcon, LockClosedIcon as Lock, PlusIcon as Plus } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -63,6 +63,7 @@ interface TransferItem {
     conversion_factor?: number | null;
   };
   is_deleted?: boolean;
+  is_new?: boolean;
 }
 
 interface AddedTransferItem {
@@ -135,6 +136,16 @@ export const Transfers: React.FC = () => {
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [submittingReceipt, setSubmittingReceipt] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
+
+  // Compact Add Item to Transfer dialog state
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [addModalItemId, setAddModalItemId] = useState('');
+  const [addModalPackCount, setAddModalPackCount] = useState<number | ''>(1);
+  const [addModalPackSize, setAddModalPackSize] = useState<number | ''>(5);
+  const [addModalDirectQty, setAddModalDirectQty] = useState<number | ''>(1);
+  const [addModalEntryMode, setAddModalEntryMode] = useState<'pack' | 'base'>('pack');
+  const [addModalSearch, setAddModalSearch] = useState('');
+  const [addModalCategory, setAddModalCategory] = useState('all');
 
   const loadData = async () => {
     try {
@@ -552,15 +563,91 @@ export const Transfers: React.FC = () => {
     });
   };
 
+  const handleOpenAddItemModal = () => {
+    setAddModalItemId('');
+    setAddModalPackCount(1);
+    setAddModalPackSize(5);
+    setAddModalDirectQty(1);
+    setAddModalEntryMode('pack');
+    setAddModalSearch('');
+    setAddModalCategory('all');
+    setShowAddItemModal(true);
+  };
+
+  const handleConfirmAddItem = () => {
+    if (!selectedTransfer) return;
+    const item = catalog.find(c => c.id === addModalItemId);
+    if (!item) {
+      showError("Please select an item to add.");
+      return;
+    }
+
+    const avail = sourceInventory[item.id] || 0;
+    if (avail <= 0) {
+      showError("This item has no stock available at the source branch.");
+      return;
+    }
+
+    const hasDefinedPackSize = Boolean(item.conversion_factor && Number(item.conversion_factor) > 1);
+    const effectivePackSize = hasDefinedPackSize ? Number(item.conversion_factor) : (Number(addModalPackSize) || 5);
+    const isPackMode = addModalEntryMode === 'pack';
+    const pCount = Number(addModalPackCount) || 0;
+    const dQty = Number(addModalDirectQty) || 0;
+
+    const effectiveQty = isPackMode ? (pCount * effectivePackSize) : dQty;
+
+    if (isNaN(effectiveQty) || effectiveQty <= 0) {
+      showError("Please enter a valid quantity greater than 0.");
+      return;
+    }
+
+    if (effectiveQty > avail) {
+      showError(`Quantity exceeds available stock at source branch (${avail} ${item.base_unit || 'units'} available).`);
+      return;
+    }
+
+    const minQty = item.min_transfer_qty && item.min_transfer_qty > 0 ? item.min_transfer_qty : null;
+    if (minQty && effectiveQty < minQty) {
+      showError(`Quantity for ${item.item_name} must be at least ${minQty} ${item.base_unit || ''}.`);
+      return;
+    }
+
+    // Add to local transfer items state (Draft in-memory, zero DB write until approve)
+    const newItem: TransferItem = {
+      id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      item_id: item.id,
+      quantity_base_unit: effectiveQty,
+      original_quantity_base_unit: 0, // 0 indicates item added by approver
+      packaging_unit: isPackMode ? 'pack' : (item.base_unit || 'pc'),
+      package_count: isPackMode ? pCount : (effectivePackSize > 1 ? Math.floor(effectiveQty / effectivePackSize) : null),
+      pieces_per_pack: effectivePackSize,
+      is_new: true,
+      is_deleted: false,
+      inventory_items: {
+        item_name: item.item_name,
+        base_unit: item.base_unit,
+        conversion_factor: item.conversion_factor
+      }
+    };
+
+    setTransferItems(prev => [...prev, newItem]);
+    setShowAddItemModal(false);
+    showSuccess(`Added ${item.item_name} to transfer shipment.`);
+  };
+
   const handleToggleDeleteItem = (index: number) => {
     setTransferItems(prev => {
-      const updated = [...prev];
-      if (updated[index]) {
-        updated[index] = {
-          ...updated[index],
-          is_deleted: !updated[index].is_deleted
-        };
+      const item = prev[index];
+      if (!item) return prev;
+      if (item.is_new) {
+        // Newly added item in memory: remove completely from list
+        return prev.filter((_, i) => i !== index);
       }
+      const updated = [...prev];
+      updated[index] = {
+        ...item,
+        is_deleted: !item.is_deleted
+      };
       return updated;
     });
   };
@@ -585,33 +672,67 @@ export const Transfers: React.FC = () => {
     }
 
     const hasModifications = transferItems.some(item => 
-      item.is_deleted || (item.original_quantity_base_unit && Number(item.original_quantity_base_unit) !== Number(item.quantity_base_unit))
+      item.is_new || item.is_deleted || (item.original_quantity_base_unit !== undefined && item.original_quantity_base_unit !== null && Number(item.original_quantity_base_unit) !== Number(item.quantity_base_unit))
     );
 
     const confirmMessage = hasModifications
-      ? 'You have adjusted quantities or removed items for this shipment. Are you sure you want to approve and dispatch these items?'
+      ? 'You have adjusted quantities, added, or removed items for this shipment. Are you sure you want to approve and dispatch these items?'
       : 'Are you sure you want to approve and dispatch this transfer? Stock will be immediately deducted from the source branch and marked as in transit.';
 
     if (!await confirm('Approve & Dispatch Transfer', confirmMessage)) return;
 
     setApproving(true);
     try {
-      // 1. Apply any deletions and quantity updates in transfer_items table
+      // 1. Apply any deletions, additions (for newly added items), and quantity updates in transfer_items table
       for (const item of transferItems) {
         if (item.is_deleted) {
-          const { error: delErr } = await supabase
+          if (!item.is_new) {
+            const { error: delErr } = await supabase
+              .from('transfer_items')
+              .delete()
+              .eq('id', item.id);
+            if (delErr) throw delErr;
+          }
+        } else if (item.is_new) {
+          // Newly added item by approver: insert with original_quantity_base_unit = 0
+          const insertPayload: any = {
+            transfer_id: transferId,
+            item_id: item.item_id,
+            quantity_base_unit: item.quantity_base_unit,
+            original_quantity_base_unit: 0,
+            packaging_unit: item.packaging_unit || 'pc',
+            package_count: item.package_count ?? null,
+            pieces_per_pack: item.pieces_per_pack ?? null
+          };
+          if ((selectedTransfer as any)?.tenant_id) {
+            insertPayload.tenant_id = (selectedTransfer as any).tenant_id;
+          }
+
+          const { error: insErr } = await supabase
             .from('transfer_items')
-            .delete()
-            .eq('id', item.id);
-          if (delErr) throw delErr;
+            .insert(insertPayload);
+
+          if (insErr) {
+            // Fallback in case original_quantity_base_unit column is pending migration reload
+            if (insErr.message?.includes('original_quantity_base_unit') || (insErr as any).code === '42703') {
+              delete insertPayload.original_quantity_base_unit;
+              const { error: insFallbackErr } = await supabase
+                .from('transfer_items')
+                .insert(insertPayload);
+              if (insFallbackErr) throw insFallbackErr;
+            } else {
+              throw insErr;
+            }
+          }
         } else {
+          // Existing item updated
           const { error: updateErr } = await supabase
             .from('transfer_items')
             .update({
               quantity_base_unit: item.quantity_base_unit,
               package_count: item.package_count ?? null,
               pieces_per_pack: item.pieces_per_pack ?? null,
-              original_quantity_base_unit: item.original_quantity_base_unit || item.quantity_base_unit
+              original_quantity_base_unit: item.original_quantity_base_unit !== undefined && item.original_quantity_base_unit !== null ? item.original_quantity_base_unit : item.quantity_base_unit
             })
             .eq('id', item.id);
           if (updateErr) {
@@ -1563,7 +1684,21 @@ export const Transfers: React.FC = () => {
                 </div>
 
                 <div>
-                  <h4 className="text-sm font-semibold mb-3">Transfer Items</h4>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold">Transfer Items</h4>
+                    {selectedTransfer.status === 'requested' && canApprove && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleOpenAddItemModal}
+                        className="h-8 gap-1.5 text-xs font-semibold text-primary border-primary/30 hover:bg-primary/10 cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Add Item
+                      </Button>
+                    )}
+                  </div>
                   <div className="border rounded-md overflow-x-auto">
                     <Table>
                       {(() => {
@@ -1722,7 +1857,8 @@ export const Transfers: React.FC = () => {
                                     : (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : Number(item.quantity_base_unit));
                                   const reqPacks = pcsPerPack > 1 ? Math.floor(reqQty / pcsPerPack) : null;
                                   const availPacks = pcsPerPack > 1 ? Math.floor(avail / pcsPerPack) : null;
-                                  const isModified = !item.is_deleted && Number(item.quantity_base_unit) !== Number(reqQty);
+                                  const isAddedByApprover = Boolean(item.is_new) || (item.original_quantity_base_unit !== null && item.original_quantity_base_unit !== undefined && Number(item.original_quantity_base_unit) === 0);
+                                  const isModified = !isAddedByApprover && !item.is_deleted && Number(item.quantity_base_unit) !== Number(reqQty);
                                   const isOverStock = !item.is_deleted && item.quantity_base_unit > avail;
 
                                   if (item.is_deleted) {
@@ -1734,7 +1870,9 @@ export const Transfers: React.FC = () => {
                                             Excluded from dispatch
                                           </Badge>
                                         </TableCell>
-                                        <TableCell className="text-right text-muted-foreground line-through">{reqQty} {unit}</TableCell>
+                                        <TableCell className="text-right text-muted-foreground line-through">
+                                          {isAddedByApprover ? `0 ${unit}` : `${reqQty} ${unit}`}
+                                        </TableCell>
                                         <TableCell className="text-right text-muted-foreground">{avail} {unit}</TableCell>
                                         <TableCell className="text-right text-muted-foreground">-</TableCell>
                                         <TableCell className="text-center">
@@ -1761,6 +1899,11 @@ export const Transfers: React.FC = () => {
                                             Standard: {pcsPerPack} {unit}/pack
                                           </div>
                                         ) : null}
+                                        {isAddedByApprover && (
+                                          <Badge variant="outline" className="mt-1 text-[10px] text-purple-600 border-purple-300 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-300">
+                                            Added by Approver
+                                          </Badge>
+                                        )}
                                         {isModified && (
                                           <Badge variant="outline" className="mt-1 text-[10px] text-amber-500 border-amber-500/30 bg-amber-500/10">
                                             Modified from request
@@ -1773,11 +1916,17 @@ export const Transfers: React.FC = () => {
                                         )}
                                       </TableCell>
                                       <TableCell className="text-right font-medium text-muted-foreground">
-                                        <div>{reqQty} {unit}</div>
-                                        {reqPacks !== null && (
-                                          <span className="block text-[10px] text-muted-foreground font-normal">
-                                            ({reqPacks} {reqPacks === 1 ? 'pack' : 'packs'} @ {pcsPerPack} {unit}/pk)
-                                          </span>
+                                        {isAddedByApprover ? (
+                                          <span className="text-xs italic text-muted-foreground">0 {unit} (None)</span>
+                                        ) : (
+                                          <>
+                                            <div>{reqQty} {unit}</div>
+                                            {reqPacks !== null && (
+                                              <span className="block text-[10px] text-muted-foreground font-normal">
+                                                ({reqPacks} {reqPacks === 1 ? 'pack' : 'packs'} @ {pcsPerPack} {unit}/pk)
+                                              </span>
+                                            )}
+                                          </>
                                         )}
                                       </TableCell>
                                       <TableCell className="text-right font-medium text-xs">
@@ -1891,7 +2040,8 @@ export const Transfers: React.FC = () => {
                                   const unit = item.inventory_items?.base_unit || 'unit';
                                   const pcsPerPack = getItemPcsPerPack(item);
                                   const pCount = item.package_count || (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
-                                  const isModified = item.original_quantity_base_unit && Number(item.original_quantity_base_unit) !== Number(item.quantity_base_unit);
+                                  const isAddedByApprover = item.original_quantity_base_unit !== null && item.original_quantity_base_unit !== undefined && Number(item.original_quantity_base_unit) === 0;
+                                  const isModified = !isAddedByApprover && item.original_quantity_base_unit && Number(item.original_quantity_base_unit) !== Number(item.quantity_base_unit);
                                   return (
                                     <TableRow key={idx}>
                                       <TableCell className="font-medium">
@@ -1901,6 +2051,11 @@ export const Transfers: React.FC = () => {
                                             {pCount} packs × {pcsPerPack} {unit}/pack
                                           </div>
                                         ) : null}
+                                        {isAddedByApprover && (
+                                          <Badge variant="outline" className="mt-1 text-[10px] text-purple-600 border-purple-300 dark:text-purple-400 dark:border-purple-800">
+                                            Added at Dispatch: {item.quantity_base_unit} {unit}
+                                          </Badge>
+                                        )}
                                         {isModified && (
                                           <Badge variant="outline" className="mt-1 text-[10px] text-amber-500 border-amber-500/30">
                                             Approved: {item.quantity_base_unit} {unit} (Requested: {item.original_quantity_base_unit} {unit})
@@ -1929,7 +2084,7 @@ export const Transfers: React.FC = () => {
                   {selectedTransfer.status === 'requested' && canApprove && (
                     <div className="mt-2 p-2.5 bg-muted/40 border border-border/70 rounded-lg text-xs flex items-center justify-between">
                       <span className="text-muted-foreground">
-                        You can adjust the quantity to dispatch or remove items before approving.
+                        You can adjust the quantity to dispatch, add items, or remove items before approving.
                       </span>
                       <span className="font-semibold text-primary font-mono text-[11px]">
                         {transferItems.filter(i => !i.is_deleted).length} active items
@@ -2072,6 +2227,297 @@ export const Transfers: React.FC = () => {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Compact Add Item to Transfer Modal */}
+      <Dialog open={showAddItemModal} onOpenChange={setShowAddItemModal}>
+        <DialogContent className="max-w-md p-0 overflow-hidden">
+          <DialogHeader className="p-5 pb-3 border-b shrink-0">
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <Plus className="h-4 w-4 text-primary" />
+              Add Item to Shipment
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Select an available item from {selectedTransfer?.source_branch?.name || 'source branch'} to include in this shipment before dispatching.
+            </DialogDescription>
+          </DialogHeader>
+
+          {(() => {
+            const availableSourceItems = (catalog || []).filter(item => {
+              // 1. Must not already be active in transferItems
+              const exists = transferItems.some(ti => !ti.is_deleted && ti.item_id === item.id);
+              if (exists) return false;
+              // 2. Must be strictly currently in stock at source branch (> 0)
+              const stock = sourceInventory[item.id] || 0;
+              if (stock <= 0) return false;
+              // 3. Category filter
+              if (addModalCategory !== 'all' && item.category !== addModalCategory) return false;
+              // 4. Search query
+              if (addModalSearch) {
+                const q = addModalSearch.toLowerCase();
+                const matchName = item.item_name?.toLowerCase().includes(q);
+                const matchCat = item.category?.toLowerCase().includes(q);
+                if (!matchName && !matchCat) return false;
+              }
+              return true;
+            });
+
+            const selectedAddCatalogItem = (catalog || []).find(c => c.id === addModalItemId);
+            const stock = selectedAddCatalogItem ? (sourceInventory[selectedAddCatalogItem.id] || 0) : 0;
+            const hasDefinedPackSize = Boolean(selectedAddCatalogItem?.conversion_factor && Number(selectedAddCatalogItem.conversion_factor) > 1);
+            const effectivePackSize = hasDefinedPackSize ? Number(selectedAddCatalogItem?.conversion_factor) : (Number(addModalPackSize) || 5);
+            const pieceUnit = (!selectedAddCatalogItem?.base_unit || selectedAddCatalogItem.base_unit.toLowerCase() === 'pack') ? 'pcs' : (selectedAddCatalogItem?.base_unit || 'units');
+            const pCount = Number(addModalPackCount) || 0;
+            const dQty = Number(addModalDirectQty) || 0;
+            const isPackMode = addModalEntryMode === 'pack';
+            const effectiveQty = isPackMode ? (pCount * effectivePackSize) : dQty;
+            const isOverStock = Boolean(selectedAddCatalogItem && effectiveQty > stock);
+            const minQty = selectedAddCatalogItem?.min_transfer_qty && selectedAddCatalogItem.min_transfer_qty > 0 ? selectedAddCatalogItem.min_transfer_qty : null;
+            const isUnderMin = Boolean(minQty && effectiveQty > 0 && effectiveQty < minQty);
+            const canSubmit = Boolean(selectedAddCatalogItem && effectiveQty > 0 && !isOverStock && !isUnderMin);
+
+            return (
+              <>
+                <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+                  {/* Category & Search Filter */}
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-[11px] font-medium text-muted-foreground mb-1 block">Category</Label>
+                        <Select value={addModalCategory} onValueChange={(val) => { setAddModalCategory(val); setAddModalItemId(''); }}>
+                          <SelectTrigger className="h-8 text-xs bg-background">
+                            <SelectValue placeholder="All Categories" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Categories</SelectItem>
+                            {Array.from(new Set(catalog.map(c => c.category).filter(Boolean))).sort().map(cat => (
+                              <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-[11px] font-medium text-muted-foreground mb-1 block">Search</Label>
+                        <div className="relative">
+                          <MagnifyingGlassIcon className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                          <Input
+                            type="text"
+                            placeholder="Filter items..."
+                            value={addModalSearch}
+                            onChange={(e) => setAddModalSearch(e.target.value)}
+                            className="h-8 pl-8 text-xs bg-background"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Item Selection Dropdown */}
+                    <div className="space-y-1.5 pt-1">
+                      <Label className="text-xs font-semibold">Select In-Stock Item *</Label>
+                      <Select
+                        value={addModalItemId}
+                        onValueChange={(val) => {
+                          setAddModalItemId(val);
+                          const item = catalog.find(c => c.id === val);
+                          if (item) {
+                            const hasPack = Boolean(item.conversion_factor && Number(item.conversion_factor) > 1) || item.purchase_unit === 'pack';
+                            const packConv = Number(item.conversion_factor) > 1 ? Number(item.conversion_factor) : 5;
+                            setAddModalEntryMode(hasPack ? 'pack' : 'base');
+                            setAddModalPackCount(1);
+                            setAddModalPackSize(packConv);
+                            setAddModalDirectQty(hasPack ? packConv : 1);
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-9 text-xs bg-background">
+                          <SelectValue placeholder="Choose an item..." />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-56">
+                          {availableSourceItems.length === 0 ? (
+                            <div className="p-3 text-center text-xs text-muted-foreground">
+                              No available in-stock items found
+                            </div>
+                          ) : (
+                            availableSourceItems.map(item => {
+                              const itStock = sourceInventory[item.id] || 0;
+                              const pcsPerPack = Number(item.conversion_factor) > 1 ? Number(item.conversion_factor) : 1;
+                              const packStock = pcsPerPack > 1 ? Math.floor(itStock / pcsPerPack) : null;
+                              return (
+                                <SelectItem key={item.id} value={item.id} className="text-xs">
+                                  <div className="flex items-center justify-between gap-3 w-full">
+                                    <span className="font-medium truncate max-w-[200px]">{item.item_name}</span>
+                                    <span className="text-[11px] font-mono text-muted-foreground shrink-0">
+                                      {packStock !== null ? `${packStock} pk (${itStock} ${item.base_unit || 'units'})` : `${itStock} ${item.base_unit || 'units'}`}
+                                    </span>
+                                  </div>
+                                </SelectItem>
+                              );
+                            })
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* If Item is selected, show Stock Details & Quantity Controls */}
+                  {selectedAddCatalogItem && (
+                    <div className="space-y-3 pt-2 border-t">
+                      {/* Available Stock Indicator */}
+                      <div className="flex items-center justify-between p-2.5 rounded-md bg-muted/50 border text-xs">
+                        <span className="text-muted-foreground font-medium">Source Stock:</span>
+                        <span className="font-bold text-foreground font-mono">
+                          {stock} {pieceUnit}
+                          {effectivePackSize > 1 && (
+                            <span className="text-muted-foreground font-normal ml-1">
+                              ({Math.floor(stock / effectivePackSize)} packs available)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+
+                      {/* Mode Selector (Pack vs Direct) */}
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold">Quantity Mode</Label>
+                        <div className="flex items-center bg-muted/60 p-0.5 rounded-md border border-border/80">
+                          <button
+                            type="button"
+                            onClick={() => setAddModalEntryMode('base')}
+                            className={`px-2.5 py-1 text-xs rounded font-medium transition-all cursor-pointer ${
+                              addModalEntryMode === 'base'
+                                ? 'bg-background text-foreground shadow-xs font-semibold'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            Direct ({selectedAddCatalogItem.base_unit || 'Units'})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAddModalEntryMode('pack')}
+                            className={`px-2.5 py-1 text-xs rounded font-medium transition-all cursor-pointer ${
+                              addModalEntryMode === 'pack'
+                                ? 'bg-primary text-primary-foreground shadow-xs font-semibold'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            By Pack
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Inputs */}
+                      {isPackMode ? (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2.5">
+                            <div className="space-y-1">
+                              <Label className="text-[11px] text-muted-foreground">Packs to Dispatch</Label>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-xs font-bold"
+                                  onClick={() => setAddModalPackCount(Math.max(1, (Number(addModalPackCount) || 1) - 1))}
+                                  disabled={Number(addModalPackCount) <= 1}
+                                >
+                                  -1
+                                </Button>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  step="1"
+                                  value={addModalPackCount}
+                                  onChange={(e) => setAddModalPackCount(e.target.value === '' ? '' : Number(e.target.value))}
+                                  className="h-8 text-center text-xs font-bold bg-background"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-xs font-bold text-primary"
+                                  onClick={() => setAddModalPackCount((Number(addModalPackCount) || 0) + 1)}
+                                >
+                                  +1
+                                </Button>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-[11px] text-muted-foreground">Pieces / Pack</Label>
+                                {hasDefinedPackSize && (
+                                  <span className="text-[9px] text-primary font-medium">Standard</span>
+                                )}
+                              </div>
+                              <Input
+                                type="number"
+                                min="1"
+                                step="any"
+                                value={hasDefinedPackSize ? effectivePackSize : addModalPackSize}
+                                readOnly={hasDefinedPackSize}
+                                disabled={hasDefinedPackSize}
+                                onChange={(e) => !hasDefinedPackSize && setAddModalPackSize(e.target.value === '' ? '' : Number(e.target.value))}
+                                className={`h-8 text-xs ${hasDefinedPackSize ? 'bg-muted/70 text-foreground font-semibold cursor-not-allowed' : 'bg-background'}`}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Computed units summary */}
+                          <div className={`p-2.5 rounded-md border text-xs flex items-center justify-between ${
+                            isOverStock ? 'bg-destructive/10 border-destructive/30 text-destructive' : 'bg-primary/5 border-primary/20 text-foreground'
+                          }`}>
+                            <span className="font-medium">Total Quantity:</span>
+                            <span className="font-bold font-mono">
+                              {pCount} pk × {effectivePackSize} = {effectiveQty} {pieceUnit}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] text-muted-foreground">
+                            Direct Quantity ({selectedAddCatalogItem.base_unit || 'units'})
+                          </Label>
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            value={addModalDirectQty}
+                            onChange={(e) => setAddModalDirectQty(e.target.value === '' ? '' : Number(e.target.value))}
+                            className="h-8 text-xs font-semibold bg-background"
+                          />
+                        </div>
+                      )}
+
+                      {/* Alerts */}
+                      {isOverStock && (
+                        <div className="text-[11px] text-destructive font-medium bg-destructive/10 p-2 rounded border border-destructive/20">
+                          Cannot add: Quantity exceeds available source branch stock ({stock} {pieceUnit} available).
+                        </div>
+                      )}
+                      {isUnderMin && (
+                        <div className="text-[11px] text-amber-600 font-medium bg-amber-500/10 p-2 rounded border border-amber-500/20">
+                          Item requires a minimum transfer quantity of {minQty} {pieceUnit}.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter className="p-4 pt-3 border-t shrink-0 flex justify-end gap-2 bg-muted/20">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setShowAddItemModal(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!canSubmit}
+                    onClick={handleConfirmAddItem}
+                  >
+                    Add to Shipment
+                  </Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
