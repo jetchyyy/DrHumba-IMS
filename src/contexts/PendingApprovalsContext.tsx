@@ -31,12 +31,16 @@ export const PendingApprovalsProvider: React.FC<{ children: React.ReactNode }> =
   const [counts, setCounts] = useState<PendingCounts>(EMPTY_COUNTS);
   const [loading, setLoading] = useState(false);
 
-  const isApprover = !!(profile && APPROVER_ROLES.includes(profile.role_name));
+  const isApprover = !!(profile && (
+    APPROVER_ROLES.includes(profile.role_name) ||
+    profile.is_platform_admin ||
+    profile.allowed_tabs?.includes('transfers_dispatch')
+  ));
   const fetchRef = useRef<() => Promise<void>>(async () => {});
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchCounts = useCallback(async () => {
-    if (!profile || !APPROVER_ROLES.includes(profile.role_name)) {
+    if (!profile || !isApprover) {
       setCounts(EMPTY_COUNTS);
       return;
     }
@@ -45,13 +49,13 @@ export const PendingApprovalsProvider: React.FC<{ children: React.ReactNode }> =
     try {
       const [transfersRes, adjustmentsRes, portioningRes] = await Promise.all([
         supabase
-          .from('transfers')
+          .from('transfer_requests')
           .select('id', { count: 'exact' })
           .in('status', ['requested', 'pending_receipt_approval'])
           .limit(1),
 
         supabase
-          .from('adjustments')
+          .from('stock_adjustments')
           .select('id', { count: 'exact' })
           .eq('status', 'pending')
           .limit(1),
@@ -63,6 +67,9 @@ export const PendingApprovalsProvider: React.FC<{ children: React.ReactNode }> =
           .limit(1),
       ]);
 
+      const queryError = transfersRes.error || adjustmentsRes.error || portioningRes.error;
+      if (queryError) throw queryError;
+
       const transfers = transfersRes.count ?? 0;
       const adjustments = adjustmentsRes.count ?? 0;
       const portioning = portioningRes.count ?? 0;
@@ -73,7 +80,7 @@ export const PendingApprovalsProvider: React.FC<{ children: React.ReactNode }> =
     } finally {
       setLoading(false);
     }
-  }, [profile?.id, profile?.role_name]);
+  }, [profile?.id, isApprover]);
 
   useEffect(() => {
     fetchRef.current = fetchCounts;
@@ -100,8 +107,8 @@ export const PendingApprovalsProvider: React.FC<{ children: React.ReactNode }> =
 
     const channel = supabase
       .channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transfers' }, debouncedFetch)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'adjustments' }, debouncedFetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transfer_requests' }, debouncedFetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_adjustments' }, debouncedFetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'portioning_requests' }, debouncedFetch)
       .subscribe();
 
