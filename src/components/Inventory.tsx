@@ -885,9 +885,12 @@ export const Inventory: React.FC = () => {
                   <Input required value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="e.g. White Onion" />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <Label>Unit of Measure *</Label>
+                    <div>
+                      <Label>Base Unit of Measure *</Label>
+                      <p className="text-[11px] text-muted-foreground">The smallest tracking unit (e.g. pc, g, ml) used for stock counts, recipes & deductions.</p>
+                    </div>
                     {isCustomUnit ? (
                       <Button 
                         type="button" 
@@ -911,10 +914,11 @@ export const Inventory: React.FC = () => {
                       onChange={(e) => { 
                         const val = e.target.value; 
                         setBaseUnit(val); 
-                        setPurchaseUnit(val); 
-                        setConversionFactor(1); 
+                        if (!purchaseUnit || purchaseUnit === baseUnit) {
+                          setPurchaseUnit(val);
+                        }
                       }} 
-                      placeholder="e.g. box, pack, tray" 
+                      placeholder="e.g. pc, g, ml, bottle" 
                     />
                   ) : (
                     <Select 
@@ -923,12 +927,12 @@ export const Inventory: React.FC = () => {
                         if (val === 'ADD_CUSTOM') {
                           setIsCustomUnit(true);
                           setBaseUnit('');
-                          setPurchaseUnit('');
                           setConversionFactor(1);
                         } else {
                           setBaseUnit(val); 
-                          setPurchaseUnit(val); 
-                          setConversionFactor(1); 
+                          if (!purchaseUnit || purchaseUnit === baseUnit) {
+                            setPurchaseUnit(val); 
+                          }
                         }
                       }}
                     >
@@ -947,53 +951,63 @@ export const Inventory: React.FC = () => {
 
                 {!editingItem && (
                   <div className="space-y-2">
-                    <Label>Initial Stock Quantity ({baseUnit}) *</Label>
+                    <Label>Initial Stock Quantity ({baseUnit || 'units'}) *</Label>
                     <Input type="number" required min="0" step="any" value={initialQty} onChange={(e) => setInitialQty(Number(e.target.value))} />
                   </div>
                 )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Reorder Min ({baseUnit})</Label>
+                    <Label>Reorder Min ({baseUnit || 'units'})</Label>
                     <Input type="number" required value={reorderLevel} onChange={(e) => setReorderLevel(Number(e.target.value))} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Min Transfer / Request ({baseUnit}) <span className="text-muted-foreground font-normal">(Optional)</span></Label>
+                    <Label>Min Transfer / Request ({baseUnit || 'units'}) <span className="text-muted-foreground font-normal">(Optional)</span></Label>
                     <Input type="number" min="0" step="any" value={minTransferQty} onChange={(e) => setMinTransferQty(e.target.value === '' ? '' : Number(e.target.value))} placeholder="e.g. 10 (Optional)" />
                   </div>
                 </div>
 
                 <div className="p-3 bg-muted/30 border border-border/60 rounded-lg space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold text-foreground">Packaging & Pack Multiplier</Label>
-                    <span className="text-[11px] text-muted-foreground">For portioned & bagged items</span>
+                    <div>
+                      <Label className="text-xs font-semibold text-foreground">Packaging & Pack Multiplier</Label>
+                      <p className="text-[11px] text-muted-foreground">For boxed, bagged, or portioned items purchased in bulk</p>
+                    </div>
+                    <span className="text-[10px] bg-muted px-2 py-0.5 rounded text-muted-foreground">Optional</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Packaging Unit</Label>
+                      <Label className="text-xs text-muted-foreground">Packaging / Buying Unit</Label>
                       <Input
                         value={purchaseUnit}
                         onChange={(e) => setPurchaseUnit(e.target.value)}
-                        placeholder="e.g. pack, box, bag"
+                        placeholder="e.g. box, pack, bag, case"
                         className="h-9"
                       />
+                      <span className="text-[10px] text-muted-foreground block">How you buy or pack this</span>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Pieces / Units per {purchaseUnit || 'Pack'}</Label>
+                      <Label className="text-xs text-muted-foreground">Base {baseUnit || 'Units'} per {purchaseUnit || 'Pack'}</Label>
                       <Input
                         type="number"
                         min="1"
                         step="any"
                         value={conversionFactor}
                         onChange={(e) => setConversionFactor(Number(e.target.value) || 1)}
-                        placeholder="e.g. 5 or 10"
+                        placeholder="e.g. 5, 10, 1000"
                         className="h-9"
                       />
+                      <span className="text-[10px] text-muted-foreground block">Quantity of {baseUnit || 'units'} inside</span>
                     </div>
                   </div>
+                  {Number(conversionFactor) > 1 && purchaseUnit && baseUnit && purchaseUnit.trim().toLowerCase() === baseUnit.trim().toLowerCase() && (
+                    <div className="text-[11px] text-amber-600 bg-amber-500/10 border border-amber-500/20 p-2 rounded">
+                      ⚠️ <strong>Note:</strong> Packaging Unit and Base Unit are both set to &quot;{baseUnit}&quot;. If 1 {purchaseUnit} contains {conversionFactor} pieces, set <strong>Base Unit of Measure</strong> above to <code>pc</code> or <code>pcs</code>.
+                    </div>
+                  )}
                   {Number(conversionFactor) > 1 && (
                     <p className="text-[11px] text-primary font-mono font-medium">
-                      Standard packaging: 1 {purchaseUnit || 'pack'} = {conversionFactor} {baseUnit === 'pack' ? 'pcs' : baseUnit}
+                      Standard packaging: 1 {purchaseUnit || 'pack'} = {conversionFactor} {baseUnit === 'pack' ? 'pcs' : (baseUnit || 'units')}
                     </p>
                   )}
                 </div>

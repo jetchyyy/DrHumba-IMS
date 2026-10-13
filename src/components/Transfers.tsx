@@ -62,6 +62,7 @@ interface TransferItem {
     base_unit: string;
     conversion_factor?: number | null;
   };
+  is_rejected?: boolean;
   is_deleted?: boolean;
   is_new?: boolean;
 }
@@ -272,11 +273,11 @@ export const Transfers: React.FC = () => {
       const pCount = Number(packCount);
       const pSize = effectivePackSize;
       if (isNaN(pCount) || pCount <= 0 || isNaN(pSize) || pSize <= 0) {
-        showError("Please enter a valid pack count.");
+        showError("Please enter a valid package count.");
         return;
       }
       qtyToAdd = pCount * pSize;
-      pkgUnit = 'pack';
+      pkgUnit = selectedCatalogItem?.purchase_unit || 'pack';
       pkgCount = pCount;
       pcsPerPkg = pSize;
     } else {
@@ -408,6 +409,7 @@ export const Transfers: React.FC = () => {
             packaging_unit,
             package_count,
             pieces_per_pack,
+            is_rejected,
             inventory_items (
               item_name,
               base_unit,
@@ -461,13 +463,16 @@ export const Transfers: React.FC = () => {
           ? rawPackageCount
           : (pcsPerPack > 0 ? Math.floor(Number(it.quantity_base_unit) / pcsPerPack) : 1);
 
+        const isItemRejected = Boolean(it.is_rejected) || (Number(it.quantity_base_unit) === 0 && Number(it.original_quantity_base_unit) > 0);
+
         return {
           ...it,
           packaging_unit: it.packaging_unit || 'pack',
           pieces_per_pack: pcsPerPack,
           package_count: derivedPackageCount,
           original_quantity_base_unit: it.original_quantity_base_unit ?? it.quantity_base_unit,
-          is_deleted: false
+          is_rejected: isItemRejected,
+          is_deleted: isItemRejected
         };
       });
       setTransferItems(formattedItems);
@@ -618,7 +623,7 @@ export const Transfers: React.FC = () => {
       item_id: item.id,
       quantity_base_unit: effectiveQty,
       original_quantity_base_unit: 0, // 0 indicates item added by approver
-      packaging_unit: isPackMode ? 'pack' : (item.base_unit || 'pc'),
+      packaging_unit: isPackMode ? (item.purchase_unit || 'pack') : (item.base_unit || 'pc'),
       package_count: isPackMode ? pCount : (effectivePackSize > 1 ? Math.floor(effectiveQty / effectivePackSize) : null),
       pieces_per_pack: effectivePackSize,
       is_new: true,
@@ -683,15 +688,40 @@ export const Transfers: React.FC = () => {
 
     setApproving(true);
     try {
-      // 1. Apply any deletions, additions (for newly added items), and quantity updates in transfer_items table
+      // 1. Apply any rejections/exclusions, additions (for newly added items), and quantity updates in transfer_items table
       for (const item of transferItems) {
         if (item.is_deleted) {
           if (!item.is_new) {
-            const { error: delErr } = await supabase
+            // Mark existing requested item as rejected/unapproved (preserve record with 0 qty for system transparency)
+            const origQty = item.original_quantity_base_unit !== undefined && item.original_quantity_base_unit !== null 
+              ? item.original_quantity_base_unit 
+              : item.quantity_base_unit;
+
+            const updatePayload: any = {
+              quantity_base_unit: 0,
+              package_count: 0,
+              is_rejected: true,
+              original_quantity_base_unit: origQty
+            };
+
+            const { error: rejErr } = await supabase
               .from('transfer_items')
-              .delete()
+              .update(updatePayload)
               .eq('id', item.id);
-            if (delErr) throw delErr;
+
+            if (rejErr) {
+              // Fallback if is_rejected column is pending migration reload
+              if (rejErr.message?.includes('is_rejected') || (rejErr as any).code === '42703') {
+                delete updatePayload.is_rejected;
+                const { error: fallbackRejErr } = await supabase
+                  .from('transfer_items')
+                  .update(updatePayload)
+                  .eq('id', item.id);
+                if (fallbackRejErr) throw fallbackRejErr;
+              } else {
+                throw rejErr;
+              }
+            }
           }
         } else if (item.is_new) {
           // Newly added item by approver: insert with original_quantity_base_unit = 0
@@ -702,7 +732,8 @@ export const Transfers: React.FC = () => {
             original_quantity_base_unit: 0,
             packaging_unit: item.packaging_unit || 'pc',
             package_count: item.package_count ?? null,
-            pieces_per_pack: item.pieces_per_pack ?? null
+            pieces_per_pack: item.pieces_per_pack ?? null,
+            is_rejected: false
           };
           if ((selectedTransfer as any)?.tenant_id) {
             insertPayload.tenant_id = (selectedTransfer as any).tenant_id;
@@ -713,8 +744,9 @@ export const Transfers: React.FC = () => {
             .insert(insertPayload);
 
           if (insErr) {
-            // Fallback in case original_quantity_base_unit column is pending migration reload
-            if (insErr.message?.includes('original_quantity_base_unit') || (insErr as any).code === '42703') {
+            // Fallback in case columns are pending migration reload
+            if (insErr.message?.includes('is_rejected') || insErr.message?.includes('original_quantity_base_unit') || (insErr as any).code === '42703') {
+              delete insertPayload.is_rejected;
               delete insertPayload.original_quantity_base_unit;
               const { error: insFallbackErr } = await supabase
                 .from('transfer_items')
@@ -725,26 +757,26 @@ export const Transfers: React.FC = () => {
             }
           }
         } else {
-          // Existing item updated
+          // Existing item updated and approved
+          const updatePayload: any = {
+            quantity_base_unit: item.quantity_base_unit,
+            package_count: item.package_count ?? null,
+            pieces_per_pack: item.pieces_per_pack ?? null,
+            is_rejected: false,
+            original_quantity_base_unit: item.original_quantity_base_unit !== undefined && item.original_quantity_base_unit !== null ? item.original_quantity_base_unit : item.quantity_base_unit
+          };
           const { error: updateErr } = await supabase
             .from('transfer_items')
-            .update({
-              quantity_base_unit: item.quantity_base_unit,
-              package_count: item.package_count ?? null,
-              pieces_per_pack: item.pieces_per_pack ?? null,
-              original_quantity_base_unit: item.original_quantity_base_unit !== undefined && item.original_quantity_base_unit !== null ? item.original_quantity_base_unit : item.quantity_base_unit
-            })
+            .update(updatePayload)
             .eq('id', item.id);
           if (updateErr) {
-            // Fallback in case original_quantity_base_unit column is pending migration reload
-            if (updateErr.message?.includes('original_quantity_base_unit') || (updateErr as any).code === '42703') {
+            // Fallback in case columns are pending migration reload
+            if (updateErr.message?.includes('is_rejected') || updateErr.message?.includes('original_quantity_base_unit') || (updateErr as any).code === '42703') {
+              delete updatePayload.is_rejected;
+              delete updatePayload.original_quantity_base_unit;
               await supabase
                 .from('transfer_items')
-                .update({
-                  quantity_base_unit: item.quantity_base_unit,
-                  package_count: item.package_count ?? null,
-                  pieces_per_pack: item.pieces_per_pack ?? null
-                })
+                .update(updatePayload)
                 .eq('id', item.id);
             } else {
               throw updateErr;
@@ -798,8 +830,9 @@ export const Transfers: React.FC = () => {
 
   const handleReceiveDiscrepancyTransfer = async (transferId: string) => {
     try {
-      // Validate that all missing items have a reason specified
-      const itemsPayload = transferItems.map(item => {
+      // Validate that all missing items have a reason specified (excluding unapproved/rejected items)
+      const activeTransferItems = transferItems.filter(item => !item.is_rejected && Number(item.quantity_base_unit) > 0);
+      const itemsPayload = activeTransferItems.map(item => {
         const received = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
         const reason = missingReasons[item.item_id] || '';
         
@@ -1393,110 +1426,115 @@ export const Transfers: React.FC = () => {
 
                   {/* Quantity & Packaging Mode Sub-Panel */}
                   <div className="p-3.5 bg-background border border-border/80 rounded-xl space-y-3 shadow-2xs">
-                    <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
-                      <Label className="text-xs font-semibold text-foreground">Packaging & Quantity Format</Label>
-                      <div className="inline-flex rounded-lg border bg-muted/60 p-0.5">
-                        <button
-                          type="button"
-                          onClick={() => setEntryMode('base')}
-                          className={`px-3 py-1 text-xs rounded-md font-medium transition-all cursor-pointer ${
-                            entryMode === 'base'
-                              ? 'bg-background text-foreground shadow-xs font-semibold'
-                              : 'text-muted-foreground hover:text-foreground'
-                          }`}
-                        >
-                          Direct ({catalog.find(c => c.id === currentSelectedItemId)?.base_unit || 'Base Units'})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEntryMode('pack')}
-                          className={`px-3 py-1 text-xs rounded-md font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
-                            entryMode === 'pack'
-                              ? 'bg-primary text-primary-foreground shadow-xs font-semibold'
-                              : 'text-muted-foreground hover:text-foreground'
-                          }`}
-                        >
-                          <span>By Pack (Packs × Pcs)</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {entryMode === 'pack' ? (() => {
+                    {(() => {
                       const selectedCatalogItem = catalog.find(c => c.id === currentSelectedItemId);
+                      const baseU = selectedCatalogItem?.base_unit || 'units';
+                      const pkgU = selectedCatalogItem?.purchase_unit || 'pack';
                       const hasDefinedPackSize = Boolean(selectedCatalogItem?.conversion_factor && Number(selectedCatalogItem.conversion_factor) > 1);
                       const effectivePackSize = hasDefinedPackSize ? Number(selectedCatalogItem?.conversion_factor) : (Number(packSize) || 5);
-                      const pieceUnit = (!selectedCatalogItem?.base_unit || selectedCatalogItem.base_unit.toLowerCase() === 'pack') ? 'pcs' : selectedCatalogItem.base_unit;
                       const pCount = Number(packCount) || 0;
 
                       return (
-                        <div className="space-y-3">
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                              <Label className="text-xs font-medium text-muted-foreground">Number of Packs / Bags</Label>
-                              <Input
-                                type="number"
-                                min="1"
-                                step="1"
-                                value={packCount}
-                                onChange={(e) => setPackCount(e.target.value === '' ? '' : Number(e.target.value))}
-                                placeholder="e.g. 5"
-                                className="bg-background h-9"
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between">
-                                <Label className="text-xs font-medium text-muted-foreground">Pieces per Pack</Label>
-                                {hasDefinedPackSize && (
-                                  <span className="text-[10px] text-primary flex items-center gap-1 font-medium bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">
-                                    <Lock className="h-3 w-3" /> Locked ({effectivePackSize} {pieceUnit}/pk)
-                                  </span>
-                                )}
-                              </div>
-                              <Input
-                                type="number"
-                                min="1"
-                                step="any"
-                                value={hasDefinedPackSize ? effectivePackSize : packSize}
-                                readOnly={hasDefinedPackSize}
-                                disabled={hasDefinedPackSize}
-                                onChange={(e) => {
-                                  if (!hasDefinedPackSize) {
-                                    setPackSize(e.target.value === '' ? '' : Number(e.target.value));
-                                  }
-                                }}
-                                placeholder="e.g. 5 or 10"
-                                className={`h-9 ${hasDefinedPackSize ? 'bg-muted/70 text-foreground font-semibold cursor-not-allowed border-muted-foreground/30' : 'bg-background'}`}
-                              />
+                        <>
+                          <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
+                            <Label className="text-xs font-semibold text-foreground">Packaging & Quantity Format</Label>
+                            <div className="inline-flex rounded-lg border bg-muted/60 p-0.5">
+                              <button
+                                type="button"
+                                onClick={() => setEntryMode('base')}
+                                className={`px-3 py-1 text-xs rounded-md font-medium transition-all cursor-pointer ${
+                                  entryMode === 'base'
+                                    ? 'bg-background text-foreground shadow-xs font-semibold'
+                                    : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                              >
+                                Direct ({baseU})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEntryMode('pack')}
+                                className={`px-3 py-1 text-xs rounded-md font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                                  entryMode === 'pack'
+                                    ? 'bg-primary text-primary-foreground shadow-xs font-semibold'
+                                    : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                              >
+                                <span>By {pkgU.charAt(0).toUpperCase() + pkgU.slice(1)} ({pkgU} × {baseU})</span>
+                              </button>
                             </div>
                           </div>
 
-                          {/* Live Conversion Banner */}
-                          <div className="flex items-center justify-between px-3.5 py-2.5 rounded-lg bg-primary/10 border border-primary/20 text-xs">
-                            <span className="text-foreground font-medium">
-                              <span>Total Computed Quantity:</span>
-                            </span>
-                            <span className="font-bold text-primary font-mono text-sm">
-                              {pCount > 0 && effectivePackSize > 0 
-                                ? `${pCount} ${pCount === 1 ? 'pack' : 'packs'} × ${effectivePackSize} ${pieceUnit}/pack = ${pCount * effectivePackSize} ${pieceUnit} (${pCount} ${pCount === 1 ? 'pack' : 'packs'})`
-                                : `0 ${pieceUnit}`}
-                            </span>
-                          </div>
-                        </div>
+                          {entryMode === 'pack' ? (
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                  <Label className="text-xs font-medium text-muted-foreground">Number of {pkgU.charAt(0).toUpperCase() + pkgU.slice(1)}s</Label>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={packCount}
+                                    onChange={(e) => setPackCount(e.target.value === '' ? '' : Number(e.target.value))}
+                                    placeholder="e.g. 5"
+                                    className="bg-background h-9"
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <Label className="text-xs font-medium text-muted-foreground">Base {baseU} per {pkgU}</Label>
+                                    {hasDefinedPackSize && (
+                                      <span className="text-[10px] text-primary flex items-center gap-1 font-medium bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">
+                                        <Lock className="h-3 w-3" /> Locked ({effectivePackSize} {baseU}/{pkgU})
+                                      </span>
+                                    )}
+                                  </div>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    step="any"
+                                    value={hasDefinedPackSize ? effectivePackSize : packSize}
+                                    readOnly={hasDefinedPackSize}
+                                    disabled={hasDefinedPackSize}
+                                    onChange={(e) => {
+                                      if (!hasDefinedPackSize) {
+                                        setPackSize(e.target.value === '' ? '' : Number(e.target.value));
+                                      }
+                                    }}
+                                    placeholder="e.g. 5 or 10"
+                                    className={`h-9 ${hasDefinedPackSize ? 'bg-muted/70 text-foreground font-semibold cursor-not-allowed border-muted-foreground/30' : 'bg-background'}`}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Live Conversion Banner */}
+                              <div className="flex items-center justify-between px-3.5 py-2.5 rounded-lg bg-primary/10 border border-primary/20 text-xs">
+                                <span className="text-foreground font-medium">
+                                  <span>Total Computed Quantity:</span>
+                                </span>
+                                <span className="font-bold text-primary font-mono text-sm">
+                                  {pCount > 0 && effectivePackSize > 0 
+                                    ? `${pCount} ${pkgU}${pCount === 1 ? '' : 's'} × ${effectivePackSize} ${baseU}/${pkgU} = ${pCount * effectivePackSize} ${baseU}`
+                                    : `0 ${baseU}`}
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <Label className="text-xs font-medium text-muted-foreground">
+                                Enter Quantity ({baseU})
+                              </Label>
+                              <Input
+                                type="number"
+                                value={currentQty}
+                                onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
+                                placeholder="0"
+                                className="bg-background h-9"
+                              />
+                            </div>
+                          )}
+                        </>
                       );
-                    })() : (
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-muted-foreground">
-                          Enter Quantity ({catalog.find(c => c.id === currentSelectedItemId)?.base_unit || 'units'})
-                        </Label>
-                        <Input
-                          type="number"
-                          value={currentQty}
-                          onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
-                          placeholder="0"
-                          className="bg-background h-9"
-                        />
-                      </div>
-                    )}
+                    })()}
                   </div>
 
                   <div className="flex items-center justify-between pt-1">
@@ -1555,11 +1593,14 @@ export const Transfers: React.FC = () => {
                               )}
                             </TableCell>
                             <TableCell className="text-right text-xs">
-                              {item.package_count && item.pieces_per_pack ? (
-                                <Badge variant="outline" className="text-[11px] bg-primary/10 text-primary border-primary/30 font-semibold">
-                                  {item.package_count} packs × {item.pieces_per_pack} {info?.base_unit || 'pcs'}/pack
-                                </Badge>
-                              ) : (
+                              {item.package_count && item.pieces_per_pack ? (() => {
+                                const pkgU = item.packaging_unit || info?.purchase_unit || 'pack';
+                                return (
+                                  <Badge variant="outline" className="text-[11px] bg-primary/10 text-primary border-primary/30 font-semibold font-mono">
+                                    {item.package_count} {pkgU}{item.package_count === 1 ? '' : 's'} × {item.pieces_per_pack} {info?.base_unit || 'pcs'}/{pkgU}
+                                  </Badge>
+                                );
+                              })() : (
                                 <span className="text-muted-foreground">-</span>
                               )}
                             </TableCell>
@@ -1715,6 +1756,7 @@ export const Transfers: React.FC = () => {
                         );
 
                         if (selectedTransfer.status === 'approved' && canReceive) {
+                          // In the receiving confirmation modal, display active dispatched items for receipt entry, plus any rejected items at the bottom as reference
                           return (
                             <>
                               <TableHeader>
@@ -1729,10 +1771,32 @@ export const Transfers: React.FC = () => {
                                 {transferItems.map((item, idx) => {
                                   const name = item.inventory_items?.item_name || 'Deleted Item';
                                   const unit = item.inventory_items?.base_unit || 'unit';
+                                  const pkgUnit = item.packaging_unit || (item.inventory_items as any)?.purchase_unit || 'pack';
                                   const pcsPerPack = getItemPcsPerPack(item);
                                   const pCount = item.package_count || (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
                                   const receivedVal = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
                                   const isMissing = receivedVal < item.quantity_base_unit;
+                                  const isRejected = Boolean(item.is_rejected) || (Number(item.quantity_base_unit) === 0 && Number(item.original_quantity_base_unit) > 0);
+
+                                  if (isRejected) {
+                                    return (
+                                      <TableRow key={idx} className="bg-destructive/5 opacity-75">
+                                        <TableCell className="font-medium">
+                                          <div className="line-through text-muted-foreground">{name}</div>
+                                          <Badge variant="outline" className="mt-1 text-[10px] text-destructive border-destructive/30 bg-destructive/10">
+                                            Not Approved at Dispatch
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right text-muted-foreground line-through">
+                                          0 {unit}
+                                        </TableCell>
+                                        <TableCell className="text-right text-muted-foreground">-</TableCell>
+                                        <TableCell className="text-xs text-muted-foreground italic">
+                                          Excluded by approver
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  }
 
                                   return (
                                     <TableRow key={idx}>
@@ -1740,7 +1804,7 @@ export const Transfers: React.FC = () => {
                                         <div>{name}</div>
                                         {pcsPerPack > 1 && pCount ? (
                                           <div className="text-[11px] font-semibold text-primary">
-                                            {pCount} packs × {pcsPerPack} {unit}/pack
+                                            {pCount} {pCount === 1 ? pkgUnit : `${pkgUnit}s`} × {pcsPerPack} {unit}/{pkgUnit}
                                           </div>
                                         ) : null}
                                       </TableCell>
@@ -1748,7 +1812,7 @@ export const Transfers: React.FC = () => {
                                         {item.quantity_base_unit} {unit}
                                         {pcsPerPack > 1 && pCount && (
                                           <span className="block text-[10px] text-muted-foreground font-normal">
-                                            ({pCount} {pCount === 1 ? 'pack' : 'packs'})
+                                            ({pCount} {pCount === 1 ? pkgUnit : `${pkgUnit}s`})
                                           </span>
                                         )}
                                       </TableCell>
@@ -1803,10 +1867,31 @@ export const Transfers: React.FC = () => {
                                 {transferItems.map((item, idx) => {
                                   const name = item.inventory_items?.item_name || 'Deleted Item';
                                   const unit = item.inventory_items?.base_unit || 'unit';
+                                  const pkgUnit = item.packaging_unit || (item.inventory_items as any)?.purchase_unit || 'pack';
                                   const pcsPerPack = getItemPcsPerPack(item);
                                   const pCount = item.package_count || (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
                                   const received = item.received_quantity_base_unit ?? item.quantity_base_unit;
                                   const missing = item.quantity_base_unit - received;
+                                  const isRejected = Boolean(item.is_rejected) || (Number(item.quantity_base_unit) === 0 && Number(item.original_quantity_base_unit) > 0);
+
+                                  if (isRejected) {
+                                    return (
+                                      <TableRow key={idx} className="bg-destructive/5 opacity-75">
+                                        <TableCell className="font-medium">
+                                          <div className="line-through text-muted-foreground">{name}</div>
+                                          <Badge variant="outline" className="mt-1 text-[10px] text-destructive border-destructive/30 bg-destructive/10">
+                                            Not Approved / Excluded (Requested: {item.original_quantity_base_unit || 0} {unit})
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right text-muted-foreground line-through">0 {unit}</TableCell>
+                                        <TableCell className="text-right text-muted-foreground line-through">0 {unit}</TableCell>
+                                        <TableCell className="text-right text-muted-foreground">-</TableCell>
+                                        <TableCell className="text-xs italic text-muted-foreground">
+                                          Disapproved by approver
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  }
 
                                   return (
                                     <TableRow key={idx}>
@@ -1814,7 +1899,7 @@ export const Transfers: React.FC = () => {
                                         <div>{name}</div>
                                         {pcsPerPack > 1 && pCount ? (
                                           <div className="text-[11px] font-semibold text-primary">
-                                            {pCount} packs × {pcsPerPack} {unit}/pack
+                                            {pCount} {pCount === 1 ? pkgUnit : `${pkgUnit}s`} × {pcsPerPack} {unit}/{pkgUnit}
                                           </div>
                                         ) : null}
                                       </TableCell>
@@ -1851,6 +1936,7 @@ export const Transfers: React.FC = () => {
                                   const reqQty = item.original_quantity_base_unit ?? item.quantity_base_unit;
                                   const avail = sourceInventory[item.item_id] ?? 0;
                                   const pcsPerPack = getItemPcsPerPack(item);
+                                  const pkgUnit = item.packaging_unit || (catalog.find(c => c.id === item.item_id)?.purchase_unit) || 'pack';
                                   const isPack = pcsPerPack > 1 || Boolean(item.package_count && Number(item.package_count) > 0);
                                   const currentPacks = (item.package_count !== undefined && item.package_count !== null)
                                     ? Number(item.package_count)
@@ -1866,15 +1952,17 @@ export const Transfers: React.FC = () => {
                                       <TableRow key={idx} className="bg-destructive/10 opacity-75">
                                         <TableCell className="font-medium">
                                           <span className="line-through text-muted-foreground">{name}</span>
-                                          <Badge variant="outline" className="ml-2 text-[10px] text-destructive border-destructive/30">
-                                            Excluded from dispatch
+                                          <Badge variant="outline" className="ml-2 text-[10px] text-destructive border-destructive/30 bg-destructive/10">
+                                            Not Approved (Crashout)
                                           </Badge>
                                         </TableCell>
                                         <TableCell className="text-right text-muted-foreground line-through">
                                           {isAddedByApprover ? `0 ${unit}` : `${reqQty} ${unit}`}
                                         </TableCell>
                                         <TableCell className="text-right text-muted-foreground">{avail} {unit}</TableCell>
-                                        <TableCell className="text-right text-muted-foreground">-</TableCell>
+                                        <TableCell className="text-right text-muted-foreground">
+                                          <span className="text-xs line-through text-destructive">0 {unit}</span>
+                                        </TableCell>
                                         <TableCell className="text-center">
                                           <Button
                                             type="button"
@@ -1882,6 +1970,7 @@ export const Transfers: React.FC = () => {
                                             size="sm"
                                             onClick={() => handleToggleDeleteItem(idx)}
                                             className="h-7 text-xs px-2 cursor-pointer"
+                                            title="Restore item to transfer"
                                           >
                                             Undo
                                           </Button>
@@ -1895,8 +1984,8 @@ export const Transfers: React.FC = () => {
                                       <TableCell className="font-medium">
                                         <div>{name}</div>
                                         {isPack ? (
-                                          <div className="text-[11px] font-semibold text-primary">
-                                            Standard: {pcsPerPack} {unit}/pack
+                                          <div className="text-[11px] font-semibold text-primary font-mono">
+                                            Standard: {pcsPerPack} {unit}/{pkgUnit}
                                           </div>
                                         ) : null}
                                         {isAddedByApprover && (
@@ -1922,8 +2011,8 @@ export const Transfers: React.FC = () => {
                                           <>
                                             <div>{reqQty} {unit}</div>
                                             {reqPacks !== null && (
-                                              <span className="block text-[10px] text-muted-foreground font-normal">
-                                                ({reqPacks} {reqPacks === 1 ? 'pack' : 'packs'} @ {pcsPerPack} {unit}/pk)
+                                              <span className="block text-[10px] text-muted-foreground font-normal font-mono">
+                                                ({reqPacks} {pkgUnit}{reqPacks === 1 ? '' : 's'} @ {pcsPerPack} {unit}/{pkgUnit})
                                               </span>
                                             )}
                                           </>
@@ -1934,15 +2023,15 @@ export const Transfers: React.FC = () => {
                                           {avail} {unit}
                                         </div>
                                         {availPacks !== null && (
-                                          <span className="block text-[10px] text-muted-foreground font-normal">
-                                            ({availPacks} {availPacks === 1 ? 'pack' : 'packs'})
+                                          <span className="block text-[10px] text-muted-foreground font-normal font-mono">
+                                            ({availPacks} {pkgUnit}{availPacks === 1 ? '' : 's'})
                                           </span>
                                         )}
                                       </TableCell>
                                       <TableCell className="text-right">
                                         {isPack ? (
                                           <div className="flex flex-col items-end gap-1.5 min-w-[210px]">
-                                            {/* Pack Stepper Row */}
+                                            {/* Packaging Stepper Row */}
                                             <div className="flex items-center gap-1.5 justify-end">
                                               <Button
                                                 type="button"
@@ -1951,9 +2040,9 @@ export const Transfers: React.FC = () => {
                                                 onClick={() => handleStepItemPackCount(idx, -1)}
                                                 disabled={currentPacks <= 0}
                                                 className="h-7 px-2 text-xs font-bold text-destructive hover:bg-destructive/10 cursor-pointer"
-                                                title="Deduct 1 pack"
+                                                title={`Deduct 1 ${pkgUnit}`}
                                               >
-                                                -1 pk
+                                                -1 {pkgUnit.slice(0, 3)}
                                               </Button>
                                               <Input
                                                 type="number"
@@ -1963,16 +2052,16 @@ export const Transfers: React.FC = () => {
                                                 onChange={(e) => handleUpdateItemPackCount(idx, Number(e.target.value))}
                                                 className="w-16 text-center h-7 font-bold text-xs bg-background"
                                               />
-                                              <span className="text-xs font-semibold text-muted-foreground">pk</span>
+                                              <span className="text-xs font-semibold text-muted-foreground">{pkgUnit.slice(0, 3)}</span>
                                               <Button
                                                 type="button"
                                                 variant="outline"
                                                 size="sm"
                                                 onClick={() => handleStepItemPackCount(idx, 1)}
                                                 className="h-7 px-2 text-xs font-bold text-primary hover:bg-primary/10 cursor-pointer"
-                                                title="Add 1 pack"
+                                                title={`Add 1 ${pkgUnit}`}
                                               >
-                                                +1 pk
+                                                +1 {pkgUnit.slice(0, 3)}
                                               </Button>
                                             </div>
 
@@ -1990,7 +2079,7 @@ export const Transfers: React.FC = () => {
                                               <span className="text-[11px] font-semibold text-muted-foreground">{unit}</span>
                                             </div>
                                             <span className="text-[10px] text-muted-foreground font-mono">
-                                              {currentPacks} pk × {pcsPerPack} {unit}/pk
+                                              {currentPacks} {pkgUnit}{currentPacks === 1 ? '' : 's'} × {pcsPerPack} {unit}/{pkgUnit}
                                             </span>
                                           </div>
                                         ) : (
@@ -2014,7 +2103,7 @@ export const Transfers: React.FC = () => {
                                           size="icon"
                                           onClick={() => handleToggleDeleteItem(idx)}
                                           className="h-8 w-8 text-destructive hover:bg-destructive/10 cursor-pointer"
-                                          title="Remove item from this transfer"
+                                          title="Remove / Disapprove item from this transfer"
                                         >
                                           <Trash2 className="h-4 w-4" />
                                         </Button>
@@ -2038,17 +2127,36 @@ export const Transfers: React.FC = () => {
                                 {transferItems.map((item, idx) => {
                                   const name = item.inventory_items?.item_name || 'Deleted Item';
                                   const unit = item.inventory_items?.base_unit || 'unit';
+                                  const pkgUnit = item.packaging_unit || (item.inventory_items as any)?.purchase_unit || 'pack';
                                   const pcsPerPack = getItemPcsPerPack(item);
                                   const pCount = item.package_count || (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
-                                  const isAddedByApprover = item.original_quantity_base_unit !== null && item.original_quantity_base_unit !== undefined && Number(item.original_quantity_base_unit) === 0;
-                                  const isModified = !isAddedByApprover && item.original_quantity_base_unit && Number(item.original_quantity_base_unit) !== Number(item.quantity_base_unit);
+                                  const isRejected = Boolean(item.is_rejected) || (Number(item.quantity_base_unit) === 0 && Number(item.original_quantity_base_unit) > 0);
+                                  const isAddedByApprover = !isRejected && item.original_quantity_base_unit !== null && item.original_quantity_base_unit !== undefined && Number(item.original_quantity_base_unit) === 0;
+                                  const isModified = !isRejected && !isAddedByApprover && item.original_quantity_base_unit && Number(item.original_quantity_base_unit) !== Number(item.quantity_base_unit);
+
+                                  if (isRejected) {
+                                    return (
+                                      <TableRow key={idx} className="bg-destructive/5 opacity-75">
+                                        <TableCell className="font-medium">
+                                          <div className="line-through text-muted-foreground">{name}</div>
+                                          <Badge variant="outline" className="mt-1 text-[10px] text-destructive border-destructive/30 bg-destructive/10">
+                                            Not Approved (Requested: {item.original_quantity_base_unit || 0} {unit})
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right font-semibold pr-4">
+                                          <span className="line-through text-muted-foreground">0 {unit}</span>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  }
+
                                   return (
                                     <TableRow key={idx}>
                                       <TableCell className="font-medium">
                                         <div>{name}</div>
                                         {pcsPerPack > 1 && pCount ? (
                                           <div className="text-[11px] font-semibold text-primary">
-                                            {pCount} packs × {pcsPerPack} {unit}/pack
+                                            {pCount} {pCount === 1 ? pkgUnit : `${pkgUnit}s`} × {pcsPerPack} {unit}/{pkgUnit}
                                           </div>
                                         ) : null}
                                         {isAddedByApprover && (
@@ -2066,7 +2174,7 @@ export const Transfers: React.FC = () => {
                                         {item.quantity_base_unit} {unit}
                                         {pcsPerPack > 1 && pCount && (
                                           <span className="block text-[10px] text-muted-foreground font-normal">
-                                            ({pCount} {pCount === 1 ? 'pack' : 'packs'})
+                                            ({pCount} {pCount === 1 ? pkgUnit : `${pkgUnit}s`})
                                           </span>
                                         )}
                                       </TableCell>
@@ -2127,6 +2235,8 @@ export const Transfers: React.FC = () => {
                   );
 
                   const hasDiscrepancy = selectedTransfer.status === 'approved' && transferItems.some(item => {
+                    const isRejected = Boolean(item.is_rejected) || Number(item.quantity_base_unit) === 0;
+                    if (isRejected) return false;
                     const received = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
                     return received < item.quantity_base_unit;
                   });
@@ -2268,6 +2378,7 @@ export const Transfers: React.FC = () => {
             const hasDefinedPackSize = Boolean(selectedAddCatalogItem?.conversion_factor && Number(selectedAddCatalogItem.conversion_factor) > 1);
             const effectivePackSize = hasDefinedPackSize ? Number(selectedAddCatalogItem?.conversion_factor) : (Number(addModalPackSize) || 5);
             const pieceUnit = (!selectedAddCatalogItem?.base_unit || selectedAddCatalogItem.base_unit.toLowerCase() === 'pack') ? 'pcs' : (selectedAddCatalogItem?.base_unit || 'units');
+            const addPkgUnit = selectedAddCatalogItem?.purchase_unit || 'pack';
             const pCount = Number(addModalPackCount) || 0;
             const dQty = Number(addModalDirectQty) || 0;
             const isPackMode = addModalEntryMode === 'pack';
@@ -2348,7 +2459,7 @@ export const Transfers: React.FC = () => {
                                   <div className="flex items-center justify-between gap-3 w-full">
                                     <span className="font-medium truncate max-w-[200px]">{item.item_name}</span>
                                     <span className="text-[11px] font-mono text-muted-foreground shrink-0">
-                                      {packStock !== null ? `${packStock} pk (${itStock} ${item.base_unit || 'units'})` : `${itStock} ${item.base_unit || 'units'}`}
+                                      {packStock !== null ? `${packStock} ${item.purchase_unit || 'pk'} (${itStock} ${item.base_unit || 'units'})` : `${itStock} ${item.base_unit || 'units'}`}
                                     </span>
                                   </div>
                                 </SelectItem>
@@ -2370,7 +2481,7 @@ export const Transfers: React.FC = () => {
                           {stock} {pieceUnit}
                           {effectivePackSize > 1 && (
                             <span className="text-muted-foreground font-normal ml-1">
-                              ({Math.floor(stock / effectivePackSize)} packs available)
+                              ({Math.floor(stock / effectivePackSize)} ${addPkgUnit}s available)
                             </span>
                           )}
                         </span>
@@ -2400,7 +2511,7 @@ export const Transfers: React.FC = () => {
                                 : 'text-muted-foreground hover:text-foreground'
                             }`}
                           >
-                            By Pack
+                            By ${addPkgUnit.charAt(0).toUpperCase() + addPkgUnit.slice(1)}
                           </button>
                         </div>
                       </div>
@@ -2410,7 +2521,7 @@ export const Transfers: React.FC = () => {
                         <div className="space-y-3">
                           <div className="grid grid-cols-2 gap-2.5">
                             <div className="space-y-1">
-                              <Label className="text-[11px] text-muted-foreground">Packs to Dispatch</Label>
+                              <Label className="text-[11px] text-muted-foreground">{addPkgUnit.charAt(0).toUpperCase() + addPkgUnit.slice(1)}s to Dispatch</Label>
                               <div className="flex items-center gap-1">
                                 <Button
                                   type="button"
@@ -2443,7 +2554,7 @@ export const Transfers: React.FC = () => {
                             </div>
                             <div className="space-y-1">
                               <div className="flex items-center justify-between">
-                                <Label className="text-[11px] text-muted-foreground">Pieces / Pack</Label>
+                                <Label className="text-[11px] text-muted-foreground">{pieceUnit} / {addPkgUnit}</Label>
                                 {hasDefinedPackSize && (
                                   <span className="text-[9px] text-primary font-medium">Standard</span>
                                 )}
@@ -2467,7 +2578,7 @@ export const Transfers: React.FC = () => {
                           }`}>
                             <span className="font-medium">Total Quantity:</span>
                             <span className="font-bold font-mono">
-                              {pCount} pk × {effectivePackSize} = {effectiveQty} {pieceUnit}
+                              {pCount} {pCount === 1 ? addPkgUnit : `${addPkgUnit}s`} × {effectivePackSize} {pieceUnit}/{addPkgUnit} = {effectiveQty} {pieceUnit}
                             </span>
                           </div>
                         </div>

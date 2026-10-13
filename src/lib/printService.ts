@@ -14,13 +14,21 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
     : (transfer.status || 'PENDING');
 
   const isCompletedOrPending = ['completed', 'pending_receipt_approval'].includes(transfer.status);
-  const hasDiscrepancies = isCompletedOrPending && items.some(
+  
+  // Filter out unapproved / rejected items: print only items that are actually approved/dispatched
+  const printableItems = (items || []).filter(item => 
+    !item.is_rejected && 
+    !item.is_deleted && 
+    Number(item.quantity_base_unit) > 0
+  );
+
+  const hasDiscrepancies = isCompletedOrPending && printableItems.some(
     item => item.received_quantity_base_unit !== null && 
             item.received_quantity_base_unit !== undefined && 
             Number(item.received_quantity_base_unit) < Number(item.quantity_base_unit)
   );
 
-  const itemsHtml = items.map(item => {
+  const itemsHtml = printableItems.map(item => {
     const unit = item.inventory_items?.base_unit || 'units';
     const received = item.received_quantity_base_unit !== null && item.received_quantity_base_unit !== undefined 
       ? Number(item.received_quantity_base_unit) 
@@ -36,12 +44,13 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
       : '';
 
     const pcsPerPack = Number(item.pieces_per_pack) || Number(item.inventory_items?.conversion_factor) || 1;
+    const pkgUnitName = item.packaging_unit || item.inventory_items?.purchase_unit || 'pack';
     const pCount = (item.package_count !== undefined && item.package_count !== null && Number(item.package_count) > 0)
       ? Number(item.package_count)
       : (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
 
     const pkgInfo = (pCount && pcsPerPack > 1)
-      ? `<span style="display: block; font-size: 10px; color: #4f46e5; font-weight: 600; margin-top: 2px;">${pCount} packs × ${pcsPerPack} ${unit}/pack (= ${item.quantity_base_unit} ${unit})</span>${modNote}`
+      ? `<span style="display: block; font-size: 10px; color: #4f46e5; font-weight: 600; margin-top: 2px;">${pCount} ${pkgUnitName}${pCount === 1 ? '' : 's'} × ${pcsPerPack} ${unit}/${pkgUnitName} (= ${item.quantity_base_unit} ${unit})</span>${modNote}`
       : modNote;
 
     if (hasDiscrepancies) {
