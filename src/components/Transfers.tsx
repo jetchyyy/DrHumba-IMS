@@ -86,6 +86,41 @@ interface CatalogItem {
   category: string;
 }
 
+const formatQuantity = (quantity: number) => new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 3,
+}).format(quantity);
+
+const pluralizeUnit = (unit: string, quantity: number) => {
+  if (Math.abs(quantity) === 1 || unit.endsWith('s')) return unit;
+  if (/(s|x|z|ch|sh)$/i.test(unit)) return `${unit}es`;
+  if (/[^aeiou]y$/i.test(unit)) return `${unit.slice(0, -1)}ies`;
+  return `${unit}s`;
+};
+
+/**
+ * Inventory balances are stored in base units, but transfer staff work in the
+ * catalog's packaging unit. Keep both values visible so the display is clear
+ * without changing the quantity submitted to transfer RPCs.
+ */
+const formatAvailableQuantity = (quantity: number, item?: CatalogItem) => {
+  const baseQuantity = Number.isFinite(quantity) ? quantity : 0;
+  const baseUnit = item?.base_unit?.trim() || 'units';
+  const packageUnit = item?.purchase_unit?.trim();
+  const conversionFactor = Number(item?.conversion_factor);
+  const baseDisplay = `${formatQuantity(baseQuantity)} ${baseUnit}`;
+
+  if (
+    !packageUnit
+    || conversionFactor <= 1
+    || packageUnit.toLowerCase() === baseUnit.toLowerCase()
+  ) {
+    return baseDisplay;
+  }
+
+  const packageQuantity = baseQuantity / conversionFactor;
+  return `${formatQuantity(packageQuantity)} ${pluralizeUnit(packageUnit, packageQuantity)} (${baseDisplay})`;
+};
+
 export const Transfers: React.FC = () => {
   const { profile, branches, selectedBranch } = useAuth();
   const { confirm, showSuccess, showError } = useModal();
@@ -1283,7 +1318,7 @@ export const Transfers: React.FC = () => {
                         return (
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-muted-foreground">
-                              Available: <strong className="text-foreground">{sourceInventory[currentSelectedItemId] || 0} {item?.base_unit}</strong>
+                              Available: <strong className="text-foreground">{formatAvailableQuantity(sourceInventory[currentSelectedItemId] || 0, item)}</strong>
                             </span>
                             {minQty !== null && (
                               <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-bold">
@@ -1310,7 +1345,7 @@ export const Transfers: React.FC = () => {
                                 <div className="flex items-center justify-between w-full pr-2">
                                   <span className="font-medium text-foreground truncate">{item.item_name}</span>
                                   <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono shrink-0 ml-2">
-                                    {qty} {item.base_unit}
+                                    {formatAvailableQuantity(qty, item)}
                                   </span>
                                 </div>
                               ) : "Select an item";
@@ -1399,7 +1434,7 @@ export const Transfers: React.FC = () => {
                                   >
                                     <span className="truncate">{item.item_name}</span>
                                     <span className="text-xs text-muted-foreground shrink-0 pl-2">
-                                      {item.conversion_factor && Number(item.conversion_factor) > 1 ? `${item.conversion_factor} ${item.base_unit}/pk | ` : ''}{qty} {item.base_unit}
+                                      {formatAvailableQuantity(qty, item)}
                                     </span>
                                   </button>
                                 );
@@ -2468,7 +2503,7 @@ export const Transfers: React.FC = () => {
                           {stock} {pieceUnit}
                           {effectivePackSize > 1 && (
                             <span className="text-muted-foreground font-normal ml-1">
-                              ({Math.floor(stock / effectivePackSize)} ${addPkgUnit}s available)
+                              ({Math.floor(stock / effectivePackSize)} {pluralizeUnit(addPkgUnit, Math.floor(stock / effectivePackSize))} available)
                             </span>
                           )}
                         </span>
@@ -2498,7 +2533,7 @@ export const Transfers: React.FC = () => {
                                 : 'text-muted-foreground hover:text-foreground'
                             }`}
                           >
-                            By ${addPkgUnit.charAt(0).toUpperCase() + addPkgUnit.slice(1)}
+                            By {addPkgUnit.charAt(0).toUpperCase() + addPkgUnit.slice(1)}
                           </button>
                         </div>
                       </div>
