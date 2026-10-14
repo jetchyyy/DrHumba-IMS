@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 export interface Profile {
   id: string;
   email: string;
+  full_name: string | null;
   role_name: 'super_admin' | 'inventory_manager' | 'branch_manager' | 'cashier' | 'auditor';
   branch_id: string | null;
   allowed_tabs: string[] | null;

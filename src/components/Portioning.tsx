@@ -64,9 +64,12 @@ interface PortioningRequest {
   branches?: { name: string };
   source_item?: { item_name: string; base_unit: string; purchase_unit?: string; conversion_factor?: number; category: string; cost_per_base_unit: number };
   target_item?: { item_name: string; base_unit: string; purchase_unit?: string; conversion_factor?: number; category: string; cost_per_base_unit: number };
-  requested_user?: { full_name: string };
-  approved_user?: { full_name: string };
+  requested_user?: { full_name?: string | null; email?: string | null } | null;
+  approved_user?: { full_name?: string | null; email?: string | null } | null;
 }
+
+const getStaffDisplayName = (staff?: { full_name?: string | null; email?: string | null } | null) =>
+  staff?.full_name?.trim() || staff?.email || 'Staff';
 
 export interface PortionPackagingBreakdown {
   hasBreakdown: boolean;
@@ -241,8 +244,8 @@ export const Portioning: React.FC = () => {
             branches:branch_id (name),
             source_item:source_item_id (item_name, base_unit, purchase_unit, conversion_factor, category, cost_per_base_unit),
             target_item:target_item_id (item_name, base_unit, purchase_unit, conversion_factor, category, cost_per_base_unit),
-            requested_user:requested_by (full_name),
-            approved_user:approved_by (full_name)
+            requested_user:requested_by (full_name, email),
+            approved_user:approved_by (full_name, email)
           `)
           .order('created_at', { ascending: false });
 
@@ -278,14 +281,14 @@ export const Portioning: React.FC = () => {
         if (userIds.length > 0) {
           const { data: profs } = await supabase
             .from('profiles')
-            .select('id, full_name')
+            .select('id, full_name, email')
             .in('id', userIds);
 
-          const profMap = new Map(profs?.map(p => [p.id, p.full_name]) || []);
+          const profMap = new Map(profs?.map(p => [p.id, { full_name: p.full_name, email: p.email }]) || []);
           reqData = reqData.map(r => ({
             ...r,
-            requested_user: r.requested_by ? { full_name: profMap.get(r.requested_by) || 'Staff' } : null,
-            approved_user: r.approved_by ? { full_name: profMap.get(r.approved_by) || 'Admin' } : null,
+            requested_user: r.requested_by ? profMap.get(r.requested_by) || null : null,
+            approved_user: r.approved_by ? profMap.get(r.approved_by) || null : null,
           }));
         }
       }
@@ -564,7 +567,7 @@ export const Portioning: React.FC = () => {
       (req.control_number || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (req.source_item?.item_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (req.target_item?.item_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (req.requested_user?.full_name || '').toLowerCase().includes(searchQuery.toLowerCase());
+      getStaffDisplayName(req.requested_user).toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesStatus = statusFilter === 'all' || req.status === statusFilter;
     const matchesBranch = branchFilter === 'all' || req.branch_id === branchFilter;
@@ -800,7 +803,7 @@ export const Portioning: React.FC = () => {
                       {req.status === 'rejected' && <Badge variant="outline" className="bg-rose-500/10 text-rose-500 border-rose-500/30">Rejected</Badge>}
                     </TableCell>
                     <TableCell className="text-xs">
-                      {req.requested_user?.full_name || 'Staff'}
+                      {getStaffDisplayName(req.requested_user)}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {new Date(req.created_at).toLocaleDateString()} {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -1423,7 +1426,7 @@ export const Portioning: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-xs text-muted-foreground block">Requested By</span>
-                  <span className="font-semibold">{selectedRequest.requested_user?.full_name || 'Staff'}</span>
+                  <span className="font-semibold">{getStaffDisplayName(selectedRequest.requested_user)}</span>
                 </div>
               </div>
 

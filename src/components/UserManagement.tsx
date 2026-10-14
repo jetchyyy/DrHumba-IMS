@@ -25,6 +25,7 @@ import {
 interface ProfileRecord {
   id: string;
   email: string;
+  full_name: string | null;
   role_name: string;
   branch_id: string | null;
   allowed_tabs: string[] | null;
@@ -129,12 +130,14 @@ export const UserManagement: React.FC = () => {
 
   // Edit State
   const [editingStaff, setEditingStaff] = useState<ProfileRecord | null>(null);
+  const [editFullName, setEditFullName] = useState('');
   const [editRole, setEditRole] = useState<string>('cashier');
   const [editBranchId, setEditBranchId] = useState('');
   const [editAllowedTabs, setEditAllowedTabs] = useState<string[]>([]);
   const [editCustomRole, setEditCustomRole] = useState('');
 
   // Creation Form State
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<string>('cashier');
@@ -308,6 +311,7 @@ export const UserManagement: React.FC = () => {
         .select(`
           id,
           email,
+          full_name,
           role_name,
           branch_id,
           allowed_tabs,
@@ -349,8 +353,8 @@ export const UserManagement: React.FC = () => {
       return;
     }
 
-    if (!email.trim() || !password.trim()) {
-      showError("Email and Password are required");
+    if (!fullName.trim() || !email.trim() || !password.trim()) {
+      showError("Full name, email, and password are required");
       return;
     }
 
@@ -376,6 +380,7 @@ export const UserManagement: React.FC = () => {
     setSubmitting(true);
     try {
       const { error: rpcError } = await supabase.rpc('fn_create_staff', {
+        p_full_name: fullName.trim(),
         p_email: email.trim(),
         p_password: password,
         p_role: finalRole,
@@ -386,6 +391,7 @@ export const UserManagement: React.FC = () => {
       if (rpcError) throw rpcError;
 
       showSuccess(`Staff account successfully created! Email: ${email}`);
+      setFullName('');
       setEmail('');
       setPassword('');
       setRole('cashier');
@@ -405,6 +411,11 @@ export const UserManagement: React.FC = () => {
     e.preventDefault();
     if (!editingStaff) return;
 
+    if (!editFullName.trim()) {
+      showError("Staff full name is required");
+      return;
+    }
+
     const finalRole = editRole === 'custom' ? editCustomRole.trim() : editRole;
     if (!finalRole) {
       showError("Please specify the role");
@@ -423,6 +434,7 @@ export const UserManagement: React.FC = () => {
     try {
       const { error: rpcError } = await supabase.rpc('fn_edit_staff', {
         p_user_id: editingStaff.id,
+        p_full_name: editFullName.trim(),
         p_role: finalRole,
         p_branch_id: isGlobal ? null : editBranchId,
         p_allowed_tabs: finalAllowedTabs
@@ -488,6 +500,7 @@ export const UserManagement: React.FC = () => {
   const openEditModal = (member: ProfileRecord) => {
     const tabs = member.allowed_tabs || ROLE_DEFAULTS[member.role_name] || [];
     setEditingStaff(member);
+    setEditFullName(member.full_name || '');
 
     const isCustom = !['inventory_manager', 'branch_manager', 'cashier', 'auditor', 'super_admin'].includes(member.role_name);
     if (isCustom) {
@@ -527,7 +540,7 @@ export const UserManagement: React.FC = () => {
   };
 
   const filteredStaff = staff.filter(member => {
-    if (searchQuery && !member.email.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery && !`${member.full_name || ''} ${member.email}`.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     if (filterRole !== 'all' && member.role_name !== filterRole) return false;
     if (filterBranch !== 'all') {
       if (filterBranch === '__global__') {
@@ -819,6 +832,17 @@ export const UserManagement: React.FC = () => {
           <form onSubmit={handleCreateStaff} className="flex-1 min-h-0 flex flex-col">
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
               <div className="space-y-2">
+                <Label>Full Name</Label>
+                <Input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="e.g. Maria Santos"
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label>Email Address</Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -1038,6 +1062,17 @@ export const UserManagement: React.FC = () => {
           </DialogHeader>
           <form onSubmit={handleEditStaffSubmit} className="flex-1 min-h-0 flex flex-col">
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              <div className="space-y-2">
+                <Label>Full Name</Label>
+                <Input
+                  type="text"
+                  required
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                  placeholder="e.g. Maria Santos"
+                />
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>System Role</Label>
