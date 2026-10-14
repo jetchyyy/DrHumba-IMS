@@ -15,14 +15,20 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
 
   const isCompletedOrPending = ['completed', 'pending_receipt_approval'].includes(transfer.status);
   
-  // Filter out unapproved / rejected items: print only items that are actually approved/dispatched
-  const printableItems = (items || []).filter(item => 
-    !item.is_rejected && 
-    !item.is_deleted && 
-    Number(item.quantity_base_unit) > 0
+  // Keep excluded lines on the receipt as an audit trail. They remain excluded from
+  // dispatch and inventory movement; only the printed representation is retained.
+  const isExcludedItem = (item: any) =>
+    Boolean(item.is_rejected) ||
+    Boolean(item.is_deleted) ||
+    (Number(item.quantity_base_unit) === 0 && Number(item.original_quantity_base_unit) > 0);
+
+  const printableItems = (items || []).filter(item =>
+    isExcludedItem(item) || Number(item.quantity_base_unit) > 0
   );
 
-  const hasDiscrepancies = isCompletedOrPending && printableItems.some(
+  const dispatchedItems = printableItems.filter(item => !isExcludedItem(item));
+
+  const hasDiscrepancies = isCompletedOrPending && dispatchedItems.some(
     item => item.received_quantity_base_unit !== null && 
             item.received_quantity_base_unit !== undefined && 
             Number(item.received_quantity_base_unit) < Number(item.quantity_base_unit)
@@ -30,6 +36,38 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
 
   const itemsHtml = printableItems.map(item => {
     const unit = item.inventory_items?.base_unit || 'units';
+    const isExcluded = isExcludedItem(item);
+    const requestedQuantity = item.original_quantity_base_unit !== null && item.original_quantity_base_unit !== undefined
+      ? Number(item.original_quantity_base_unit)
+      : Number(item.quantity_base_unit);
+
+    if (isExcluded) {
+      const itemName = item.inventory_items?.item_name || 'Item';
+      const excludedItemDetails = `
+        <span style="display: block; text-decoration: line-through; color: #64748b;">${itemName}</span>
+        <span style="display: block; font-size: 10px; color: #dc2626; font-weight: 600; margin-top: 2px;">Not approved / excluded (Requested: ${requestedQuantity} ${unit})</span>
+      `;
+
+      if (hasDiscrepancies) {
+        return `
+          <tr style="border-bottom: 1px solid #fecaca; background-color: #fff7f7; font-size: 12px;">
+            <td style="padding: 4px 8px; font-weight: 500;">${excludedItemDetails}</td>
+            <td style="padding: 4px 8px; text-align: right; color: #94a3b8; text-decoration: line-through;">0 ${unit}</td>
+            <td style="padding: 4px 8px; text-align: right; color: #94a3b8; text-decoration: line-through;">0 ${unit}</td>
+            <td style="padding: 4px 8px; text-align: right; color: #94a3b8;">-</td>
+            <td style="padding: 4px 8px; text-align: left; font-size: 11px; font-style: italic; color: #64748b;">Disapproved by approver</td>
+          </tr>
+        `;
+      }
+
+      return `
+        <tr style="border-bottom: 1px solid #fecaca; background-color: #fff7f7; font-size: 12px;">
+          <td style="padding: 4px 8px; font-weight: 500;">${excludedItemDetails}</td>
+          <td style="padding: 4px 8px; text-align: right; font-weight: 700; color: #94a3b8; text-decoration: line-through;">0 ${unit}</td>
+        </tr>
+      `;
+    }
+
     const received = item.received_quantity_base_unit !== null && item.received_quantity_base_unit !== undefined 
       ? Number(item.received_quantity_base_unit) 
       : Number(item.quantity_base_unit);
