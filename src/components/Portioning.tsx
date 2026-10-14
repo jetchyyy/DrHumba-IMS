@@ -234,56 +234,45 @@ export const Portioning: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Portioning Requests with fallback if schema cache is pending reload
-      let reqData: any[] = [];
-      try {
-        let query = supabase
-          .from('portioning_requests')
-          .select(`
-            *,
-            branches:branch_id (name),
-            source_item:source_item_id (item_name, base_unit, purchase_unit, conversion_factor, category, cost_per_base_unit),
-            target_item:target_item_id (item_name, base_unit, purchase_unit, conversion_factor, category, cost_per_base_unit),
-            requested_user:requested_by (full_name, email),
-            approved_user:approved_by (full_name, email)
-          `)
-          .order('created_at', { ascending: false });
+      // 1. Fetch requests without embedding profiles. This keeps the client
+      // compatible while an additive profiles.full_name migration is pending.
+      let query = supabase
+        .from('portioning_requests')
+        .select(`
+          *,
+          branches:branch_id (name),
+          source_item:source_item_id (item_name, base_unit, purchase_unit, conversion_factor, category, cost_per_base_unit),
+          target_item:target_item_id (item_name, base_unit, purchase_unit, conversion_factor, category, cost_per_base_unit)
+        `)
+        .order('created_at', { ascending: false });
 
-        if (selectedBranch) {
-          query = query.eq('branch_id', selectedBranch.id);
-        }
+      if (selectedBranch) {
+        query = query.eq('branch_id', selectedBranch.id);
+      }
 
-        const { data, error } = await query;
-        if (error) throw error;
-        reqData = data || [];
-      } catch (relErr) {
-        // Fallback without embedded user join if schema cache hasn't refreshed
-        let query = supabase
-          .from('portioning_requests')
-          .select(`
-            *,
-            branches:branch_id (name),
-            source_item:source_item_id (item_name, base_unit, purchase_unit, conversion_factor, category, cost_per_base_unit),
-            target_item:target_item_id (item_name, base_unit, purchase_unit, conversion_factor, category, cost_per_base_unit)
-          `)
-          .order('created_at', { ascending: false });
+      const { data: requestRows, error: requestError } = await query;
+      if (requestError) throw requestError;
 
-        if (selectedBranch) {
-          query = query.eq('branch_id', selectedBranch.id);
-        }
+      let reqData: any[] = requestRows || [];
+      const userIds = Array.from(new Set(reqData.flatMap(r => [r.requested_by, r.approved_by]).filter(Boolean)));
+      if (userIds.length > 0) {
+        let { data: profs, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', userIds);
 
-        const { data, error } = await query;
-        if (error) throw error;
-        reqData = data || [];
-
-        // Fetch profiles separately
-        const userIds = Array.from(new Set(reqData.flatMap(r => [r.requested_by, r.approved_by]).filter(Boolean)));
-        if (userIds.length > 0) {
-          const { data: profs } = await supabase
+        // Older deployments do not have full_name yet. Email remains a
+        // useful and stable identifier until the migration is applied.
+        if (profileError && /full_name|column/i.test(profileError.message || '')) {
+          const legacyProfiles = await supabase
             .from('profiles')
-            .select('id, full_name, email')
+            .select('id, email')
             .in('id', userIds);
+          profs = legacyProfiles.data?.map(p => ({ ...p, full_name: null })) || null;
+          profileError = legacyProfiles.error;
+        }
 
+        if (!profileError) {
           const profMap = new Map(profs?.map(p => [p.id, { full_name: p.full_name, email: p.email }]) || []);
           reqData = reqData.map(r => ({
             ...r,

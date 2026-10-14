@@ -175,7 +175,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const safetyTimeout = setTimeout(() => {
       setLoading(false);
       console.warn('Auth initialization took too long. Force-resolved loading state to prevent hang.');
-    }, 8000);
+    }, 20000);
 
     return () => clearTimeout(safetyTimeout);
   }, []);

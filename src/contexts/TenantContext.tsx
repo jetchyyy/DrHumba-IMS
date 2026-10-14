@@ -186,6 +186,13 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const logoUrl512 = isDrHumba 
         ? "/drhumbalogo-512.png" 
         : (tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png");
+      const manifestIconUrl = (value: string) => {
+        try {
+          return new URL(value, window.location.origin).href;
+        } catch {
+          return new URL(isDrHumba ? "/drhumbalogo-192.png" : "/saaslogo.png", window.location.origin).href;
+        }
+      };
 
       const myDynamicManifest = {
         name: `${appName} Management System`,
@@ -198,25 +205,25 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         orientation: "any",
         icons: [
           {
-            src: logoUrl,
+            src: manifestIconUrl(logoUrl),
             sizes: "192x192",
             type: "image/png",
             purpose: "any"
           },
           {
-            src: logoUrl,
+            src: manifestIconUrl(logoUrl),
             sizes: "192x192",
             type: "image/png",
             purpose: "maskable"
           },
           {
-            src: logoUrl512,
+            src: manifestIconUrl(logoUrl512),
             sizes: "512x512",
             type: "image/png",
             purpose: "any"
           },
           {
-            src: logoUrl512,
+            src: manifestIconUrl(logoUrl512),
             sizes: "512x512",
             type: "image/png",
             purpose: "maskable"

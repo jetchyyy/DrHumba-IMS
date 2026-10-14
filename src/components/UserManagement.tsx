@@ -326,7 +326,34 @@ export const UserManagement: React.FC = () => {
         query = query.eq('tenant_id', targetTenantId);
       }
 
-      const { data, error: staffError } = await query.order('role_name');
+      let { data, error: staffError } = await query.order('role_name');
+
+      // Keep staff management usable on deployments that have not applied
+      // the additive full_name migration yet.
+      if (staffError && /full_name|column/i.test(staffError.message || '')) {
+        const legacyQuery = supabase
+          .from('profiles')
+          .select(`
+            id,
+            email,
+            role_name,
+            branch_id,
+            allowed_tabs,
+            status,
+            created_at,
+            branches (name)
+          `)
+          .neq('is_platform_admin', true);
+
+        const targetTenantId = tenant?.id || profile?.tenant_id;
+        if (targetTenantId) {
+          legacyQuery.eq('tenant_id', targetTenantId);
+        }
+
+        const legacyResult = await legacyQuery.order('role_name');
+        data = legacyResult.data?.map(member => ({ ...member, full_name: null })) as any;
+        staffError = legacyResult.error;
+      }
 
       if (staffError) throw staffError;
       setStaff(data as any[] || []);

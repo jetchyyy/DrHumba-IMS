@@ -113,13 +113,24 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
         const userIds = [...new Set(activity.map(a => a.user_id).filter(Boolean))];
         let profilesMap: Record<string, string> = {};
         if (userIds.length > 0) {
-          const { data: profiles } = await supabase
+          let { data: profiles, error: profilesError } = await supabase
             .from('profiles')
-            .select('id, full_name')
+            .select('id, full_name, email')
             .in('id', userIds);
+
+          // Older deployments may not have the additive full_name column yet.
+          if (profilesError && /full_name|column/i.test(profilesError.message || '')) {
+            const legacyProfiles = await supabase
+              .from('profiles')
+              .select('id, email')
+              .in('id', userIds);
+            profiles = legacyProfiles.data?.map(p => ({ ...p, full_name: null })) || null;
+            profilesError = legacyProfiles.error;
+          }
+
           if (profiles) {
             profiles.forEach(p => {
-              if (p.id) profilesMap[p.id] = p.full_name || 'User';
+              if (p.id) profilesMap[p.id] = p.full_name || p.email || 'User';
             });
           }
         }
