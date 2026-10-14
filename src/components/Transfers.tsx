@@ -692,14 +692,13 @@ export const Transfers: React.FC = () => {
       for (const item of transferItems) {
         if (item.is_deleted) {
           if (!item.is_new) {
-            // Mark existing requested item as rejected/unapproved (preserve record with 0 qty for system transparency)
+            // Keep the original positive quantity for the table constraint and audit trail.
+            // The is_rejected flag is what excludes this line from dispatch, receipt, and printing.
             const origQty = item.original_quantity_base_unit !== undefined && item.original_quantity_base_unit !== null 
               ? item.original_quantity_base_unit 
               : item.quantity_base_unit;
 
             const updatePayload: any = {
-              quantity_base_unit: 0,
-              package_count: 0,
               is_rejected: true,
               original_quantity_base_unit: origQty
             };
@@ -709,19 +708,7 @@ export const Transfers: React.FC = () => {
               .update(updatePayload)
               .eq('id', item.id);
 
-            if (rejErr) {
-              // Fallback if is_rejected column is pending migration reload
-              if (rejErr.message?.includes('is_rejected') || (rejErr as any).code === '42703') {
-                delete updatePayload.is_rejected;
-                const { error: fallbackRejErr } = await supabase
-                  .from('transfer_items')
-                  .update(updatePayload)
-                  .eq('id', item.id);
-                if (fallbackRejErr) throw fallbackRejErr;
-              } else {
-                throw rejErr;
-              }
-            }
+            if (rejErr) throw rejErr;
           }
         } else if (item.is_new) {
           // Newly added item by approver: insert with original_quantity_base_unit = 0
