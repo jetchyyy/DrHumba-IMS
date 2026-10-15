@@ -1,5 +1,17 @@
 -- ============================================================
 -- MIGRATION: Per-Item Flexible POS Inventory Policy & Reconciliation
+-- File: 20261015160000_flexible_pos_inventory_policy.sql
+-- Date: 2026-10-15
+--
+-- Summary:
+-- 1. Adds `stock_enforcement_mode` ('strict' | 'flexible') to `menu_items` and `inventory_items`.
+-- 2. Defaults existing restaurant menu items to 'flexible' so substitute cuts (e.g., Subak, Humba Whole)
+--    can be sold without getting blocked when the recipe ingredient is at 0 stock.
+-- 3. Expands `stock_adjustments.reason` check constraint to support 'recipe_substitution'.
+-- 4. Recreates `fn_get_menu_items_availability(p_branch_id)` to evaluate per-item stock policy.
+-- 5. Updates `fn_process_sale` and `fn_process_offline_sale` preserving all full parameters
+--    (including p_amount_tendered and branch/tenant service charge resolution) while honoring
+--    the per-item flexible inventory policy and negative balance tracking.
 -- ============================================================
 
 -- 1. Add stock_enforcement_mode to public.menu_items
@@ -7,17 +19,18 @@ ALTER TABLE public.menu_items
 ADD COLUMN IF NOT EXISTS stock_enforcement_mode TEXT NOT NULL DEFAULT 'strict' 
 CHECK (stock_enforcement_mode IN ('strict', 'flexible'));
 
--- 2. Add stock_enforcement_mode to public.inventory_items (for retail items)
+-- 2. Add stock_enforcement_mode to public.inventory_items (for direct retail items)
 ALTER TABLE public.inventory_items 
 ADD COLUMN IF NOT EXISTS stock_enforcement_mode TEXT NOT NULL DEFAULT 'strict' 
 CHECK (stock_enforcement_mode IN ('strict', 'flexible'));
 
--- 3. (Optional backwards compatibility) Keep column on branches as fallback/default
-ALTER TABLE public.branches 
-ADD COLUMN IF NOT EXISTS stock_enforcement_mode TEXT NOT NULL DEFAULT 'strict' 
-CHECK (stock_enforcement_mode IN ('strict', 'flexible'));
+-- 3. Initialize existing restaurant menu items to 'flexible' by default
+-- This ensures items that kitchen substitutes (e.g. Subak, Humba cuts) are immediately sellable.
+UPDATE public.menu_items
+SET stock_enforcement_mode = 'flexible'
+WHERE type = 'restaurant' AND (stock_enforcement_mode IS NULL OR stock_enforcement_mode = 'strict');
 
--- 4. Expand public.stock_adjustments reason check constraint
+-- 4. Expand public.stock_adjustments reason check constraint to support kitchen substitution
 ALTER TABLE public.stock_adjustments 
 DROP CONSTRAINT IF EXISTS stock_adjustments_reason_check;
 
@@ -25,7 +38,7 @@ ALTER TABLE public.stock_adjustments
 ADD CONSTRAINT stock_adjustments_reason_check 
 CHECK (reason IN ('damage', 'spoilage', 'expired', 'lost', 'manual_correction', 'recipe_substitution'));
 
--- 5. Drop and recreate fn_get_menu_items_availability to check the MENU ITEM's own policy
+-- 5. Drop and recreate fn_get_menu_items_availability to evaluate each item's OWN policy
 DROP FUNCTION IF EXISTS public.fn_get_menu_items_availability(UUID);
 
 CREATE OR REPLACE FUNCTION public.fn_get_menu_items_availability(
@@ -83,12 +96,13 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 GRANT EXECUTE ON FUNCTION public.fn_get_menu_items_availability(UUID) TO authenticated;
 
--- 6. Update fn_process_sale to evaluate per-item stock_enforcement_mode
+-- 6. Update fn_process_sale preserving p_amount_tendered & service charge while supporting flexible items
 CREATE OR REPLACE FUNCTION public.fn_process_sale(
     p_branch_id        UUID,
-    p_items            JSONB,
-    p_payment_method   TEXT,
-    p_sale_category    TEXT    DEFAULT 'standard',
+    p_items            JSONB,   -- [{ "menu_item_id": "...", "quantity": N, "price": P, "discount_amount": DA, "is_vat_exempt": VE, "vatable_sales": VS, "vat_amount": VA, "vat_exempt_sales": VES }]
+    p_payment_method   TEXT    DEFAULT 'cash',
+    p_amount_tendered  NUMERIC DEFAULT NULL,
+    p_sale_category    TEXT    DEFAULT NULL,
     p_reference_number TEXT    DEFAULT NULL,
     p_queue_number     TEXT    DEFAULT NULL,
     p_sub_store_id     UUID    DEFAULT NULL,
@@ -351,10 +365,36 @@ BEGIN
     FROM public.sale_items
     WHERE sale_id = v_sale_id;
 
-    -- Apply branch service charge
-    SELECT COALESCE(service_charge_rate, 0) INTO v_sc_rate
+    v_net_total := (v_sum_vatable + v_sum_vat_amount + v_sum_vat_exempt);
+
+    IF p_discount_amount > 0 AND v_sum_discount = 0 THEN
+        v_sum_discount := p_discount_amount;
+        IF v_net_total > p_discount_amount THEN
+            v_net_total := v_net_total - p_discount_amount;
+        END IF;
+    END IF;
+
+    -- Calculate service charge: Branch override (if configured) -> Tenant general default -> 0%
+    SELECT service_charge_rate
+    INTO v_sc_rate
     FROM public.branches
-    WHERE id = p_branch_id;
+    WHERE id = COALESCE(p_sub_store_id, p_branch_id);
+
+    IF v_sc_rate IS NULL AND p_sub_store_id IS NOT NULL THEN
+        SELECT service_charge_rate
+        INTO v_sc_rate
+        FROM public.branches
+        WHERE id = p_branch_id;
+    END IF;
+
+    IF v_sc_rate IS NULL THEN
+        SELECT COALESCE(default_service_charge_rate, 0.00)
+        INTO v_sc_rate
+        FROM public.tenants
+        WHERE id = v_tenant_id;
+    END IF;
+
+    v_sc_rate := COALESCE(v_sc_rate, 0.00);
 
     IF v_sc_rate > 0 THEN
         v_service_charge := ROUND((v_total_amount * (v_sc_rate / 100.0)), 2);
@@ -362,24 +402,25 @@ BEGIN
         v_service_charge := 0;
     END IF;
 
-    v_net_total := (v_total_amount - v_sum_discount) + v_service_charge;
+    v_net_total := v_net_total + v_service_charge;
 
     UPDATE public.sales
-    SET total_amount      = v_net_total,
-        discount_type     = p_discount_type,
-        discount_amount   = v_sum_discount,
-        vatable_sales     = v_sum_vatable,
-        vat_amount        = v_sum_vat_amount,
-        vat_exempt_sales  = v_sum_vat_exempt,
-        service_charge    = v_service_charge,
-        discount_metadata = p_discount_metadata
+    SET total_amount          = v_net_total,
+        discount_amount       = v_sum_discount,
+        vatable_sales         = v_sum_vatable,
+        vat_amount            = v_sum_vat_amount,
+        vat_exempt_sales      = v_sum_vat_exempt,
+        service_charge_rate   = v_sc_rate,
+        service_charge_amount = v_service_charge,
+        discount_type         = p_discount_type,
+        discount_metadata     = p_discount_metadata
     WHERE id = v_sale_id;
 
     RETURN v_sale_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 7. Update fn_process_offline_sale to evaluate per-item stock_enforcement_mode
+-- 7. Update fn_process_offline_sale preserving service charge and per-item flexible stock policy
 CREATE OR REPLACE FUNCTION public.fn_process_offline_sale(
     p_branch_id        UUID,
     p_items            JSONB,
@@ -449,13 +490,11 @@ BEGIN
 
     INSERT INTO public.sales (
         branch_id, sub_store_id, cashier_id, total_amount, status, payment_method, 
-        sale_category, reference_number, queue_number, queue_status, queue_updated_at,
-        created_at, control_number, tenant_id
+        control_number, created_at, reference_number, queue_number, queue_status, queue_updated_at, tenant_id
     )
     VALUES (
         p_branch_id, p_sub_store_id, p_cashier_id, 0, 'completed', p_payment_method, 
-        'standard', p_reference_number, p_queue_number, v_initial_status, now(),
-        p_created_at, p_control_number, v_tenant_id
+        p_control_number, p_created_at, p_reference_number, p_queue_number, v_initial_status, p_created_at, v_tenant_id
     )
     RETURNING id INTO v_sale_id;
 
@@ -495,7 +534,7 @@ BEGIN
         v_bp_foodpanda := NULL;
         v_bp_grab := NULL;
 
-        -- 1. Fetch sub-store price overrides
+        -- 1. Fetch sub-store price overrides if sub_store_id is present
         IF p_sub_store_id IS NOT NULL THEN
             SELECT price, foodpanda_price, grab_price
             INTO v_bp_price, v_bp_foodpanda, v_bp_grab
@@ -505,7 +544,7 @@ BEGIN
             LIMIT 1;
         END IF;
 
-        -- 2. Fetch parent branch price overrides
+        -- 2. Fetch parent branch price overrides to fill in any missing values
         SELECT 
             COALESCE(v_bp_price, price),
             COALESCE(v_bp_foodpanda, foodpanda_price),
@@ -644,10 +683,36 @@ BEGIN
     FROM public.sale_items
     WHERE sale_id = v_sale_id;
 
-    -- Apply branch service charge
-    SELECT COALESCE(service_charge_rate, 0) INTO v_sc_rate
+    v_net_total := (v_sum_vatable + v_sum_vat_amount + v_sum_vat_exempt);
+
+    IF p_discount_amount > 0 AND v_sum_discount = 0 THEN
+        v_sum_discount := p_discount_amount;
+        IF v_net_total > p_discount_amount THEN
+            v_net_total := v_net_total - p_discount_amount;
+        END IF;
+    END IF;
+
+    -- Calculate service charge: Branch override (if configured) -> Tenant general default -> 0%
+    SELECT service_charge_rate
+    INTO v_sc_rate
     FROM public.branches
-    WHERE id = p_branch_id;
+    WHERE id = COALESCE(p_sub_store_id, p_branch_id);
+
+    IF v_sc_rate IS NULL AND p_sub_store_id IS NOT NULL THEN
+        SELECT service_charge_rate
+        INTO v_sc_rate
+        FROM public.branches
+        WHERE id = p_branch_id;
+    END IF;
+
+    IF v_sc_rate IS NULL THEN
+        SELECT COALESCE(default_service_charge_rate, 0.00)
+        INTO v_sc_rate
+        FROM public.tenants
+        WHERE id = v_tenant_id;
+    END IF;
+
+    v_sc_rate := COALESCE(v_sc_rate, 0.00);
 
     IF v_sc_rate > 0 THEN
         v_service_charge := ROUND((v_total_amount * (v_sc_rate / 100.0)), 2);
@@ -655,19 +720,23 @@ BEGIN
         v_service_charge := 0;
     END IF;
 
-    v_net_total := (v_total_amount - v_sum_discount) + v_service_charge;
+    v_net_total := v_net_total + v_service_charge;
 
     UPDATE public.sales
-    SET total_amount      = v_net_total,
-        discount_type     = p_discount_type,
-        discount_amount   = v_sum_discount,
-        vatable_sales     = v_sum_vatable,
-        vat_amount        = v_sum_vat_amount,
-        vat_exempt_sales  = v_sum_vat_exempt,
-        service_charge    = v_service_charge,
-        discount_metadata = p_discount_metadata
+    SET total_amount          = v_net_total,
+        discount_amount       = v_sum_discount,
+        vatable_sales         = v_sum_vatable,
+        vat_amount            = v_sum_vat_amount,
+        vat_exempt_sales      = v_sum_vat_exempt,
+        service_charge_rate   = v_sc_rate,
+        service_charge_amount = v_service_charge,
+        discount_type         = p_discount_type,
+        discount_metadata     = p_discount_metadata
     WHERE id = v_sale_id;
 
     RETURN v_sale_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION public.fn_process_sale(UUID, JSONB, TEXT, NUMERIC, TEXT, TEXT, TEXT, UUID, TEXT, NUMERIC, JSONB) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_process_offline_sale(UUID, JSONB, TEXT, TIMESTAMPTZ, TEXT, UUID, TEXT, TEXT, UUID, TEXT, NUMERIC, JSONB) TO authenticated;
