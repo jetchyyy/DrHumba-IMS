@@ -75,8 +75,23 @@ const formatPHP = (n: number) =>
 
 const QUICK_CASH_AMOUNTS = (total: number): number[] => {
   const ceil50 = Math.ceil(total / 50) * 50;
-  return Array.from(new Set([ceil50, ceil50 + 50, ceil50 + 100, ceil50 + 200]))
+  const ceil100 = Math.ceil(total / 100) * 100;
+  const suggestions = new Set<number>();
+
+  if (ceil50 >= total) suggestions.add(ceil50);
+  if (ceil100 >= total) suggestions.add(ceil100);
+
+  // Common Philippine denominations
+  if (total <= 500) suggestions.add(500);
+  if (total <= 1000) suggestions.add(1000);
+  if (total > 1000) {
+    suggestions.add(Math.ceil(total / 500) * 500);
+    suggestions.add(Math.ceil(total / 1000) * 1000);
+  }
+
+  return Array.from(suggestions)
     .filter(v => v >= total)
+    .sort((a, b) => a - b)
     .slice(0, 4);
 };
 
@@ -469,11 +484,41 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
     );
   };
 
+  const handleNumpadDigit = (digit: string) => {
+    setTenderedStr(prev => {
+      if (digit === '.') {
+        if (prev.includes('.')) return prev;
+        return prev ? `${prev}.` : '0.';
+      }
+      if (digit === '00') {
+        if (!prev || prev === '0') return '0';
+        if (prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
+        return `${prev}00`;
+      }
+      if (prev === '0') return digit;
+      if (prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
+      return `${prev}${digit}`;
+    });
+  };
+
+  const handleNumpadBackspace = () => {
+    setTenderedStr(prev => (prev.length > 0 ? prev.slice(0, -1) : ''));
+  };
+
+  const handleNumpadClear = () => {
+    setTenderedStr('');
+  };
+
+  const handleAddBill = (val: number) => {
+    const cur = parseFloat(tenderedStr) || 0;
+    setTenderedStr(String(cur + val));
+  };
+
   const quickAmounts = useMemo(() => QUICK_CASH_AMOUNTS(payableTotal), [payableTotal]);
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v && !processing) onClose(); }}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="sm:max-w-3xl lg:max-w-4xl">
         <DialogHeader>
           <DialogTitle className="text-lg font-bold tracking-tight">Collect Payment</DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
@@ -579,59 +624,145 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
                     value={refNumber}
                     onChange={(e) => setRefNumber(e.target.value)}
                     placeholder={`Enter ${PAYMENT_LABELS[method]} Reference Number`}
-                    autoFocus
                   />
                 </div>
               )}
 
-              {/* Cash Tendered — only for cash */}
+              {/* Cash Tendered — Touch-First with On-Screen POS Numpad */}
               {method === 'cash' && (
                 <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                      Amount Tendered (₱)
-                    </Label>
-                    <Input
-                      type="number"
-                      min={payableTotal}
-                      step="0.01"
-                      placeholder={`Min: ${formatPHP(payableTotal)}`}
-                      value={tenderedStr}
-                      onChange={(e) => setTenderedStr(e.target.value)}
-                      className="text-base font-bold h-12"
-                      autoFocus
-                    />
+                  {/* Tendered Display (Read-only on touch to prevent OS keyboard) */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                        Amount Tendered (₱)
+                      </Label>
+                      <span className="text-[11px] font-semibold text-muted-foreground">
+                        Min: {formatPHP(payableTotal)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between border-2 rounded-xl px-4 py-2.5 bg-muted/20 border-primary/30">
+                      <div className="space-y-0.5">
+                        <div className="text-2xl font-black tracking-tight text-foreground flex items-center gap-1">
+                          <span className="text-muted-foreground text-lg">₱</span>
+                          <span>
+                            {tenderedStr
+                              ? Number(tenderedStr).toLocaleString('en-PH', {
+                                  minimumFractionDigits: tenderedStr.includes('.') ? tenderedStr.split('.')[1].length : 0,
+                                  maximumFractionDigits: 2,
+                                })
+                              : '0.00'}
+                          </span>
+                        </div>
+                      </div>
+                      {tenderedStr ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 text-xs text-muted-foreground hover:text-destructive font-bold"
+                          onClick={handleNumpadClear}
+                        >
+                          Clear
+                        </Button>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] font-semibold text-muted-foreground">
+                          Exact or Bills
+                        </Badge>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Quick-select bills */}
+                  {/* Smart Philippine Bill Denominations */}
                   <div className="space-y-1.5">
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Quick Bill</p>
-                    <div className="flex gap-2 flex-wrap">
-                      {quickAmounts.map(amt => (
-                        <Button
-                          key={amt}
-                          size="sm"
-                          variant={tendered === amt ? 'default' : 'outline'}
-                          className="text-xs font-bold h-8"
-                          onClick={() => setTenderedStr(String(amt))}
-                        >
-                          ₱{amt}
-                        </Button>
-                      ))}
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Quick Bills</p>
+                      <span className="text-[10px] text-muted-foreground">Tap bill or add</span>
+                    </div>
+                    <div className="flex gap-1.5 flex-wrap">
                       <Button
+                        type="button"
                         size="sm"
-                        variant="ghost"
-                        className="text-xs text-muted-foreground h-8"
+                        variant={Math.abs(tendered - payableTotal) < 0.01 ? 'default' : 'outline'}
+                        className="text-xs font-bold h-8 flex-1 min-w-[70px]"
                         onClick={() => setTenderedStr(payableTotal.toFixed(2))}
                       >
                         Exact
                       </Button>
+                      {quickAmounts.map(amt => (
+                        <Button
+                          key={amt}
+                          type="button"
+                          size="sm"
+                          variant={tendered === amt ? 'default' : 'outline'}
+                          className="text-xs font-bold h-8 flex-1 min-w-[65px]"
+                          onClick={() => setTenderedStr(String(amt))}
+                        >
+                          ₱{amt.toLocaleString()}
+                        </Button>
+                      ))}
+                    </div>
+
+                    {/* Quick Additive Bill Buttons */}
+                    <div className="flex gap-1.5 pt-0.5">
+                      {[50, 100, 500, 1000].map(addVal => (
+                        <Button
+                          key={addVal}
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="text-[11px] font-bold h-7 px-2 flex-1 bg-muted/60 hover:bg-muted active:scale-95 transition-all"
+                          onClick={() => handleAddBill(addVal)}
+                        >
+                          +₱{addVal}
+                        </Button>
+                      ))}
                     </div>
                   </div>
 
-                  {/* Change */}
+                  {/* On-Screen Touch Numpad */}
+                  <div className="grid grid-cols-3 gap-1.5 pt-1">
+                    {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
+                      <Button
+                        key={d}
+                        type="button"
+                        variant="outline"
+                        className="h-10 text-base font-bold hover:bg-primary/10 hover:border-primary active:scale-95 transition-transform"
+                        onClick={() => handleNumpadDigit(d)}
+                      >
+                        {d}
+                      </Button>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 text-xs font-bold text-destructive hover:bg-destructive/10 hover:text-destructive active:scale-95"
+                      onClick={handleNumpadClear}
+                    >
+                      CLEAR
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 text-base font-bold hover:bg-primary/10 hover:border-primary active:scale-95"
+                      onClick={() => handleNumpadDigit('0')}
+                    >
+                      0
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 text-base font-bold hover:bg-primary/10 hover:border-primary active:scale-95"
+                      onClick={handleNumpadBackspace}
+                    >
+                      ⌫
+                    </Button>
+                  </div>
+
+                  {/* Change / Short By banner */}
                   {tendered > 0 && (
-                    <div className={`flex justify-between items-center rounded-lg px-4 py-3 border font-bold ${
+                    <div className={`flex justify-between items-center rounded-lg px-4 py-2.5 border font-bold ${
                       change >= 0
                         ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
                         : 'bg-destructive/10 border-destructive/30 text-destructive'
@@ -821,52 +952,172 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
                     )}
 
                     {discountMode === 'shared' ? (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <Label className="text-[10px] uppercase text-muted-foreground font-semibold">Total Diners (Pax)</Label>
-                            <Input
-                              type="number"
-                              min="1"
-                              className="h-8 text-xs font-bold"
-                              value={groupSize}
-                              onChange={(e) => {
-                                const newSize = Math.max(1, Number(e.target.value) || 1);
-                                setGroupSize(newSize);
-                                if (discountCount > newSize) setDiscountCount(newSize);
-                              }}
-                            />
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {/* Total Diners Stepper */}
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">
+                              Total Diners (Pax)
+                            </Label>
+                            <div className="flex items-center border rounded-lg bg-background overflow-hidden h-9 shadow-sm">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
+                                onClick={() => {
+                                  const newSize = Math.max(1, groupSize - 1);
+                                  setGroupSize(newSize);
+                                  if (discountCount > newSize) setDiscountCount(newSize);
+                                }}
+                                disabled={groupSize <= 1}
+                              >
+                                –
+                              </Button>
+                              <div className="flex-1 text-center font-black text-sm">
+                                {groupSize} <span className="text-[10px] font-normal text-muted-foreground">pax</span>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
+                                onClick={() => setGroupSize(groupSize + 1)}
+                              >
+                                +
+                              </Button>
+                            </div>
+                            {/* Quick PAX presets */}
+                            <div className="flex gap-1">
+                              {[1, 2, 4, 6, 8].map(p => (
+                                <Button
+                                  key={p}
+                                  type="button"
+                                  variant={groupSize === p ? 'default' : 'outline'}
+                                  size="sm"
+                                  className="h-6 text-[10px] px-1.5 flex-1 font-semibold"
+                                  onClick={() => {
+                                    setGroupSize(p);
+                                    if (discountCount > p) setDiscountCount(p);
+                                  }}
+                                >
+                                  {p}
+                                </Button>
+                              ))}
+                            </div>
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-[10px] uppercase text-muted-foreground font-semibold">No. of ID Cards (SC/PWD)</Label>
-                            <Input
-                              type="number"
-                              min="1"
-                              max={groupSize}
-                              className="h-8 text-xs font-bold"
-                              value={discountCount}
-                              onChange={(e) => setDiscountCount(Math.min(groupSize, Math.max(1, Number(e.target.value) || 1)))}
-                            />
+
+                          {/* No. of ID Cards Stepper */}
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between items-center">
+                              <Label className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">
+                                ID Cards ({discountType.toUpperCase()})
+                              </Label>
+                              {groupSize > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setDiscountCount(groupSize)}
+                                  className="text-[9px] text-primary hover:underline font-bold"
+                                >
+                                  All ({groupSize})
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex items-center border rounded-lg bg-background overflow-hidden h-9 shadow-sm">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
+                                onClick={() => setDiscountCount(Math.max(1, discountCount - 1))}
+                                disabled={discountCount <= 1}
+                              >
+                                –
+                              </Button>
+                              <div className="flex-1 text-center font-black text-sm">
+                                {discountCount} <span className="text-[10px] font-normal text-muted-foreground">card{discountCount > 1 ? 's' : ''}</span>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
+                                onClick={() => setDiscountCount(Math.min(groupSize, discountCount + 1))}
+                                disabled={discountCount >= groupSize}
+                              >
+                                +
+                              </Button>
+                            </div>
+                            {/* Quick Card presets */}
+                            <div className="flex gap-1">
+                              {[1, 2, 3].filter(c => c <= groupSize).map(c => (
+                                <Button
+                                  key={c}
+                                  type="button"
+                                  variant={discountCount === c ? 'default' : 'outline'}
+                                  size="sm"
+                                  className="h-6 text-[10px] px-1.5 flex-1 font-semibold"
+                                  onClick={() => setDiscountCount(c)}
+                                >
+                                  {c}
+                                </Button>
+                              ))}
+                              {groupSize > 1 && discountCount !== groupSize && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 text-[10px] px-1.5 flex-1 font-semibold"
+                                  onClick={() => setDiscountCount(groupSize)}
+                                >
+                                  All
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         </div>
+
                         <div className="bg-muted/40 rounded p-1.5 text-[10px] text-muted-foreground">
                           💡 <span className="font-semibold">{groupSize} total diners</span> with <span className="font-semibold">{discountCount} {discountType.toUpperCase()}</span> = <span className="text-primary font-bold">{((discountCount / groupSize) * 100).toFixed(0)}%</span> bill discount share.
                         </div>
                       </div>
                     ) : (
-                      <div className="space-y-1">
-                        <Label className="text-[10px] uppercase text-muted-foreground font-semibold">No. of Cardholders</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          className="h-8 text-xs font-bold"
-                          value={discountCount}
-                          onChange={(e) => {
-                            const cnt = Math.max(1, Number(e.target.value) || 1);
-                            setDiscountCount(cnt);
-                            setGroupSize(cnt);
-                          }}
-                        />
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">
+                          No. of Cardholders
+                        </Label>
+                        <div className="flex items-center border rounded-lg bg-background overflow-hidden h-9 shadow-sm max-w-[200px]">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
+                            onClick={() => {
+                              const cnt = Math.max(1, discountCount - 1);
+                              setDiscountCount(cnt);
+                              setGroupSize(cnt);
+                            }}
+                            disabled={discountCount <= 1}
+                          >
+                            –
+                          </Button>
+                          <div className="flex-1 text-center font-black text-sm">
+                            {discountCount}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
+                            onClick={() => {
+                              const cnt = discountCount + 1;
+                              setDiscountCount(cnt);
+                              setGroupSize(cnt);
+                            }}
+                          >
+                            +
+                          </Button>
+                        </div>
                       </div>
                     )}
 
