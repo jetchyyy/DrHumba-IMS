@@ -33,11 +33,23 @@ DECLARE
     v_qty_return      NUMERIC;
     v_elem            JSONB;
     v_sale_item_id    UUID;
+    v_my_allowed_tabs TEXT[];
+    v_has_void_perm   BOOLEAN := FALSE;
 BEGIN
-    -- 1. Authorization Check
-    SELECT role_name INTO v_my_role FROM public.profiles WHERE id = auth.uid();
-    IF v_my_role NOT IN ('super_admin', 'branch_manager', 'inventory_manager') THEN
-        RAISE EXCEPTION 'Unauthorized: Only super_admin or branch_manager can void sale items.';
+    -- 1. Authorization Check (Role or Granular 'sales_void' Permission)
+    SELECT role_name, allowed_tabs
+    INTO v_my_role, v_my_allowed_tabs
+    FROM public.profiles
+    WHERE id = auth.uid();
+
+    IF v_my_role IN ('super_admin', 'branch_manager', 'inventory_manager') THEN
+        v_has_void_perm := TRUE;
+    ELSIF v_my_allowed_tabs IS NOT NULL AND 'sales_void' = ANY(v_my_allowed_tabs) THEN
+        v_has_void_perm := TRUE;
+    END IF;
+
+    IF NOT v_has_void_perm THEN
+        RAISE EXCEPTION 'Unauthorized: Only super_admin, branch_manager, or staff authorized with void permissions can void sale items.';
     END IF;
 
     IF p_void_reason IS NULL OR length(trim(p_void_reason)) < 3 THEN
@@ -241,3 +253,6 @@ BEGIN
     PERFORM public.fn_void_sale_items(p_sale_id, NULL, p_void_reason);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION public.fn_void_sale_items(UUID, JSONB, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_void_sale(UUID, TEXT) TO authenticated;
