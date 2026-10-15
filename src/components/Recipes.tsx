@@ -78,6 +78,7 @@ interface MenuItem {
   available_branches?: string[] | null;
   foodpanda_price?: number | null;
   grab_price?: number | null;
+  stock_enforcement_mode?: 'strict' | 'flexible' | string | null;
   recipes?: {
     id: string;
     instructions: string | null;
@@ -139,6 +140,7 @@ export const Recipes: React.FC = () => {
   const [costPrice, setCostPrice] = useState(0);
   const [itemStatus, setItemStatus] = useState<'active' | 'inactive'>('active');
   const [isAvailable, setIsAvailable] = useState(true);
+  const [stockEnforcementMode, setStockEnforcementMode] = useState<'strict' | 'flexible'>('strict');
   const [productType, setProductType] = useState<'restaurant' | 'retail' | 'service'>('restaurant');
   const [inventoryItemId, setInventoryItemId] = useState<string | null>(null);
 
@@ -198,7 +200,7 @@ export const Recipes: React.FC = () => {
       let menuQuery = supabase
         .from('menu_items')
         .select(`
-          id, name, sku, category, price, cost_price, status, is_available, type, inventory_item_id, available_branches, foodpanda_price, grab_price,
+          id, name, sku, category, price, cost_price, status, is_available, type, inventory_item_id, available_branches, foodpanda_price, grab_price, stock_enforcement_mode,
           recipes (
             id,
             instructions,
@@ -287,6 +289,7 @@ export const Recipes: React.FC = () => {
     setBranchPriceOverrides({});
     setAllBranches(true);
     setAvailableBranches([]);
+    setStockEnforcementMode('strict');
     setProductType(isRestaurant ? 'restaurant' : isRetail ? 'retail' : 'service');
     setInventoryItemId(null);
     setInstructions('');
@@ -311,6 +314,7 @@ export const Recipes: React.FC = () => {
     setCostPrice(item.cost_price || 0);
     setItemStatus(item.status);
     setIsAvailable(item.is_available);
+    setStockEnforcementMode((item.stock_enforcement_mode as 'strict' | 'flexible') || 'strict');
     setFoodpandaPrice(item.foodpanda_price || '');
     setGrabPrice(item.grab_price || '');
     const itemAvailableBranches = item.available_branches || null;
@@ -415,6 +419,7 @@ export const Recipes: React.FC = () => {
         cost_price: productType === 'restaurant' ? 0 : Number(costPrice),
         status: itemStatus,
         is_available: isAvailable,
+        stock_enforcement_mode: stockEnforcementMode,
         type: productType,
         inventory_item_id: productType === 'retail' ? inventoryItemId : null,
         available_branches: allBranches ? null : availableBranches,
@@ -784,9 +789,20 @@ export const Recipes: React.FC = () => {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={item.is_available ? "default" : "destructive"} className="text-[9px] uppercase">
-                        {item.is_available ? 'In Stock' : 'Out of Stock'}
-                      </Badge>
+                      <div className="flex flex-col gap-1 items-start">
+                        <Badge variant={item.is_available ? "default" : "destructive"} className="text-[9px] uppercase">
+                          {item.is_available ? 'In Stock' : 'Out of Stock'}
+                        </Badge>
+                        {item.stock_enforcement_mode === 'flexible' ? (
+                          <Badge variant="outline" className="text-[8px] px-1 py-0 border-amber-400 text-amber-700 dark:text-amber-300 bg-amber-500/10">
+                            Flexible POS
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[8px] px-1 py-0 text-muted-foreground border-border/50">
+                            Strict POS
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant={item.status === 'active' ? "outline" : "secondary"} className="text-[9px] uppercase">
@@ -1359,6 +1375,46 @@ export const Recipes: React.FC = () => {
                     <Label htmlFor="isAvailable" className="cursor-pointer font-normal">
                       Available for Sale (POS check)
                     </Label>
+                  </div>
+
+                  {/* Stock Enforcement Policy */}
+                  <div className="p-3 border border-border/40 bg-muted/20 rounded-lg space-y-2 mt-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                        POS Stock Enforcement Policy
+                      </Label>
+                      <Badge variant={stockEnforcementMode === 'flexible' ? 'default' : 'outline'} className="text-[9px]">
+                        {stockEnforcementMode === 'flexible' ? 'Flexible Mode' : 'Strict Mode'}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      <label className={`flex items-start gap-2 p-2 rounded border cursor-pointer text-xs transition-colors ${stockEnforcementMode === 'strict' ? 'bg-background border-primary shadow-xs' : 'border-transparent hover:bg-muted/50'}`}>
+                        <input
+                          type="radio"
+                          name="recipeStockPolicy"
+                          className="mt-0.5 accent-primary"
+                          checked={stockEnforcementMode === 'strict'}
+                          onChange={() => setStockEnforcementMode('strict')}
+                        />
+                        <div>
+                          <span className="font-semibold block">Strict Mode (Default)</span>
+                          <span className="text-[10px] text-muted-foreground block">Block sale in POS if ingredients run out.</span>
+                        </div>
+                      </label>
+                      <label className={`flex items-start gap-2 p-2 rounded border cursor-pointer text-xs transition-colors ${stockEnforcementMode === 'flexible' ? 'bg-amber-500/10 border-amber-400 shadow-xs' : 'border-transparent hover:bg-muted/50'}`}>
+                        <input
+                          type="radio"
+                          name="recipeStockPolicy"
+                          className="mt-0.5 accent-amber-500"
+                          checked={stockEnforcementMode === 'flexible'}
+                          onChange={() => setStockEnforcementMode('flexible')}
+                        />
+                        <div>
+                          <span className="font-semibold text-amber-800 dark:text-amber-300 block">Flexible (Substitutes)</span>
+                          <span className="text-[10px] text-muted-foreground block">Allow POS order with amber alert; deduct & reconcile later.</span>
+                        </div>
+                      </label>
+                    </div>
                   </div>
 
                   {/* Branch Restrictions Checklist */}

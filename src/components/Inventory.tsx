@@ -40,6 +40,7 @@ interface InventoryItem {
   foodpanda_price?: number | null;
   grab_price?: number | null;
   min_transfer_qty?: number | null;
+  stock_enforcement_mode?: 'strict' | 'flexible' | string | null;
 }
 
 interface Balance {
@@ -89,6 +90,7 @@ export const Inventory: React.FC = () => {
   const [branchPriceSearch, setBranchPriceSearch] = useState('');
   const [showOverridesOnly, setShowOverridesOnly] = useState(false);
   const [directPOS, setDirectPOS] = useState(false);
+  const [stockEnforcementMode, setStockEnforcementMode] = useState<'strict' | 'flexible'>('strict');
   const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [allBranches, setAllBranches] = useState(true);
   const [availableBranches, setAvailableBranches] = useState<string[]>([]);
@@ -164,6 +166,7 @@ export const Inventory: React.FC = () => {
     setMinTransferQty('');
     setCostPerBaseUnit(10.00);
     setStatus('active');
+    setStockEnforcementMode('strict');
     setInitialQty(0);
     setSellingPrice('');
     setFoodpandaPrice('');
@@ -189,6 +192,7 @@ export const Inventory: React.FC = () => {
     setMinTransferQty(item.min_transfer_qty !== null && item.min_transfer_qty !== undefined ? item.min_transfer_qty : '');
     setCostPerBaseUnit(item.cost_per_base_unit);
     setStatus(item.status);
+    setStockEnforcementMode((item.stock_enforcement_mode as 'strict' | 'flexible') || 'strict');
     setSellingPrice(item.selling_price || '');
     setFoodpandaPrice(item.foodpanda_price || '');
     setGrabPrice(item.grab_price || '');
@@ -251,6 +255,7 @@ export const Inventory: React.FC = () => {
         min_transfer_qty: finalMinTransferQty,
         cost_per_base_unit: Number(costPerBaseUnit),
         status,
+        stock_enforcement_mode: stockEnforcementMode,
         selling_price: finalSellingPrice,
         available_branches: allBranches ? null : availableBranches,
         foodpanda_price: finalFoodpandaPrice,
@@ -752,9 +757,16 @@ export const Inventory: React.FC = () => {
                       <TableCell className="text-muted-foreground font-semibold">{item.min_transfer_qty ? `${item.min_transfer_qty} ${item.base_unit}` : '-'}</TableCell>
                       <TableCell className="text-muted-foreground">₱{item.cost_per_base_unit.toFixed(2)}</TableCell>
                       <TableCell>
-                        <Badge variant={item.status === 'active' ? 'default' : 'secondary'} className="uppercase text-[9px]">
-                          {item.status}
-                        </Badge>
+                        <div className="flex flex-col gap-1 items-start">
+                          <Badge variant={item.status === 'active' ? 'default' : 'secondary'} className="uppercase text-[9px]">
+                            {item.status}
+                          </Badge>
+                          {item.stock_enforcement_mode === 'flexible' && (
+                            <Badge variant="outline" className="text-[8px] px-1 py-0 border-amber-400 text-amber-700 dark:text-amber-300 bg-amber-500/10">
+                              Flexible POS
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       {isEditor && (
                         <TableCell className="text-right pr-6">
@@ -1383,6 +1395,46 @@ export const Inventory: React.FC = () => {
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+
+            {/* Stock Enforcement Policy */}
+            <div className="p-3 border border-border/40 bg-muted/20 rounded-lg space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                  POS Stock Enforcement Policy
+                </Label>
+                <Badge variant={stockEnforcementMode === 'flexible' ? 'default' : 'outline'} className="text-[9px]">
+                  {stockEnforcementMode === 'flexible' ? 'Flexible Mode' : 'Strict Mode'}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <label className={`flex items-start gap-2 p-2 rounded border cursor-pointer text-xs transition-colors ${stockEnforcementMode === 'strict' ? 'bg-background border-primary shadow-xs' : 'border-transparent hover:bg-muted/50'}`}>
+                  <input
+                    type="radio"
+                    name="itemStockPolicy"
+                    className="mt-0.5 accent-primary"
+                    checked={stockEnforcementMode === 'strict'}
+                    onChange={() => setStockEnforcementMode('strict')}
+                  />
+                  <div>
+                    <span className="font-semibold block">Strict Mode (Default)</span>
+                    <span className="text-[10px] text-muted-foreground block">Block sale in POS when balance reaches 0.</span>
+                  </div>
+                </label>
+                <label className={`flex items-start gap-2 p-2 rounded border cursor-pointer text-xs transition-colors ${stockEnforcementMode === 'flexible' ? 'bg-amber-500/10 border-amber-400 shadow-xs' : 'border-transparent hover:bg-muted/50'}`}>
+                  <input
+                    type="radio"
+                    name="itemStockPolicy"
+                    className="mt-0.5 accent-amber-500"
+                    checked={stockEnforcementMode === 'flexible'}
+                    onChange={() => setStockEnforcementMode('flexible')}
+                  />
+                  <div>
+                    <span className="font-semibold text-amber-800 dark:text-amber-300 block">Flexible (Substitutes)</span>
+                    <span className="text-[10px] text-muted-foreground block">Allow POS order with amber alert; reconcile later.</span>
+                  </div>
+                </label>
               </div>
             </div>
 

@@ -56,6 +56,12 @@ interface CartItem {
   name: string;
   price: number;
   quantity: number;
+  needsAdjustment?: boolean;
+}
+
+interface ItemAvailability {
+  stockAvailable: boolean;
+  hasSufficientStock: boolean;
 }
 
 type PaymentMethod = 'cash' | 'card' | 'gcash' | 'maya' | 'other';
@@ -1244,7 +1250,7 @@ export const POS: React.FC<POSProps> = ({
   const isRestaurant = tenant?.is_restaurant ?? true;
 
   const [items, setItems] = useState<MenuItem[]>([]);
-  const [availabilityMap, setAvailabilityMap] = useState<Record<string, boolean>>({});
+  const [availabilityMap, setAvailabilityMap] = useState<Record<string, ItemAvailability>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [loading, setLoading] = useState(true);
@@ -1608,9 +1614,12 @@ export const POS: React.FC<POSProps> = ({
           p_branch_id: selectedBranch.id
         });
         if (availData) {
-          const availMap: Record<string, boolean> = {};
+          const availMap: Record<string, ItemAvailability> = {};
           availData.forEach((row: any) => {
-            availMap[row.menu_item_id] = row.stock_available;
+            availMap[row.menu_item_id] = {
+              stockAvailable: typeof row.stock_available === 'boolean' ? row.stock_available : true,
+              hasSufficientStock: typeof row.has_sufficient_stock === 'boolean' ? row.has_sufficient_stock : (row.stock_available ?? true),
+            };
           });
           setAvailabilityMap(availMap);
         } else {
@@ -1914,10 +1923,12 @@ export const POS: React.FC<POSProps> = ({
       setOpenSessionOpen(true);
       return;
     }
-    if (availabilityMap[item.id] === false) {
+    const avail = availabilityMap[item.id];
+    if (avail && avail.stockAvailable === false) {
       showError(`"${item.name}" is currently out of stock / lacking ingredients.`);
       return;
     }
+    const isAltPrep = Boolean(avail && avail.stockAvailable && !avail.hasSufficientStock);
     const unitPrice = getItemPrice(item);
     setCart(prev => {
       const exists = prev.find(ci => ci.menu_item_id === item.id);
@@ -1926,7 +1937,7 @@ export const POS: React.FC<POSProps> = ({
           ci.menu_item_id === item.id ? { ...ci, quantity: ci.quantity + qty } : ci
         );
       }
-      return [...prev, { menu_item_id: item.id, name: item.name, price: unitPrice, quantity: qty }];
+      return [...prev, { menu_item_id: item.id, name: item.name, price: unitPrice, quantity: qty, needsAdjustment: isAltPrep }];
     });
     showSuccess(`${qty}× ${item.name} added to cart (${priceChannel === 'standard' ? 'Standard' : priceChannel === 'foodpanda' ? 'Foodpanda' : 'Grab'}).`);
   };
@@ -2219,7 +2230,14 @@ export const POS: React.FC<POSProps> = ({
             <Card key={item.menu_item_id} className="bg-background/60 backdrop-blur-sm shadow-sm">
               <CardContent className="p-3 flex items-center justify-between text-xs">
                 <div className="flex-1 min-w-0 pr-2">
-                  <h5 className="font-bold truncate" title={item.name}>{item.name}</h5>
+                  <div className="flex items-center gap-1.5">
+                    <h5 className="font-bold truncate" title={item.name}>{item.name}</h5>
+                    {item.needsAdjustment && (
+                      <Badge variant="outline" className="text-[8px] px-1 py-0 h-4 border-amber-400 text-amber-700 dark:text-amber-300 bg-amber-500/10 font-semibold whitespace-nowrap">
+                        Alt Prep
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-[10px] text-muted-foreground mt-0.5">{formatPHP(item.price)} each</p>
                 </div>
                 <div className="flex items-center space-x-1">
@@ -2573,7 +2591,9 @@ export const POS: React.FC<POSProps> = ({
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 flex-1 content-start">
                {filteredItems.map(item => {
-                const isOutOfStock = availabilityMap[item.id] === false;
+                const avail = availabilityMap[item.id];
+                const isOutOfStock = avail ? !avail.stockAvailable : false;
+                const needsAdjustment = avail ? (avail.stockAvailable && !avail.hasSufficientStock) : false;
                 return (
                   <Card
                     key={item.id}
@@ -2585,7 +2605,9 @@ export const POS: React.FC<POSProps> = ({
                     className={`transition-all group flex flex-col justify-between min-h-[9.5rem] h-auto ${
                       isOutOfStock 
                         ? 'opacity-60 cursor-not-allowed bg-muted/40 border-muted-foreground/20' 
-                        : 'cursor-pointer hover:border-primary/50 hover:shadow-md'
+                        : needsAdjustment
+                          ? 'cursor-pointer border-amber-300 dark:border-amber-700/80 hover:border-amber-500 hover:shadow-md'
+                          : 'cursor-pointer hover:border-primary/50 hover:shadow-md'
                     }`}
                   >
                     <CardContent className="p-4 flex flex-col h-full justify-between">
@@ -2595,6 +2617,11 @@ export const POS: React.FC<POSProps> = ({
                           {isOutOfStock && (
                             <Badge variant="destructive" className="text-[9px] uppercase font-black px-1.5 py-0.5 whitespace-nowrap bg-rose-600 text-white border-none">
                               Out of Stock
+                            </Badge>
+                          )}
+                          {needsAdjustment && (
+                            <Badge variant="outline" className="text-[9px] uppercase font-bold px-1.5 py-0.5 whitespace-nowrap bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-400">
+                              Needs Adjustment
                             </Badge>
                           )}
                         </div>
@@ -2613,11 +2640,15 @@ export const POS: React.FC<POSProps> = ({
                           )}
                         </div>
                         <Button 
-                          variant={isOutOfStock ? 'outline' : 'secondary'} 
+                          variant={isOutOfStock ? 'outline' : needsAdjustment ? 'outline' : 'secondary'} 
                           size="sm" 
                           disabled={isOutOfStock}
                           className={`h-7 text-xs font-bold transition-all ${
-                            !isOutOfStock && 'group-hover:bg-primary group-hover:text-primary-foreground'
+                            isOutOfStock
+                              ? ''
+                              : needsAdjustment
+                                ? 'border-amber-400 text-amber-700 dark:text-amber-300 group-hover:bg-amber-500 group-hover:text-white group-hover:border-amber-500'
+                                : 'group-hover:bg-primary group-hover:text-primary-foreground'
                           }`}
                         >
                           {isOutOfStock ? 'Sold Out' : 'Add'}

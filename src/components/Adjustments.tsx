@@ -30,7 +30,7 @@ interface Adjustment {
   id: string;
   control_number: string | null;
   branch_id: string;
-  reason: 'damage' | 'spoilage' | 'expired' | 'lost' | 'manual_correction';
+  reason: 'damage' | 'spoilage' | 'expired' | 'lost' | 'manual_correction' | 'recipe_substitution';
   remarks: string | null;
   photo_url: string | null;
   status: 'pending' | 'approved' | 'rejected';
@@ -40,6 +40,13 @@ interface Adjustment {
   created_by_email?: string | null;
   approved_by_email?: string | null;
   branches?: { name: string };
+}
+
+interface NegativeBalanceItem {
+  item_id: string;
+  item_name: string;
+  base_unit: string;
+  quantity: number;
 }
 
 interface AdjustmentItem {
@@ -87,10 +94,11 @@ export const Adjustments: React.FC = () => {
   const [adjustmentItems, setAdjustmentItems] = useState<AdjustmentItem[]>([]);
   
   // Create Form state
-  const [reason, setReason] = useState<'damage' | 'spoilage' | 'expired' | 'lost' | 'manual_correction'>('spoilage');
+  const [reason, setReason] = useState<'damage' | 'spoilage' | 'expired' | 'lost' | 'manual_correction' | 'recipe_substitution'>('spoilage');
   const [remarks, setRemarks] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
   const [addedItems, setAddedItems] = useState<{ item_id: string; qty: number }[]>([]);
+  const [negativeBalances, setNegativeBalances] = useState<NegativeBalanceItem[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
   const [currentQty, setCurrentQty] = useState<number | string>(-10); // Default to negative deduction
   const [itemSearchTerm, setItemSearchTerm] = useState('');
@@ -259,6 +267,31 @@ export const Adjustments: React.FC = () => {
         .eq('status', 'active');
       if (catError) throw catError;
       setCatalog(catData || []);
+
+      if (selectedBranch?.id) {
+        const { data: negData } = await supabase
+          .from('inventory_balances')
+          .select('item_id, quantity, inventory_items(item_name, base_unit)')
+          .eq('branch_id', selectedBranch.id)
+          .lt('quantity', 0);
+
+        if (negData) {
+          const list: NegativeBalanceItem[] = negData.map((r: any) => {
+            const itemObj = Array.isArray(r.inventory_items) ? r.inventory_items[0] : r.inventory_items;
+            return {
+              item_id: r.item_id,
+              quantity: Number(r.quantity),
+              item_name: itemObj?.item_name || 'Unknown Item',
+              base_unit: itemObj?.base_unit || 'units',
+            };
+          });
+          setNegativeBalances(list);
+        } else {
+          setNegativeBalances([]);
+        }
+      } else {
+        setNegativeBalances([]);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -281,6 +314,21 @@ export const Adjustments: React.FC = () => {
       setCurrentSelectedItemId(catalog[0].id);
       setCurrentQty('');
     }
+    setShowCreateModal(true);
+  };
+
+  const handleOpenReconcileModal = (negItem: NegativeBalanceItem) => {
+    setReason('recipe_substitution');
+    setRemarks(`Reconciling kitchen substitute for ${negItem.item_name} (Sales deduction: ${negItem.quantity} ${negItem.base_unit})`);
+    setPhotoUrl('');
+    const neededOffset = Math.abs(negItem.quantity);
+    setAddedItems([{ item_id: negItem.item_id, qty: neededOffset }]);
+    setIsCameraActive(false);
+    setItemSearchTerm('');
+    setItemCategoryFilter('All');
+    setCurrentSelectedItemId('');
+    setCurrentQty(-neededOffset);
+    stopCamera();
     setShowCreateModal(true);
   };
 
@@ -534,6 +582,44 @@ export const Adjustments: React.FC = () => {
         </div>
       </div>
 
+      {/* Negative Balances Reconciliation Banner */}
+      {negativeBalances.length > 0 && (
+        <Card className="border-amber-300 bg-amber-500/10 mb-6 shadow-sm">
+          <CardContent className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-400 mt-0.5">
+                <ClipboardList className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-amber-800 dark:text-amber-300">
+                  {negativeBalances.length} Item{negativeBalances.length > 1 ? 's' : ''} Require Substitution Reconciliation
+                </h4>
+                <p className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-0.5">
+                  Dishes sold under Flexible Mode created negative balances that require kitchen substitute adjustment:
+                </p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {negativeBalances.map(nb => (
+                    <Badge key={nb.item_id} variant="outline" className="border-amber-400 bg-background text-amber-800 dark:text-amber-200 text-xs py-0.5">
+                      {nb.item_name}: <span className="font-mono font-bold ml-1 text-rose-600">{nb.quantity} {nb.base_unit}</span>
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => handleOpenReconcileModal(negativeBalances[0])}
+                className="border-amber-500 text-amber-700 hover:bg-amber-500 hover:text-white dark:text-amber-300 font-bold"
+              >
+                Reconcile Now
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex flex-col md:flex-row gap-4 mb-6">
         <div className="flex items-center space-x-2">
           <span className="text-sm text-muted-foreground font-medium">Filter by Date:</span>
@@ -735,8 +821,14 @@ export const Adjustments: React.FC = () => {
                     <SelectItem value="expired">Expired Goods</SelectItem>
                     <SelectItem value="lost">Lost / Theft</SelectItem>
                     <SelectItem value="manual_correction">Manual Count Correction</SelectItem>
+                    <SelectItem value="recipe_substitution">Recipe / Kitchen Substitution</SelectItem>
                   </SelectContent>
                 </Select>
+                {reason === 'recipe_substitution' && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                    Tip: Add the declared recipe item with a positive (+) qty to offset the sales deduction, and add the substitute ingredient used with a negative (-) qty.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label className="flex justify-between items-center">
@@ -944,8 +1036,8 @@ export const Adjustments: React.FC = () => {
                 </div>
                 
                 <div className="mt-4 flex flex-col sm:flex-row justify-between sm:items-end gap-4 border-t border-border/50 pt-4">
-                  <div className="space-y-2 w-full sm:w-48">
-                    <Label>Qty (Negative to deduct)</Label>
+                  <div className="space-y-2 w-full sm:w-56">
+                    <Label>Qty (Negative = deduct, Positive = offset)</Label>
                     <Input
                       type="number"
                       value={currentQty}

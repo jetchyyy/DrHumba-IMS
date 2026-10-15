@@ -312,7 +312,7 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
     payload.push(...encoder.encode(headerText + '\n'));
     payload.push(...BOLD_OFF);
     payload.push(...encoder.encode('THIS DOCUMENT IS NOT VALID\nFOR CLAIM OF INPUT TAX\n'));
-    payload.push(...encoder.encode('An OR will be issued upon payment\n'));
+    payload.push(...encoder.encode('An OR will be issued\nupon payment\n'));
 
     payload.push(...encoder.encode('--------------------------------\n'));
 
@@ -410,7 +410,7 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
     // Footer
     payload.push(...ALIGN_CENTER);
     payload.push(...encoder.encode('THIS DOCUMENT IS NOT VALID\nFOR CLAIM OF INPUT TAX\n'));
-    payload.push(...encoder.encode('An OR will be issued upon payment\n\n'));
+    payload.push(...encoder.encode('An OR will be issued\nupon payment\n\n'));
     const footerText = template.footer_text || 'Thank you for dining with us!\nCome back again!';
     const footerLines = footerText.split('\n');
     for (const line of footerLines) {
