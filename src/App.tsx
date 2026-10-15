@@ -681,7 +681,7 @@ const AppContent: React.FC = () => {
   const shouldHideSidebar = isFullscreen && activeTab === 'pos';
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground selection:bg-primary/30">
+    <div className={`min-h-screen ${activeTab === 'pos' ? 'h-screen overflow-hidden' : ''} flex bg-background text-foreground selection:bg-primary/30`}>
       <OfflineBanner />
       {/* Desktop Sidebar */}
       {!shouldHideSidebar && <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />}
@@ -693,7 +693,11 @@ const AppContent: React.FC = () => {
         {/* Main Content Area — pb-28 leaves room for mobile floating bottom nav */}
         <main 
           onScroll={handleScroll}
-          className={`flex-1 flex flex-col overflow-y-auto overflow-x-hidden ${shouldHideSidebar ? 'pb-0' : 'pb-28 md:pb-0'}`}
+          className={`flex-1 flex flex-col min-w-0 ${
+            activeTab === 'pos'
+              ? 'h-full overflow-hidden'
+              : 'overflow-y-auto overflow-x-hidden'
+          } ${shouldHideSidebar ? 'pb-0' : 'pb-28 md:pb-0'}`}
         >
           {renderContent()}
         </main>

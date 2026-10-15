@@ -48,6 +48,8 @@ export interface OfflineSale {
   discount_type?: string | null;
   discount_amount?: number;
   discount_metadata?: any[];
+  service_charge_rate?: number;
+  service_charge_amount?: number;
 }
 
 interface EncryptedQueueItem {

@@ -44,6 +44,7 @@ interface FormState {
   location: string;
   isWarehouse: boolean;
   status: BranchStatus;
+  serviceChargeRate: number;
 }
 
 const EMPTY_FORM: FormState = {
@@ -51,6 +52,7 @@ const EMPTY_FORM: FormState = {
   location: '',
   isWarehouse: false,
   status: 'active',
+  serviceChargeRate: 0,
 };
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -99,6 +101,7 @@ export const BranchManagement: React.FC = () => {
       location: branch.location || '',
       isWarehouse: branch.is_warehouse ?? false,
       status: branch.status || 'active',
+      serviceChargeRate: branch.service_charge_rate != null ? Number(branch.service_charge_rate) : 0,
     });
     setParentForSubStore(null);
     setSheetMode('edit');
@@ -188,6 +191,7 @@ export const BranchManagement: React.FC = () => {
           location: form.location.trim() || null,
           is_warehouse: form.isWarehouse,
           status: form.status,
+          service_charge_rate: Number(form.serviceChargeRate) || 0,
           parent_id: parentForSubStore?.id || null,
           tenant_id: tenant?.id,
         });
@@ -205,6 +209,7 @@ export const BranchManagement: React.FC = () => {
             location: form.location.trim() || null,
             is_warehouse: form.isWarehouse,
             status: form.status,
+            service_charge_rate: Number(form.serviceChargeRate) || 0,
           })
           .eq('id', editingBranch.id);
         if (error) throw error;
@@ -263,22 +268,28 @@ export const BranchManagement: React.FC = () => {
   // ── Render helpers ─────────────────────────────────────────────────────────
 
   const TypeBadge = ({ branch }: { branch: any }) => {
-    if (branch.parent_id)
-      return (
-        <Badge variant="outline" className="text-[10px] uppercase border-indigo-500/50 text-indigo-400 bg-indigo-500/5 gap-1">
-          <Store className="w-2.5 h-2.5" /> Sub-Store
-        </Badge>
-      );
-    if (branch.is_warehouse)
-      return (
-        <Badge variant="outline" className="text-[10px] uppercase border-primary/50 text-primary bg-primary/5 gap-1">
-          <Home className="w-2.5 h-2.5" /> Central Warehouse
-        </Badge>
-      );
+    const rate = Number(branch.service_charge_rate) || 0;
     return (
-      <Badge variant="outline" className="text-[10px] uppercase border-emerald-500/50 text-emerald-400 bg-emerald-500/5 gap-1">
-        <Store className="w-2.5 h-2.5" /> Retail Branch
-      </Badge>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {branch.parent_id ? (
+          <Badge variant="outline" className="text-[10px] uppercase border-indigo-500/50 text-indigo-400 bg-indigo-500/5 gap-1">
+            <Store className="w-2.5 h-2.5" /> Sub-Store
+          </Badge>
+        ) : branch.is_warehouse ? (
+          <Badge variant="outline" className="text-[10px] uppercase border-primary/50 text-primary bg-primary/5 gap-1">
+            <Home className="w-2.5 h-2.5" /> Central Warehouse
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-[10px] uppercase border-emerald-500/50 text-emerald-400 bg-emerald-500/5 gap-1">
+            <Store className="w-2.5 h-2.5" /> Retail Branch
+          </Badge>
+        )}
+        {rate > 0 && (
+          <Badge variant="outline" className="text-[10px] font-semibold border-amber-500/40 text-amber-500 bg-amber-500/10">
+            SC: {rate}%
+          </Badge>
+        )}
+      </div>
     );
   };
 
@@ -811,6 +822,30 @@ export const BranchManagement: React.FC = () => {
                     </SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Service Charge Rate */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <Label htmlFor="sc_rate">Service Charge Rate (%)</Label>
+                  <span className="text-[11px] text-muted-foreground font-medium">Optional</span>
+                </div>
+                <Input
+                  id="sc_rate"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={form.serviceChargeRate === 0 ? '' : form.serviceChargeRate}
+                  onChange={e => {
+                    const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                    setForm(f => ({ ...f, serviceChargeRate: isNaN(val) ? 0 : val }));
+                  }}
+                  placeholder="0.00 (Leave 0 for no service charge)"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Applied as a percentage on the gross bill total before discounts. If 0%, no service charge line will appear on bills or receipts.
+                </p>
               </div>
 
               {/* Warehouse toggle (only for top-level branches) */}

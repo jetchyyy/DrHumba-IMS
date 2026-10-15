@@ -22,6 +22,7 @@ export interface Branch {
   location: string | null;
   status?: string;
   parent_id?: string | null;
+  service_charge_rate?: number;
 }
 
 interface AuthContextType {

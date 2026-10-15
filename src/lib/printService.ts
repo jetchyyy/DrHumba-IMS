@@ -513,14 +513,22 @@ export const printThermalInvoice = (sale: any, template: SalesInvoiceTemplate) =
           <div class="centered" style="font-size: 0.9em;">
             ${template.merchant_contact || '+63 912 345 6789'}
           </div>
+          ${template.merchant_tin ? `
           <div class="centered" style="font-size: 0.9em; margin-bottom: 4px;">
-            ${template.merchant_tin || 'TIN: 000-123-456-000'}
+            ${template.merchant_tin}
           </div>
+          ` : ''}
 
           <div class="separator"></div>
 
           <div class="centered bold" style="font-size: 1.1em; letter-spacing: 1px; margin: 4px 0;">
-            ${template.header_text || 'SALES INVOICE'}
+            ${(template.header_text && template.header_text !== 'SALES INVOICE') ? template.header_text : 'BILL'}
+          </div>
+          <div class="centered bold" style="font-size: 0.75em; margin: 2px 0; text-transform: uppercase;">
+            THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX
+          </div>
+          <div class="centered" style="font-size: 0.72em; margin-bottom: 4px; font-style: italic;">
+            An Official Receipt (OR) will be issued upon payment.
           </div>
 
           <div class="separator"></div>
@@ -577,6 +585,12 @@ export const printThermalInvoice = (sale: any, template: SalesInvoiceTemplate) =
               <span>-₱${(sale.discount_amount || 0).toFixed(2)}</span>
             </div>
             ` : ''}
+            ${(Number(sale.service_charge_amount) || 0) > 0 ? `
+            <div class="flex-between">
+              <span>Service Charge:</span>
+              <span>₱${Number(sale.service_charge_amount).toFixed(2)}</span>
+            </div>
+            ` : ''}
             <div class="flex-between bold" style="font-size: 1.1em; margin: 4px 0; border-top: 1px dashed #000; padding-top: 3px;">
               <span>TOTAL VALUE:</span>
               <span>₱${sale.total_amount.toFixed(2)}</span>
@@ -627,6 +641,11 @@ export const printThermalInvoice = (sale: any, template: SalesInvoiceTemplate) =
           </div>
 
           <div class="separator"></div>
+
+          <div class="centered" style="font-size: 9.5px; font-weight: bold; margin-bottom: 6px;">
+            THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX<br/>
+            <span style="font-weight: normal; font-style: italic;">An Official Receipt (OR) will be issued upon payment.</span>
+          </div>
 
           <div class="centered footer-text">
             ${template.footer_text || 'Thank you for dining with us!\nCome back again!'}

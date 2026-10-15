@@ -1208,14 +1208,18 @@ WHERE email = 'your-email@example.com';`}</pre>
                       {/* TIN & Header Title Text */}
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="ti_merchant_tin" className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
-                            Merchant TIN
-                          </Label>
+                          <div className="flex justify-between items-center">
+                            <Label htmlFor="ti_merchant_tin" className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+                              Merchant TIN
+                            </Label>
+                            <span className="text-[10px] text-muted-foreground/70">Optional</span>
+                          </div>
                           <Input
                             id="ti_merchant_tin"
                             type="text"
-                            value={salesInvoice.merchant_tin}
+                            value={salesInvoice.merchant_tin || ''}
                             onChange={(e) => setSalesInvoice(prev => ({ ...prev, merchant_tin: e.target.value }))}
+                            placeholder="e.g. TIN: 000-123-456-000 (Optional)"
                           />
                         </div>
                         <div className="space-y-2">
@@ -1401,14 +1405,22 @@ WHERE email = 'your-email@example.com';`}</pre>
                             <div className="text-center text-[8px]">
                               {salesInvoice.merchant_contact || '+63 912 345 6789'}
                             </div>
-                            <div className="text-center text-[8px] mb-1">
-                              {salesInvoice.merchant_tin || 'TIN: 000-123-456-000'}
-                            </div>
+                            {salesInvoice.merchant_tin ? (
+                              <div className="text-center text-[8px] mb-1">
+                                {salesInvoice.merchant_tin}
+                              </div>
+                            ) : null}
 
                             <div className="border-t border-slate-450 border-dashed my-1.5"></div>
 
                             <div className="text-center font-bold text-[10px] tracking-wide my-1">
-                              {salesInvoice.header_text || 'SALES INVOICE'}
+                              {(salesInvoice.header_text && salesInvoice.header_text !== 'SALES INVOICE') ? salesInvoice.header_text : 'BILL'}
+                            </div>
+                            <div className="text-center font-bold text-[7px] text-slate-800 uppercase">
+                              THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX
+                            </div>
+                            <div className="text-center text-[6.5px] italic text-slate-600 mb-1">
+                              An Official Receipt (OR) will be issued upon payment.
                             </div>
 
                             <div className="border-t border-slate-450 border-dashed my-1.5"></div>
@@ -1451,6 +1463,13 @@ WHERE email = 'your-email@example.com';`}</pre>
                             </div>
 
                             <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+
+                            <div className="text-center text-[7px] font-bold text-slate-800">
+                              THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX
+                            </div>
+                            <div className="text-center text-[6.5px] italic text-slate-600 mb-1">
+                              An Official Receipt (OR) will be issued upon payment.
+                            </div>
 
                             {/* Footer text */}
                             <div className="text-center text-[8px] whitespace-pre-line text-slate-700 italic">

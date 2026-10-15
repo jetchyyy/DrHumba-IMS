@@ -14,7 +14,7 @@ export interface SalesInvoiceTemplate {
   merchant_name: string;
   merchant_address: string;
   merchant_contact: string;
-  merchant_tin: string;
+  merchant_tin?: string;
   logo_url: string; // Base64 data URL
   header_text: string;
   footer_text: string;
@@ -49,9 +49,9 @@ export const DEFAULT_SALES_INVOICE_TEMPLATE: SalesInvoiceTemplate = {
   merchant_name: 'Dr Humba',
   merchant_address: '123 Main St, Metro Manila',
   merchant_contact: '+63 912 345 6789',
-  merchant_tin: 'TIN: 000-123-456-000',
+  merchant_tin: '',
   logo_url: '',
-  header_text: 'SALES INVOICE',
+  header_text: 'BILL',
   footer_text: 'Thank you for dining with us!\nCome back again!',
   paper_width: '58mm',
   font_size: 'medium',

@@ -37,6 +37,9 @@ interface SaleItem {
   subtotal: number;
   item_name: string;
   sku: string;
+  voided_quantity?: number;
+  void_reason?: string | null;
+  voided_at?: string | null;
 }
 
 interface SaleRecord {
@@ -45,6 +48,7 @@ interface SaleRecord {
   branch_id: string;
   cashier_id: string;
   total_amount: number;
+  refunded_amount?: number;
   status: 'completed' | 'refunded';
   payment_method: string | null;
   sale_category: string | null;
@@ -59,6 +63,8 @@ interface SaleRecord {
   items: SaleItem[];
   sub_store_id?: string | null;
   sub_store_name?: string | null;
+  service_charge_rate?: number;
+  service_charge_amount?: number;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -130,6 +136,8 @@ export const SalesHistory: React.FC = () => {
 
   // Void / Refund dialog
   const [voidTarget, setVoidTarget] = useState<SaleRecord | null>(null);
+  const [voidScope, setVoidScope] = useState<'items' | 'all'>('items');
+  const [selectedVoidItems, setSelectedVoidItems] = useState<Record<string, number>>({});
   const [voidReason, setVoidReason] = useState('');
   const [voiding, setVoiding] = useState(false);
 
@@ -391,6 +399,7 @@ export const SalesHistory: React.FC = () => {
           sub_store_id,
           cashier_id,
           total_amount,
+          refunded_amount,
           status,
           payment_method,
           sale_category,
@@ -400,6 +409,8 @@ export const SalesHistory: React.FC = () => {
           void_reason,
           voided_at,
           created_at,
+          service_charge_rate,
+          service_charge_amount,
           branches:branches!branch_id (name),
           sub_stores:branches!sub_store_id (name),
           sale_items (
@@ -407,6 +418,9 @@ export const SalesHistory: React.FC = () => {
             quantity,
             unit_price,
             subtotal,
+            voided_quantity,
+            void_reason,
+            voided_at,
             menu_items (name, sku)
           )
         `);
@@ -415,8 +429,49 @@ export const SalesHistory: React.FC = () => {
         query = query.eq('branch_id', profile.branch_id);
       }
 
-      const { data: salesData, error: salesError } = await query.order('created_at', { ascending: false });
-      if (salesError) throw salesError;
+      let { data: salesData, error: salesError } = await query.order('created_at', { ascending: false });
+
+      if (salesError && (salesError.code === '42703' || salesError.message?.includes('does not exist'))) {
+        // Fallback for when migration 20261015131000_line_item_void_support.sql hasn't been applied yet
+        let fallbackQuery = supabase
+          .from('sales')
+          .select(`
+            id,
+            control_number,
+            branch_id,
+            sub_store_id,
+            cashier_id,
+            total_amount,
+            status,
+            payment_method,
+            sale_category,
+            reference_number,
+            amount_tendered,
+            change_given,
+            void_reason,
+            voided_at,
+            created_at,
+            branches:branches!branch_id (name),
+            sub_stores:branches!sub_store_id (name),
+            sale_items (
+              id,
+              quantity,
+              unit_price,
+              subtotal,
+              menu_items (name, sku)
+            )
+          `);
+
+        if (!isAdminRole && profile.branch_id) {
+          fallbackQuery = fallbackQuery.eq('branch_id', profile.branch_id);
+        }
+
+        const fallbackRes = await fallbackQuery.order('created_at', { ascending: false });
+        if (fallbackRes.error) throw fallbackRes.error;
+        salesData = fallbackRes.data as any;
+      } else if (salesError) {
+        throw salesError;
+      }
 
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
@@ -432,6 +487,7 @@ export const SalesHistory: React.FC = () => {
           branch_id: sale.branch_id,
           cashier_id: sale.cashier_id,
           total_amount: Number(sale.total_amount),
+          refunded_amount: Number(sale.refunded_amount) || 0,
           status: sale.status,
           payment_method: sale.payment_method || null,
           sale_category: sale.sale_category || null,
@@ -445,11 +501,16 @@ export const SalesHistory: React.FC = () => {
           cashier_email: cashierProfile?.email || 'System / Cashier',
           sub_store_id: sale.sub_store_id || null,
           sub_store_name: sale.sub_stores?.name || null,
+          service_charge_rate: Number(sale.service_charge_rate) || 0,
+          service_charge_amount: Number(sale.service_charge_amount) || 0,
           items: (sale.sale_items || []).map((si: any) => ({
             id: si.id,
             quantity: Number(si.quantity),
             unit_price: Number(si.unit_price),
             subtotal: Number(si.subtotal),
+            voided_quantity: Number(si.voided_quantity) || 0,
+            void_reason: si.void_reason || null,
+            voided_at: si.voided_at || null,
             item_name: si.menu_items?.name || ('Unknown ' + (vocab.itemUnit.charAt(0).toUpperCase() + vocab.itemUnit.slice(1))),
             sku: si.menu_items?.sku || ''
           }))
@@ -481,22 +542,78 @@ export const SalesHistory: React.FC = () => {
     e.stopPropagation();
     setVoidReason('');
     setVoidTarget(sale);
+    setVoidScope('items');
+    const initialSelection: Record<string, number> = {};
+    sale.items.forEach(it => {
+      const active = it.quantity - (it.voided_quantity || 0);
+      if (active > 0) {
+        initialSelection[it.id] = 0;
+      }
+    });
+    setSelectedVoidItems(initialSelection);
   };
+
+  const activeItems = useMemo(() => {
+    if (!voidTarget) return [];
+    return voidTarget.items.map(it => {
+      const voided = it.voided_quantity || 0;
+      const active = Math.max(0, it.quantity - voided);
+      const toVoid = voidScope === 'all' ? active : (selectedVoidItems[it.id] || 0);
+      const refundSubtotal = toVoid * it.unit_price;
+      return {
+        ...it,
+        voided,
+        active,
+        toVoid,
+        refundSubtotal,
+      };
+    });
+  }, [voidTarget, voidScope, selectedVoidItems]);
+
+  const totalCalculatedRefund = useMemo(() => {
+    return activeItems.reduce((sum, it) => sum + it.refundSubtotal, 0);
+  }, [activeItems]);
+
+  const remainingSaleTotal = useMemo(() => {
+    if (!voidTarget) return 0;
+    const currentActiveTotal = voidTarget.total_amount - (voidTarget.refunded_amount || 0);
+    return Math.max(0, currentActiveTotal - totalCalculatedRefund);
+  }, [voidTarget, totalCalculatedRefund]);
 
   const handleVoidSale = async () => {
     if (!voidTarget || !voidReason.trim()) return;
+
+    let itemsPayload: Array<{ sale_item_id: string; quantity_to_void: number }> | null = null;
+    if (voidScope === 'items') {
+      itemsPayload = Object.entries(selectedVoidItems)
+        .filter(([_, qty]) => qty > 0)
+        .map(([itemId, qty]) => ({
+          sale_item_id: itemId,
+          quantity_to_void: qty
+        }));
+
+      if (itemsPayload.length === 0) {
+        showError('Please select at least one item and quantity to void.');
+        return;
+      }
+    }
+
     setVoiding(true);
     try {
-      const { error } = await supabase.rpc('fn_void_sale', {
-        p_sale_id:    voidTarget.id,
+      const { error } = await supabase.rpc('fn_void_sale_items', {
+        p_sale_id:     voidTarget.id,
+        p_items:       itemsPayload,
         p_void_reason: voidReason.trim(),
       });
       if (error) throw error;
-      showSuccess(`Invoice ${voidTarget.id.slice(0, 8)}… has been refunded and stock restored.`);
+      showSuccess(`Void successful! Refunded item stock has been restored to branch inventory.`);
       setVoidTarget(null);
       loadSalesData();
+      if (selectedSale?.id === voidTarget.id) {
+        setSelectedSale(null);
+      }
     } catch (err: any) {
-      showError(err.message || 'Could not void sale.');
+      showError(err.message || 'Could not void sale items.');
     } finally {
       setVoiding(false);
     }
@@ -562,17 +679,24 @@ export const SalesHistory: React.FC = () => {
       return;
     }
 
-    const itemsHtml = sale.items.map(item => `
-      <tr style="border-bottom: 1px solid #e2e8f0;">
-        <td style="padding: 12px; font-weight: 500;">
-          ${item.item_name}
-          <div style="font-size: 10px; color: #64748b; font-family: monospace;">SKU: ${item.sku}</div>
-        </td>
-        <td style="padding: 12px; text-align: center;">${item.quantity}</td>
-        <td style="padding: 12px; text-align: right;">₱${item.unit_price.toFixed(2)}</td>
-        <td style="padding: 12px; text-align: right; font-weight: 700;">₱${item.subtotal.toFixed(2)}</td>
-      </tr>
-    `).join('');
+    const itemsHtml = sale.items.map(item => {
+      const vQty = item.voided_quantity || 0;
+      const isVoid = vQty >= item.quantity;
+      const activeQty = item.quantity - vQty;
+      return `
+        <tr style="border-bottom: 1px solid #e2e8f0; ${isVoid ? 'background-color: #fef2f2; opacity: 0.6;' : ''}">
+          <td style="padding: 12px; font-weight: 500;">
+            <span style="${isVoid ? 'text-decoration: line-through; color: #ef4444;' : ''}">${item.item_name}</span>
+            ${isVoid ? ' <span style="color: #ef4444; font-size: 10px; font-weight: bold;">[VOIDED]</span>' : ''}
+            ${vQty > 0 && !isVoid ? ` <span style="color: #ef4444; font-size: 10px; font-weight: bold;">[${vQty} VOIDED]</span>` : ''}
+            <div style="font-size: 10px; color: #64748b; font-family: monospace;">SKU: ${item.sku}</div>
+          </td>
+          <td style="padding: 12px; text-align: center;">${isVoid ? `<span style="text-decoration: line-through;">${item.quantity}</span>` : activeQty < item.quantity ? `${activeQty} <span style="text-decoration: line-through; font-size: 10px; color: #ef4444;">(${vQty} void)</span>` : item.quantity}</td>
+          <td style="padding: 12px; text-align: right;">₱${item.unit_price.toFixed(2)}</td>
+          <td style="padding: 12px; text-align: right; font-weight: 700; ${isVoid ? 'text-decoration: line-through; color: #ef4444;' : ''}">₱${(activeQty * item.unit_price).toFixed(2)}</td>
+        </tr>
+      `;
+    }).join('');
 
     const html = `
       <html>
@@ -606,7 +730,12 @@ export const SalesHistory: React.FC = () => {
             <button class="print-btn" onclick="window.print()">Print PDF</button>
             <div class="header">
               <div><div class="brand">SYSTEM</div><div style="font-size: 12px; color: #64748b;">Sales & Billing Management</div></div>
-              <div style="text-align: right;"><div class="title">Sales Invoice</div><div style="font-size: 12px; color: #64748b;">Status: ${sale.status.toUpperCase()}</div></div>
+              <div style="text-align: right;">
+                <div class="title">BILL / STATEMENT OF ACCOUNT</div>
+                <div style="font-size: 11px; font-weight: bold; color: #dc2626; margin-top: 2px;">THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX</div>
+                <div style="font-size: 10px; font-style: italic; color: #64748b;">An Official Receipt (OR) will be issued upon payment.</div>
+                <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Status: ${sale.status.toUpperCase()}</div>
+              </div>
             </div>
             <div class="details-grid">
               <div class="info-block"><h3>Control Number</h3><p>${sale.control_number || 'PENDING'}</p></div>
@@ -651,10 +780,20 @@ export const SalesHistory: React.FC = () => {
                 <span>₱${sale.change_given.toFixed(2)}</span>
               </div>
               ` : ''}
+              ${(sale.service_charge_amount || 0) > 0 ? `
+              <div class="payment-row">
+                <span>Service Charge:</span>
+                <span>₱${Number(sale.service_charge_amount).toFixed(2)}</span>
+              </div>
+              ` : ''}
               <div class="payment-row total-row">
                 <span>Total Amount:</span>
                 <span>₱${sale.total_amount.toFixed(2)}</span>
               </div>
+            </div>
+            <div style="text-align: center; margin: 30px auto; font-size: 11px; font-weight: bold; color: #475569;">
+              THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX<br/>
+              <span style="font-weight: normal; font-style: italic;">An Official Receipt (OR) will be issued upon payment.</span>
             </div>
             <div class="signatures">
               <div class="sig-box"><div style="font-size: 12px; font-weight: 700;">Cashier Signature</div><div style="margin-top: 40px; font-size: 11px;">Name: ______________________</div></div>
@@ -1084,45 +1223,208 @@ export const SalesHistory: React.FC = () => {
 
       {/* Void / Refund Dialog */}
       <Dialog open={!!voidTarget} onOpenChange={(v) => { if (!v && !voiding) setVoidTarget(null); }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle className="text-destructive">Void Sale</DialogTitle>
+            <DialogTitle className="text-destructive flex items-center justify-between">
+              <span>Void Sale / Line Items</span>
+              <Badge variant="outline" className="text-xs">
+                {voidScope === 'all' ? 'Entire Sale Void' : 'Specific Item Void'}
+              </Badge>
+            </DialogTitle>
             <DialogDescription className="text-xs">
-              This will mark the sale as <strong>refunded</strong> and restore all ingredient stocks to branch inventory.
-              This action cannot be undone.
+              Voided items will immediately return their ingredients or product stock to branch inventory.
             </DialogDescription>
           </DialogHeader>
 
           {voidTarget && (
             <div className="space-y-4 py-2">
+              {/* Summary Bar */}
               <div className="bg-muted/40 border rounded-lg px-4 py-3 space-y-1 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Invoice</span>
-                  <span className="font-mono font-bold">{voidTarget.id.slice(0, 12)}…</span>
+                  <span className="text-muted-foreground">Invoice Control No</span>
+                  <span className="font-mono font-bold">{voidTarget.control_number || voidTarget.id.slice(0, 12)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Total</span>
-                  <span className="font-bold text-destructive">{formatPHP(voidTarget.total_amount)}</span>
+                  <span className="text-muted-foreground">Original Total</span>
+                  <span className="font-bold">{formatPHP(voidTarget.total_amount)}</span>
                 </div>
+                {voidTarget.refunded_amount != null && voidTarget.refunded_amount > 0 && (
+                  <div className="flex justify-between text-destructive">
+                    <span>Already Refunded</span>
+                    <span className="font-bold">- {formatPHP(voidTarget.refunded_amount)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Branch</span>
                   <span className="font-bold">{voidTarget.branch_name}</span>
                 </div>
               </div>
 
-              <div className="space-y-2">
+              {/* Void Scope Switcher */}
+              <div className="flex rounded-lg bg-muted p-1 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setVoidScope('items')}
+                  className={`flex-1 py-1.5 px-3 rounded-md text-center transition-all ${
+                    voidScope === 'items'
+                      ? 'bg-background text-foreground shadow-sm font-bold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Void Specific Items
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVoidScope('all')}
+                  className={`flex-1 py-1.5 px-3 rounded-md text-center transition-all ${
+                    voidScope === 'all'
+                      ? 'bg-background text-foreground shadow-sm font-bold text-destructive'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Void Entire Sale
+                </button>
+              </div>
+
+              {/* Line Items Checklist (when voidScope === 'items') */}
+              {voidScope === 'items' ? (
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">
+                      Select Items to Void
+                    </Label>
+                    <span className="text-[10px] text-muted-foreground">
+                      Adjust quantity per item
+                    </span>
+                  </div>
+
+                  <div className="border rounded-lg max-h-56 overflow-y-auto divide-y bg-background">
+                    {activeItems.map((item) => {
+                      const isAlreadyVoided = item.active === 0;
+                      const isSelected = (selectedVoidItems[item.id] || 0) > 0;
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={`p-2.5 flex items-center justify-between text-xs transition-colors ${
+                            isAlreadyVoided
+                              ? 'opacity-40 bg-muted/20'
+                              : isSelected
+                              ? 'bg-destructive/5'
+                              : 'hover:bg-muted/30'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                            <input
+                              type="checkbox"
+                              disabled={isAlreadyVoided}
+                              checked={isSelected}
+                              onChange={(e) => {
+                                setSelectedVoidItems(prev => ({
+                                  ...prev,
+                                  [item.id]: e.target.checked ? item.active : 0
+                                }));
+                              }}
+                              className="h-4 w-4 rounded border-gray-300 text-destructive focus:ring-destructive cursor-pointer"
+                            />
+                            <div className="truncate">
+                              <p className={`font-semibold truncate ${isSelected ? 'text-destructive font-bold' : ''}`}>
+                                {item.item_name}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground font-mono">
+                                ₱{item.unit_price.toFixed(2)} • {item.active} active {item.voided > 0 ? `(${item.voided} voided)` : ''}
+                              </p>
+                            </div>
+                          </div>
+
+                          {!isAlreadyVoided ? (
+                            <div className="flex items-center gap-3">
+                              {/* Quantity Stepper */}
+                              <div className="flex items-center border rounded-md overflow-hidden bg-background h-7">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-full px-2 text-xs font-bold rounded-none"
+                                  disabled={!isSelected || (selectedVoidItems[item.id] || 0) <= 0}
+                                  onClick={() => {
+                                    setSelectedVoidItems(prev => ({
+                                      ...prev,
+                                      [item.id]: Math.max(0, (prev[item.id] || 0) - 1)
+                                    }));
+                                  }}
+                                >
+                                  –
+                                </Button>
+                                <span className="w-8 text-center font-bold text-xs">
+                                  {selectedVoidItems[item.id] || 0}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-full px-2 text-xs font-bold rounded-none"
+                                  disabled={(selectedVoidItems[item.id] || 0) >= item.active}
+                                  onClick={() => {
+                                    setSelectedVoidItems(prev => ({
+                                      ...prev,
+                                      [item.id]: Math.min(item.active, (prev[item.id] || 0) + 1)
+                                    }));
+                                  }}
+                                >
+                                  +
+                                </Button>
+                              </div>
+
+                              <span className="w-16 text-right font-bold text-destructive">
+                                {item.refundSubtotal > 0 ? `-₱${item.refundSubtotal.toFixed(2)}` : '₱0.00'}
+                              </span>
+                            </div>
+                          ) : (
+                            <Badge variant="outline" className="text-[9px] uppercase text-muted-foreground">
+                              Voided
+                            </Badge>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-xs space-y-1">
+                  <p className="font-bold text-destructive">Void All Items in Invoice</p>
+                  <p className="text-muted-foreground text-[11px]">
+                    This will void every active item in this sale, mark the invoice as <strong>REFUNDED</strong>, and restore all stock to the branch.
+                  </p>
+                </div>
+              )}
+
+              {/* Refund Calculations Box */}
+              <div className="bg-muted/30 border border-dashed rounded-lg p-3 space-y-1.5 text-xs">
+                <div className="flex justify-between items-center text-destructive font-bold text-sm">
+                  <span>Customer Refund Amount:</span>
+                  <span>{formatPHP(totalCalculatedRefund)}</span>
+                </div>
+                <div className="flex justify-between items-center text-muted-foreground text-[11px]">
+                  <span>New Sale Net Total:</span>
+                  <span className="font-semibold text-foreground">{formatPHP(remainingSaleTotal)}</span>
+                </div>
+              </div>
+
+              {/* Void Reason */}
+              <div className="space-y-1.5">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
                   Void Reason <span className="text-destructive">*</span>
                 </Label>
                 <Textarea
-                  placeholder="e.g. Customer cancelled order, Wrong item charged…"
+                  placeholder="e.g. Customer cancelled 1 item, Wrong dish charged, Spilled drink..."
                   value={voidReason}
                   onChange={e => setVoidReason(e.target.value)}
-                  rows={3}
+                  rows={2}
                   className="resize-none text-sm"
                   autoFocus
                 />
-                <p className="text-[10px] text-muted-foreground">Minimum 5 characters required.</p>
+                <p className="text-[10px] text-muted-foreground">Minimum 3 characters required.</p>
               </div>
             </div>
           )}
@@ -1134,9 +1436,11 @@ export const SalesHistory: React.FC = () => {
             <Button
               variant="destructive"
               onClick={handleVoidSale}
-              disabled={voiding || voidReason.trim().length < 5}
+              disabled={voiding || voidReason.trim().length < 3 || totalCalculatedRefund <= 0}
             >
-              {voiding ? 'Voiding…' : 'Confirm Void & Refund'}
+              {voiding
+                ? 'Voiding…'
+                : `Confirm Void (${formatPHP(totalCalculatedRefund)})`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1226,7 +1530,7 @@ export const SalesHistory: React.FC = () => {
                 )}
               </div>
 
-              {/* Items List */}
+              {/* Items List with Crashout Strikethrough UI */}
               <div>
                 <h4 className="text-sm font-bold uppercase tracking-wider mb-3 text-muted-foreground">Order Items</h4>
                 <div className="border rounded-lg overflow-hidden bg-background/50">
@@ -1240,21 +1544,108 @@ export const SalesHistory: React.FC = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {selectedSale.items.map((item) => (
-                        <TableRow key={item.id}>
-                          <TableCell>
-                            <div className="font-bold text-xs">{item.item_name}</div>
-                            <div className="font-mono text-[10px] text-muted-foreground">{item.sku}</div>
+                      {selectedSale.items.map((item) => {
+                        const voidedQty = item.voided_quantity || 0;
+                        const activeQty = item.quantity - voidedQty;
+                        const isFullyVoided = activeQty === 0 && voidedQty > 0;
+                        const isPartiallyVoided = activeQty > 0 && voidedQty > 0;
+
+                        return (
+                          <TableRow
+                            key={item.id}
+                            className={isFullyVoided ? 'bg-destructive/5 opacity-70' : isPartiallyVoided ? 'bg-amber-500/5' : ''}
+                          >
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <span className={`font-bold text-xs ${isFullyVoided ? 'line-through text-muted-foreground' : ''}`}>
+                                  {item.item_name}
+                                </span>
+                                {isFullyVoided && (
+                                  <Badge variant="destructive" className="text-[9px] px-1.5 py-0 uppercase font-black">
+                                    VOIDED
+                                  </Badge>
+                                )}
+                                {isPartiallyVoided && (
+                                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-destructive/50 text-destructive font-black uppercase">
+                                    {voidedQty} VOIDED
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="font-mono text-[10px] text-muted-foreground flex items-center gap-2">
+                                <span>SKU: {item.sku}</span>
+                                {item.void_reason && (
+                                  <span className="text-destructive font-sans text-[10px] italic">
+                                    (Reason: {item.void_reason})
+                                  </span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-center font-bold text-xs">
+                              {isFullyVoided ? (
+                                <span className="line-through text-destructive font-mono">{item.quantity}</span>
+                              ) : isPartiallyVoided ? (
+                                <span>
+                                  <span className="text-foreground">{activeQty}</span>
+                                  <span className="line-through text-destructive text-[10px] ml-1">({voidedQty} void)</span>
+                                </span>
+                              ) : (
+                                item.quantity
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right text-muted-foreground text-xs">
+                              {formatPHP(item.unit_price)}
+                            </TableCell>
+                            <TableCell className="text-right font-bold text-xs">
+                              {isFullyVoided ? (
+                                <span className="line-through text-destructive">{formatPHP(item.subtotal)}</span>
+                              ) : isPartiallyVoided ? (
+                                <div>
+                                  <div className="text-foreground">{formatPHP(activeQty * item.unit_price)}</div>
+                                  <div className="line-through text-destructive text-[10px]">{formatPHP(voidedQty * item.unit_price)}</div>
+                                </div>
+                              ) : (
+                                formatPHP(item.subtotal)
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+
+                      {/* Financial Breakdown */}
+                      {selectedSale.service_charge_amount != null && selectedSale.service_charge_amount > 0 && (
+                        <TableRow className="bg-muted/10 border-t">
+                          <TableCell colSpan={3} className="text-right text-xs text-muted-foreground font-semibold">
+                            Service Charge:
                           </TableCell>
-                          <TableCell className="text-center font-bold text-xs">{item.quantity}</TableCell>
-                          <TableCell className="text-right text-muted-foreground text-xs">{formatPHP(item.unit_price)}</TableCell>
-                          <TableCell className="text-right font-bold text-xs">{formatPHP(item.subtotal)}</TableCell>
+                          <TableCell className="text-right font-bold text-xs">
+                            {formatPHP(selectedSale.service_charge_amount)}
+                          </TableCell>
                         </TableRow>
-                      ))}
-                      <TableRow className="bg-muted/20">
-                        <TableCell colSpan={3} className="text-right font-bold">Total Amount:</TableCell>
-                        <TableCell className="text-right text-emerald-500 font-black text-sm">
+                      )}
+                      <TableRow className="bg-muted/10 border-t">
+                        <TableCell colSpan={3} className="text-right text-xs text-muted-foreground font-semibold">
+                          Original Gross Total:
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-xs">
                           {formatPHP(selectedSale.total_amount)}
+                        </TableCell>
+                      </TableRow>
+                      {selectedSale.refunded_amount != null && selectedSale.refunded_amount > 0 && (
+                        <TableRow className="bg-destructive/5 text-destructive">
+                          <TableCell colSpan={3} className="text-right text-xs font-bold">
+                            Less: Voided / Refunded:
+                          </TableCell>
+                          <TableCell className="text-right font-bold text-xs">
+                            - {formatPHP(selectedSale.refunded_amount)}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      <TableRow className="bg-muted/20">
+                        <TableCell colSpan={3} className="text-right font-black">
+                          Net Sale Amount:
+                        </TableCell>
+                        <TableCell className="text-right text-emerald-600 dark:text-emerald-400 font-black text-sm">
+                          {formatPHP(Math.max(0, selectedSale.total_amount - (selectedSale.refunded_amount || 0)))}
                         </TableCell>
                       </TableRow>
                     </TableBody>

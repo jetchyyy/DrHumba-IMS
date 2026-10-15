@@ -943,14 +943,22 @@ export const Transactions: React.FC = () => {
                 <div className="text-center text-[0.9em]">
                   {salesInvoiceTemplate.merchant_contact || '+63 912 345 6789'}
                 </div>
-                <div className="text-center text-[0.9em] mb-1">
-                  {salesInvoiceTemplate.merchant_tin || 'TIN: 000-123-456-000'}
-                </div>
+                {salesInvoiceTemplate.merchant_tin ? (
+                  <div className="text-center text-[0.9em] mb-1">
+                    {salesInvoiceTemplate.merchant_tin}
+                  </div>
+                ) : null}
 
                 <div className="border-t border-dashed border-black my-2" />
 
                 <div className="text-center font-bold text-[1.1em] tracking-wider my-1">
-                  {salesInvoiceTemplate.header_text || 'SALES INVOICE'}
+                  {(salesInvoiceTemplate.header_text && salesInvoiceTemplate.header_text !== 'SALES INVOICE') ? salesInvoiceTemplate.header_text : 'BILL'}
+                </div>
+                <div className="text-center font-bold text-[0.75em] uppercase text-black">
+                  THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX
+                </div>
+                <div className="text-center text-[0.72em] italic text-muted-foreground mb-1">
+                  An Official Receipt (OR) will be issued upon payment.
                 </div>
 
                 <div className="border-t border-dashed border-black my-2" />
@@ -993,12 +1001,26 @@ export const Transactions: React.FC = () => {
 
                 <div className="border-t border-dashed border-black my-2" />
 
+                {Number(previewSale.service_charge_amount || 0) > 0 && (
+                  <div className="flex justify-between text-[0.95em] my-1">
+                    <span>Service Charge:</span>
+                    <span>₱{Number(previewSale.service_charge_amount).toFixed(2)}</span>
+                  </div>
+                )}
+
                 <div className="flex justify-between font-bold text-[1.1em] my-1">
                   <span>TOTAL VALUE:</span>
                   <span>₱{Number(previewSale.total_amount).toFixed(2)}</span>
                 </div>
 
                 <div className="border-t border-dashed border-black my-2" />
+
+                <div className="text-center text-[0.75em] font-bold">
+                  THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX
+                </div>
+                <div className="text-center text-[0.72em] italic mb-2">
+                  An Official Receipt (OR) will be issued upon payment.
+                </div>
 
                 <div className="text-center text-[0.9em] whitespace-pre-line my-3">
                   {salesInvoiceTemplate.footer_text || 'Thank you for dining with us!\nCome back again!'}

@@ -125,11 +125,13 @@ interface PaymentDialogProps {
     discountAmount?: number;
     payableTotal?: number;
     vatRelief?: number;
+    serviceChargeAmount?: number;
   } | null) => void;
   saleCategories: Array<{ value: string; label: string }>;
   defaultSaleCategory: string;
   subStores: any[];
   initialSubStore: any | null;
+  serviceChargeRate?: number;
 }
 
 const PaymentDialog: React.FC<PaymentDialogProps> = ({
@@ -144,6 +146,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
   defaultSaleCategory,
   subStores,
   initialSubStore,
+  serviceChargeRate = 0,
 }) => {
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [tenderedStr, setTenderedStr] = useState('');
@@ -403,7 +406,18 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
     });
   };
 
-  const payableTotal = discountCalculation.total_amount;
+  const effectiveSCRate = useMemo(() => {
+    if (dialogSubStoreId && dialogSubStoreId !== 'parent') {
+      const sub = subStores.find(s => s.id === dialogSubStoreId);
+      if (sub && sub.service_charge_rate !== undefined && sub.service_charge_rate !== null) {
+        return Number(sub.service_charge_rate);
+      }
+    }
+    return serviceChargeRate;
+  }, [dialogSubStoreId, subStores, serviceChargeRate]);
+
+  const serviceChargeAmount = effectiveSCRate > 0 ? Number((cartTotal * (effectiveSCRate / 100)).toFixed(2)) : 0;
+  const payableTotal = Number((discountCalculation.total_amount + serviceChargeAmount).toFixed(2));
   const tendered = parseFloat(tenderedStr) || 0;
   const change = method === 'cash' ? tendered - payableTotal : 0;
 
@@ -425,13 +439,14 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
         applyDiscount,
         discountType,
         discountAmount: applyDiscount ? discountCalculation.discount_amount : 0,
-        payableTotal: applyDiscount ? discountCalculation.total_amount : cartTotal,
-        vatRelief: applyDiscount ? discountCalculation.vat_relief : 0
+        payableTotal,
+        vatRelief: applyDiscount ? discountCalculation.vat_relief : 0,
+        serviceChargeAmount
       });
     } else if (!open && onStateChange) {
       onStateChange(null);
     }
-  }, [open, method, tenderedStr, refNumber, applyDiscount, discountType, discountCalculation, cartTotal, onStateChange]);
+  }, [open, method, tenderedStr, refNumber, applyDiscount, discountType, discountCalculation, cartTotal, payableTotal, serviceChargeAmount, onStateChange]);
 
   // Reset when dialog opens
   useEffect(() => {
@@ -577,6 +592,13 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
                     <span>- {formatPHP(discountCalculation.total_savings)}</span>
                   </div>
                 )}
+              </div>
+            )}
+
+            {serviceChargeAmount > 0 && (
+              <div className="flex justify-between items-center text-xs font-semibold text-foreground pt-1 border-t border-dashed">
+                <span>Service Charge:</span>
+                <span>+ {formatPHP(serviceChargeAmount)}</span>
               </div>
             )}
 
@@ -1256,7 +1278,7 @@ export const POS: React.FC<POSProps> = ({
   // Payment dialog
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
-  const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string; control_number?: string; queue_number?: string | null; items?: any[]; branch_name?: string; cashier_email?: string; total_amount?: number; created_at?: string; } | null>(null);
+  const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string; control_number?: string; queue_number?: string | null; items?: any[]; branch_name?: string; cashier_email?: string; total_amount?: number; created_at?: string; service_charge_rate?: number; service_charge_amount?: number; } | null>(null);
   const [isPrintingReceiptBluetooth, setIsPrintingReceiptBluetooth] = useState(false);
   const [isPrintingKitchenBluetooth, setIsPrintingKitchenBluetooth] = useState(false);
   const [isPrintingXZBluetooth, setIsPrintingXZBluetooth] = useState(false);
@@ -1349,6 +1371,7 @@ export const POS: React.FC<POSProps> = ({
     discountAmount?: number;
     payableTotal?: number;
     vatRelief?: number;
+    serviceChargeAmount?: number;
   } | null>(null);
 
   // Cashier Drawer Session & shift control states
@@ -1366,6 +1389,11 @@ export const POS: React.FC<POSProps> = ({
 
   const cartTotal = cart.reduce((s, ci) => s + ci.price * ci.quantity, 0);
   const cartCount = cart.reduce((s, ci) => s + ci.quantity, 0);
+
+  const activeStore = selectedSubStore || selectedBranch;
+  const serviceChargeRate = Number(activeStore?.service_charge_rate || selectedBranch?.service_charge_rate || 0);
+  const serviceChargeAmount = serviceChargeRate > 0 ? Number((cartTotal * (serviceChargeRate / 100)).toFixed(2)) : 0;
+  const cartTotalWithSC = Number((cartTotal + serviceChargeAmount).toFixed(2));
 
   // Set up Supabase Realtime sync channel
   useEffect(() => {
@@ -1492,8 +1520,9 @@ export const POS: React.FC<POSProps> = ({
       applyDiscount: payState?.applyDiscount || false,
       discountType: payState?.discountType || null,
       discountAmount: payState?.discountAmount || 0,
-      payableTotal: payState?.payableTotal !== undefined ? payState.payableTotal : total,
-      vatRelief: payState?.vatRelief || 0
+      payableTotal: payState?.payableTotal !== undefined ? payState.payableTotal : cartTotalWithSC,
+      vatRelief: payState?.vatRelief || 0,
+      serviceChargeAmount: payState?.serviceChargeAmount !== undefined ? payState.serviceChargeAmount : serviceChargeAmount
     };
 
     // 1. Broadcast locally
@@ -1996,6 +2025,11 @@ export const POS: React.FC<POSProps> = ({
 
         const change = method === 'cash' && tendered ? tendered - payableTotal : 0;
 
+        const branchForSC = branches.find(b => b.id === (finalSubStoreId || selectedBranch.id)) || selectedBranch;
+        const effectiveSCRate = Number(branchForSC?.service_charge_rate || selectedBranch?.service_charge_rate || 0);
+        const computedGrossTotal = discountedItems.reduce((acc, p) => acc + (p.price * p.quantity), 0);
+        const effectiveSCAmount = effectiveSCRate > 0 ? Number((computedGrossTotal * (effectiveSCRate / 100)).toFixed(2)) : 0;
+
         setLastSaleResult({
           id: saleId as string,
           change,
@@ -2003,6 +2037,8 @@ export const POS: React.FC<POSProps> = ({
           sale_category: saleCategory,
           reference_number: referenceNumber,
           queue_number: queueNumber || null,
+          service_charge_rate: effectiveSCRate,
+          service_charge_amount: effectiveSCAmount,
           items: discountedItems.map((p, idx) => ({
             id: String(idx),
             quantity: p.quantity,
@@ -2040,6 +2076,11 @@ export const POS: React.FC<POSProps> = ({
       } else {
         if (!terminalConfig) throw new Error('No terminal configuration found.');
 
+        const branchForSC = branches.find(b => b.id === (finalSubStoreId || selectedBranch.id)) || selectedBranch;
+        const effectiveSCRate = Number(branchForSC?.service_charge_rate || selectedBranch?.service_charge_rate || 0);
+        const computedGrossTotal = discountedItems.reduce((acc, p) => acc + (p.price * p.quantity), 0);
+        const effectiveSCAmount = effectiveSCRate > 0 ? Number((computedGrossTotal * (effectiveSCRate / 100)).toFixed(2)) : 0;
+
         const offlineSale = await enqueueOfflineSale({
           branch_id: selectedBranch.id,
           sub_store_id: finalSubStoreId || undefined,
@@ -2049,6 +2090,8 @@ export const POS: React.FC<POSProps> = ({
           amount_tendered: tendered,
           sale_category: saleCategory,
           reference_number: referenceNumber,
+          service_charge_rate: effectiveSCRate,
+          service_charge_amount: effectiveSCAmount,
           items: discountedItems.map(p => ({
             menu_item_id: p.menu_item_id,
             quantity: p.quantity,
@@ -2078,6 +2121,8 @@ export const POS: React.FC<POSProps> = ({
           reference_number: referenceNumber,
           control_number: offlineSale.control_number,
           queue_number: queueNumber || null,
+          service_charge_rate: effectiveSCRate,
+          service_charge_amount: effectiveSCAmount,
           items: offlineSale.items.map((item, idx) => ({
             id: String(idx),
             quantity: item.quantity,
@@ -2219,25 +2264,21 @@ export const POS: React.FC<POSProps> = ({
         </div>
       </ScrollArea>
 
-      {/* Checkout Summary */}
-      <div className="p-4 md:p-6 border-t bg-background space-y-4 shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.04)]">
-        {/* Line items subtotal */}
-        {cart.length > 0 && (
-          <div className="space-y-1">
-            {cart.map(ci => (
-              <div key={ci.menu_item_id} className="flex justify-between text-xs text-muted-foreground">
-                <span>{ci.name} × {ci.quantity}</span>
-                <span>{formatPHP(ci.price * ci.quantity)}</span>
-              </div>
-            ))}
+      {/* Checkout Summary - Sticky Bottom & Pinned */}
+      <div className="p-4 md:p-5 border-t bg-background space-y-3 shrink-0 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] z-10">
+        <div className="space-y-1.5">
+          {serviceChargeAmount > 0 && (
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-muted-foreground font-medium">Service Charge:</span>
+              <span className="font-semibold text-foreground">{formatPHP(serviceChargeAmount)}</span>
+            </div>
+          )}
+          <div className="flex justify-between items-baseline">
+            <span className="text-xs uppercase tracking-wider text-muted-foreground font-bold">
+              Total Due ({cartCount} {cartCount === 1 ? 'item' : 'items'})
+            </span>
+            <span className="text-primary text-2xl font-black">{formatPHP(cartTotalWithSC)}</span>
           </div>
-        )}
-
-        <Separator />
-
-        <div className="flex justify-between items-center text-base font-bold">
-          <span>Total</span>
-          <span className="text-primary text-xl">{formatPHP(cartTotal)}</span>
         </div>
 
         {!selectedBranch && (
@@ -2261,7 +2302,7 @@ export const POS: React.FC<POSProps> = ({
 
         <Button
           size="lg"
-          className="w-full font-bold shadow-md"
+          className="w-full font-bold shadow-md h-12 text-base active:scale-[0.99] transition-transform"
           onClick={openPayment}
           disabled={checkingOut || cart.length === 0 || !selectedBranch || (!isOnline && !terminalConfig)}
         >
@@ -2275,9 +2316,9 @@ export const POS: React.FC<POSProps> = ({
 
   return (
     <>
-      <div className="flex-1 flex overflow-hidden h-full relative">
+      <div className="flex-1 flex overflow-hidden h-full min-h-0 relative">
         {/* Menu / Catalog Panel */}
-        <div className="flex-1 flex flex-col p-4 md:p-8 overflow-y-auto pb-48 lg:pb-8">
+        <div className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-y-auto min-h-0 h-full pb-48 lg:pb-8">
           {/* Header */}
           <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0">
             <div>
@@ -2579,8 +2620,8 @@ export const POS: React.FC<POSProps> = ({
           )}
         </div>
 
-        {/* Desktop Cart Panel */}
-        <div className="hidden lg:flex w-96 border-l bg-muted/10 flex-col h-full shrink-0">
+        {/* Desktop Cart Panel - Locked Viewport Height */}
+        <div className="hidden lg:flex w-96 border-l bg-muted/10 flex-col h-full shrink-0 overflow-hidden min-h-0">
           {renderCartContent()}
         </div>
 
@@ -2588,7 +2629,7 @@ export const POS: React.FC<POSProps> = ({
         <div className={`lg:hidden fixed ${isFullscreen ? 'bottom-4 md:bottom-0' : 'bottom-[104px] md:bottom-0'} left-4 right-4 md:left-0 md:right-0 p-4 bg-background border md:border-x-0 md:border-b-0 md:border-t rounded-2xl md:rounded-none shadow-lg flex justify-between items-center z-40`}>
           <div>
             <p className="text-xs text-muted-foreground font-semibold">Total ({cartCount} items)</p>
-            <p className="text-lg font-bold text-primary">{formatPHP(cartTotal)}</p>
+            <p className="text-lg font-bold text-primary">{formatPHP(cartTotalWithSC)}</p>
           </div>
           <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
             <SheetTrigger asChild>
@@ -2623,6 +2664,7 @@ export const POS: React.FC<POSProps> = ({
         defaultSaleCategory={priceChannel === 'foodpanda' ? 'FoodPanda' : priceChannel === 'grab' ? 'GrabFood' : vocab.defaultSaleCategory}
         subStores={subStores}
         initialSubStore={selectedSubStore}
+        serviceChargeRate={serviceChargeRate}
       />
 
 
@@ -2675,6 +2717,19 @@ export const POS: React.FC<POSProps> = ({
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>Queue / Order / Table #</span>
                     <span className="font-bold text-foreground">{lastSaleResult.queue_number}</span>
+                  </div>
+                )}
+
+                {(Number(lastSaleResult.service_charge_amount) || 0) > 0 && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Service Charge</span>
+                    <span className="font-semibold text-foreground">{formatPHP(Number(lastSaleResult.service_charge_amount))}</span>
+                  </div>
+                )}
+                {lastSaleResult.total_amount != null && (
+                  <div className="flex justify-between text-xs text-muted-foreground font-bold">
+                    <span>Total Amount</span>
+                    <span className="font-bold text-foreground">{formatPHP(lastSaleResult.total_amount)}</span>
                   </div>
                 )}
                 

@@ -43,6 +43,7 @@ interface POSState {
   discountAmount?: number;
   payableTotal?: number;
   vatRelief?: number;
+  serviceChargeAmount?: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -458,6 +459,13 @@ export const CustomerDisplay: React.FC = () => {
                       </div>
                     )}
                   </>
+                )}
+
+                {(state.serviceChargeAmount || 0) > 0 && (
+                  <div className="flex justify-between items-center text-xs font-semibold text-zinc-700">
+                    <span>Service Charge</span>
+                    <span>+ {formatPHP(state.serviceChargeAmount || 0)}</span>
+                  </div>
                 )}
 
                 <div className="flex justify-between items-center pt-2 border-t border-zinc-200">

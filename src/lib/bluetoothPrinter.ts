@@ -301,16 +301,18 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
     if (template.merchant_contact) {
         payload.push(...encoder.encode(template.merchant_contact + '\n'));
     }
-    if (template.merchant_tin) {
-        payload.push(...encoder.encode(template.merchant_tin + '\n'));
+    if (template.merchant_tin && template.merchant_tin.trim().length > 0) {
+        payload.push(...encoder.encode(template.merchant_tin.trim() + '\n'));
     }
 
     payload.push(...encoder.encode('--------------------------------\n'));
     
     payload.push(...BOLD_ON);
-    const headerText = template.header_text || 'SALES INVOICE';
+    const headerText = (template.header_text && template.header_text !== 'SALES INVOICE') ? template.header_text : 'BILL';
     payload.push(...encoder.encode(headerText + '\n'));
     payload.push(...BOLD_OFF);
+    payload.push(...encoder.encode('THIS DOCUMENT IS NOT VALID\nFOR CLAIM OF INPUT TAX\n'));
+    payload.push(...encoder.encode('An OR will be issued upon payment\n'));
 
     payload.push(...encoder.encode('--------------------------------\n'));
 
@@ -365,6 +367,9 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
         const discLabel = `Discount (${(sale.discount_type || 'DISC').toUpperCase()}):`;
         payload.push(...encoder.encode(formatKeyValueLine(discLabel, `-P${discountAmt.toFixed(2)}`, 32) + '\n'));
     }
+    if (Number(sale.service_charge_amount || 0) > 0) {
+        payload.push(...encoder.encode(formatKeyValueLine('Service Charge:', `P${Number(sale.service_charge_amount).toFixed(2)}`, 32) + '\n'));
+    }
 
     payload.push(...BOLD_ON);
     const totalStr = `P${Number(sale.total_amount).toFixed(2)}`;
@@ -404,6 +409,8 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
 
     // Footer
     payload.push(...ALIGN_CENTER);
+    payload.push(...encoder.encode('THIS DOCUMENT IS NOT VALID\nFOR CLAIM OF INPUT TAX\n'));
+    payload.push(...encoder.encode('An OR will be issued upon payment\n\n'));
     const footerText = template.footer_text || 'Thank you for dining with us!\nCome back again!';
     const footerLines = footerText.split('\n');
     for (const line of footerLines) {
