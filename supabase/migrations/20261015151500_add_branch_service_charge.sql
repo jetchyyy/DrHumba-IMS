@@ -2,11 +2,18 @@
 -- MIGRATION: Add Branch Service Charge & Bill Compliance
 -- ============================================================
 
--- 1. Add service_charge_rate to public.branches
-ALTER TABLE public.branches 
-ADD COLUMN IF NOT EXISTS service_charge_rate NUMERIC(5,2) NOT NULL DEFAULT 0.00;
+-- 1. Add default_service_charge_rate to public.tenants (General Service Charge for all branches)
+ALTER TABLE public.tenants 
+ADD COLUMN IF NOT EXISTS default_service_charge_rate NUMERIC(5,2) NOT NULL DEFAULT 0.00;
 
--- 2. Add service_charge_rate and service_charge_amount to public.sales
+-- 2. Add service_charge_rate to public.branches (NULL means inherit tenant general rate, 0.00 means explicitly exempt/no SC)
+ALTER TABLE public.branches 
+ADD COLUMN IF NOT EXISTS service_charge_rate NUMERIC(5,2) DEFAULT NULL;
+
+-- If column was previously created with NOT NULL or DEFAULT 0.00, adjust to allow NULL
+ALTER TABLE public.branches ALTER COLUMN service_charge_rate DROP NOT NULL;
+
+-- 3. Add service_charge_rate and service_charge_amount to public.sales
 ALTER TABLE public.sales 
 ADD COLUMN IF NOT EXISTS service_charge_rate NUMERIC(5,2) NOT NULL DEFAULT 0.00,
 ADD COLUMN IF NOT EXISTS service_charge_amount NUMERIC NOT NULL DEFAULT 0.00;
@@ -190,52 +197,63 @@ BEGIN
 
         IF v_has_recipe THEN
             FOR r_ing IN (
-                SELECT ri.item_id, ri.quantity_base_unit
+                SELECT ri.item_id, ri.quantity_base_unit, i.item_name
                 FROM public.recipe_ingredients ri
-                JOIN public.recipes r ON r.id = ri.recipe_id
+                JOIN public.recipes r         ON r.id  = ri.recipe_id
+                JOIN public.inventory_items i ON i.id  = ri.item_id
                 WHERE r.menu_item_id = r_item.menu_item_id
             ) LOOP
                 v_qty_needed := r_ing.quantity_base_unit * r_item.qty;
 
-                SELECT quantity INTO v_current_qty
-                FROM public.branch_inventory
+                SELECT COALESCE(quantity, 0) INTO v_current_qty
+                FROM public.inventory_balances
                 WHERE branch_id = p_branch_id AND item_id = r_ing.item_id;
 
-                IF v_current_qty IS NULL THEN
-                    SELECT item_name INTO v_item_name FROM public.inventory_items WHERE id = r_ing.item_id;
-                    RAISE EXCEPTION 'Stock record not found for "%" in this branch.', v_item_name;
+                IF v_current_qty IS NULL OR v_current_qty < v_qty_needed THEN
+                    RAISE EXCEPTION 'Insufficient stock for ingredient "%": required %, current %',
+                        r_ing.item_name, v_qty_needed, COALESCE(v_current_qty, 0);
                 END IF;
 
-                IF v_current_qty < v_qty_needed THEN
-                    SELECT item_name INTO v_item_name FROM public.inventory_items WHERE id = r_ing.item_id;
-                    RAISE EXCEPTION 'Insufficient stock for "%". Required: %, Available: %',
-                        v_item_name, v_qty_needed, v_current_qty;
-                END IF;
-
-                UPDATE public.branch_inventory
+                UPDATE public.inventory_balances
                 SET quantity   = quantity - v_qty_needed,
                     updated_at = now()
                 WHERE branch_id = p_branch_id AND item_id = r_ing.item_id;
+
+                INSERT INTO public.inventory_movements
+                    (branch_id, item_id, quantity, movement_type, reference_id, reference_type, created_by, tenant_id)
+                VALUES
+                    (p_branch_id, r_ing.item_id, -v_qty_needed, 'sale_deduction', v_sale_id, 'sale', auth.uid(), v_tenant_id);
+
+                PERFORM public.fn_check_low_stock(p_branch_id, r_ing.item_id);
             END LOOP;
         ELSIF v_inventory_item_id IS NOT NULL THEN
             v_qty_needed := r_item.qty;
 
-            SELECT quantity INTO v_current_qty
-            FROM public.branch_inventory
+            SELECT COALESCE(quantity, 0), i.item_name INTO v_current_qty, v_item_name
+            FROM public.inventory_balances ib
+            JOIN public.inventory_items i ON i.id = ib.item_id
+            WHERE ib.branch_id = p_branch_id AND ib.item_id = v_inventory_item_id;
+
+            IF v_item_name IS NULL THEN
+                SELECT item_name INTO v_item_name FROM public.inventory_items WHERE id = v_inventory_item_id;
+            END IF;
+
+            IF v_current_qty IS NULL OR v_current_qty < v_qty_needed THEN
+                RAISE EXCEPTION 'Insufficient stock for product "%": required %, current %',
+                    COALESCE(v_item_name, 'Direct POS Item'), v_qty_needed, COALESCE(v_current_qty, 0);
+            END IF;
+
+            UPDATE public.inventory_balances
+            SET quantity   = quantity - v_qty_needed,
+                updated_at = now()
             WHERE branch_id = p_branch_id AND item_id = v_inventory_item_id;
 
-            IF v_current_qty IS NOT NULL THEN
-                IF v_current_qty < v_qty_needed THEN
-                    SELECT item_name INTO v_item_name FROM public.inventory_items WHERE id = v_inventory_item_id;
-                    RAISE EXCEPTION 'Insufficient stock for "%". Required: %, Available: %',
-                        v_item_name, v_qty_needed, v_current_qty;
-                END IF;
+            INSERT INTO public.inventory_movements
+                (branch_id, item_id, quantity, movement_type, reference_id, reference_type, created_by, tenant_id)
+            VALUES
+                (p_branch_id, v_inventory_item_id, -v_qty_needed, 'sale_deduction', v_sale_id, 'sale', auth.uid(), v_tenant_id);
 
-                UPDATE public.branch_inventory
-                SET quantity   = quantity - v_qty_needed,
-                    updated_at = now()
-                WHERE branch_id = p_branch_id AND item_id = v_inventory_item_id;
-            END IF;
+            PERFORM public.fn_check_low_stock(p_branch_id, v_inventory_item_id);
         END IF;
 
     END LOOP;
@@ -262,18 +280,28 @@ BEGIN
         END IF;
     END IF;
 
-    -- Calculate optional branch service charge based on gross total amount (before discount)
-    SELECT COALESCE(service_charge_rate, 0)
+    -- Calculate service charge: Branch override (if configured) -> Tenant general default -> 0%
+    SELECT service_charge_rate
     INTO v_sc_rate
     FROM public.branches
     WHERE id = COALESCE(p_sub_store_id, p_branch_id);
 
-    IF v_sc_rate = 0 AND p_sub_store_id IS NOT NULL THEN
-        SELECT COALESCE(service_charge_rate, 0)
+    IF v_sc_rate IS NULL AND p_sub_store_id IS NOT NULL THEN
+        SELECT service_charge_rate
         INTO v_sc_rate
         FROM public.branches
         WHERE id = p_branch_id;
     END IF;
+
+    -- If branch/sub-store does not specify an override (service_charge_rate IS NULL), inherit tenant general default
+    IF v_sc_rate IS NULL THEN
+        SELECT COALESCE(default_service_charge_rate, 0.00)
+        INTO v_sc_rate
+        FROM public.tenants
+        WHERE id = v_tenant_id;
+    END IF;
+
+    v_sc_rate := COALESCE(v_sc_rate, 0.00);
 
     IF v_sc_rate > 0 THEN
         v_service_charge := ROUND((v_total_amount * (v_sc_rate / 100.0)), 2);
@@ -476,25 +504,49 @@ BEGIN
 
         IF v_has_recipe THEN
             FOR r_ing IN (
-                SELECT ri.item_id, ri.quantity_base_unit
+                SELECT ri.item_id, ri.quantity_base_unit, i.item_name
                 FROM public.recipe_ingredients ri
-                JOIN public.recipes r ON r.id = ri.recipe_id
+                JOIN public.recipes r         ON r.id  = ri.recipe_id
+                JOIN public.inventory_items i ON i.id  = ri.item_id
                 WHERE r.menu_item_id = r_item.menu_item_id
             ) LOOP
                 v_qty_needed := r_ing.quantity_base_unit * r_item.qty;
 
-                UPDATE public.branch_inventory
-                SET quantity   = GREATEST(0, quantity - v_qty_needed),
+                SELECT COALESCE(quantity, 0) INTO v_current_qty
+                FROM public.inventory_balances
+                WHERE branch_id = p_branch_id AND item_id = r_ing.item_id;
+
+                UPDATE public.inventory_balances
+                SET quantity   = quantity - v_qty_needed,
                     updated_at = now()
                 WHERE branch_id = p_branch_id AND item_id = r_ing.item_id;
+
+                INSERT INTO public.inventory_movements
+                    (branch_id, item_id, quantity, movement_type, reference_id, reference_type, created_by, tenant_id)
+                VALUES
+                    (p_branch_id, r_ing.item_id, -v_qty_needed, 'sale_deduction', v_sale_id, 'sale', p_cashier_id, v_tenant_id);
+
+                PERFORM public.fn_check_low_stock(p_branch_id, r_ing.item_id);
             END LOOP;
         ELSIF v_inventory_item_id IS NOT NULL THEN
             v_qty_needed := r_item.qty;
 
-            UPDATE public.branch_inventory
-            SET quantity   = GREATEST(0, quantity - v_qty_needed),
+            SELECT COALESCE(quantity, 0), i.item_name INTO v_current_qty, v_item_name
+            FROM public.inventory_balances ib
+            JOIN public.inventory_items i ON i.id = ib.item_id
+            WHERE ib.branch_id = p_branch_id AND ib.item_id = v_inventory_item_id;
+
+            UPDATE public.inventory_balances
+            SET quantity   = quantity - v_qty_needed,
                 updated_at = now()
             WHERE branch_id = p_branch_id AND item_id = v_inventory_item_id;
+
+            INSERT INTO public.inventory_movements
+                (branch_id, item_id, quantity, movement_type, reference_id, reference_type, created_by, tenant_id)
+            VALUES
+                (p_branch_id, v_inventory_item_id, -v_qty_needed, 'sale_deduction', v_sale_id, 'sale', p_cashier_id, v_tenant_id);
+
+            PERFORM public.fn_check_low_stock(p_branch_id, v_inventory_item_id);
         END IF;
 
     END LOOP;
@@ -521,18 +573,28 @@ BEGIN
         END IF;
     END IF;
 
-    -- Calculate optional branch service charge based on gross total amount (before discount)
-    SELECT COALESCE(service_charge_rate, 0)
+    -- Calculate service charge: Branch override (if configured) -> Tenant general default -> 0%
+    SELECT service_charge_rate
     INTO v_sc_rate
     FROM public.branches
     WHERE id = COALESCE(p_sub_store_id, p_branch_id);
 
-    IF v_sc_rate = 0 AND p_sub_store_id IS NOT NULL THEN
-        SELECT COALESCE(service_charge_rate, 0)
+    IF v_sc_rate IS NULL AND p_sub_store_id IS NOT NULL THEN
+        SELECT service_charge_rate
         INTO v_sc_rate
         FROM public.branches
         WHERE id = p_branch_id;
     END IF;
+
+    -- If branch/sub-store does not specify an override (service_charge_rate IS NULL), inherit tenant general default
+    IF v_sc_rate IS NULL THEN
+        SELECT COALESCE(default_service_charge_rate, 0.00)
+        INTO v_sc_rate
+        FROM public.tenants
+        WHERE id = v_tenant_id;
+    END IF;
+
+    v_sc_rate := COALESCE(v_sc_rate, 0.00);
 
     IF v_sc_rate > 0 THEN
         v_service_charge := ROUND((v_total_amount * (v_sc_rate / 100.0)), 2);

@@ -31,6 +31,7 @@ export interface Tenant {
   is_restaurant?: boolean;
   is_retail?: boolean;
   is_service?: boolean;
+  default_service_charge_rate?: number;
 }
 
 interface TenantContextType {

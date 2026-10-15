@@ -1391,7 +1391,10 @@ export const POS: React.FC<POSProps> = ({
   const cartCount = cart.reduce((s, ci) => s + ci.quantity, 0);
 
   const activeStore = selectedSubStore || selectedBranch;
-  const serviceChargeRate = Number(activeStore?.service_charge_rate || selectedBranch?.service_charge_rate || 0);
+  const rawBranchSCRate = activeStore?.service_charge_rate !== undefined && activeStore?.service_charge_rate !== null
+    ? activeStore.service_charge_rate
+    : (selectedBranch?.service_charge_rate !== undefined && selectedBranch?.service_charge_rate !== null ? selectedBranch.service_charge_rate : null);
+  const serviceChargeRate = Number(rawBranchSCRate !== null ? rawBranchSCRate : (tenant?.default_service_charge_rate || 0));
   const serviceChargeAmount = serviceChargeRate > 0 ? Number((cartTotal * (serviceChargeRate / 100)).toFixed(2)) : 0;
   const cartTotalWithSC = Number((cartTotal + serviceChargeAmount).toFixed(2));
 
@@ -2026,7 +2029,10 @@ export const POS: React.FC<POSProps> = ({
         const change = method === 'cash' && tendered ? tendered - payableTotal : 0;
 
         const branchForSC = branches.find(b => b.id === (finalSubStoreId || selectedBranch.id)) || selectedBranch;
-        const effectiveSCRate = Number(branchForSC?.service_charge_rate || selectedBranch?.service_charge_rate || 0);
+        const branchRate = branchForSC?.service_charge_rate !== undefined && branchForSC?.service_charge_rate !== null
+          ? branchForSC.service_charge_rate
+          : (selectedBranch?.service_charge_rate !== undefined && selectedBranch?.service_charge_rate !== null ? selectedBranch.service_charge_rate : null);
+        const effectiveSCRate = Number(branchRate !== null ? branchRate : (tenant?.default_service_charge_rate || 0));
         const computedGrossTotal = discountedItems.reduce((acc, p) => acc + (p.price * p.quantity), 0);
         const effectiveSCAmount = effectiveSCRate > 0 ? Number((computedGrossTotal * (effectiveSCRate / 100)).toFixed(2)) : 0;
 
@@ -2077,7 +2083,10 @@ export const POS: React.FC<POSProps> = ({
         if (!terminalConfig) throw new Error('No terminal configuration found.');
 
         const branchForSC = branches.find(b => b.id === (finalSubStoreId || selectedBranch.id)) || selectedBranch;
-        const effectiveSCRate = Number(branchForSC?.service_charge_rate || selectedBranch?.service_charge_rate || 0);
+        const branchRate = branchForSC?.service_charge_rate !== undefined && branchForSC?.service_charge_rate !== null
+          ? branchForSC.service_charge_rate
+          : (selectedBranch?.service_charge_rate !== undefined && selectedBranch?.service_charge_rate !== null ? selectedBranch.service_charge_rate : null);
+        const effectiveSCRate = Number(branchRate !== null ? branchRate : (tenant?.default_service_charge_rate || 0));
         const computedGrossTotal = discountedItems.reduce((acc, p) => acc + (p.price * p.quantity), 0);
         const effectiveSCAmount = effectiveSCRate > 0 ? Number((computedGrossTotal * (effectiveSCRate / 100)).toFixed(2)) : 0;
 

@@ -15,6 +15,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
+  GearIcon as SettingsIcon,
 } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
@@ -27,6 +28,14 @@ import { Checkbox } from './ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from './ui/dialog';
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -38,13 +47,15 @@ import {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type BranchStatus = 'active' | 'inactive';
+type ServiceChargeMode = 'inherit' | 'custom';
 
 interface FormState {
   name: string;
   location: string;
   isWarehouse: boolean;
   status: BranchStatus;
-  serviceChargeRate: number;
+  serviceChargeMode: ServiceChargeMode;
+  customServiceChargeRate: number;
 }
 
 const EMPTY_FORM: FormState = {
@@ -52,7 +63,8 @@ const EMPTY_FORM: FormState = {
   location: '',
   isWarehouse: false,
   status: 'active',
-  serviceChargeRate: 0,
+  serviceChargeMode: 'inherit',
+  customServiceChargeRate: 0,
 };
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -64,10 +76,64 @@ const mapsUrl = (address: string) =>
 
 export const BranchManagement: React.FC = () => {
   const { profile, branches, refreshProfile } = useAuth();
-  const { tenant } = useTenant();
+  const { tenant, refreshTenant } = useTenant();
   const { confirm, showSuccess, showError } = useModal();
 
   const isSuperAdmin = profile?.role_name === 'super_admin';
+
+  // ── General Service Charge State ───────────────────────────────────────────
+  const [generalSCModalOpen, setGeneralSCModalOpen] = useState(false);
+  const [generalSCRateInput, setGeneralSCRateInput] = useState<number>(0);
+  const [savingGeneralSC, setSavingGeneralSC] = useState(false);
+  const [applyToAllBranches, setApplyToAllBranches] = useState(false);
+
+  const tenantGeneralSCRate = Number(tenant?.default_service_charge_rate || 0);
+
+  const openGeneralSCModal = () => {
+    setGeneralSCRateInput(tenantGeneralSCRate);
+    setApplyToAllBranches(false);
+    setGeneralSCModalOpen(true);
+  };
+
+  const handleSaveGeneralSC = async () => {
+    if (!tenant?.id) return;
+    setSavingGeneralSC(true);
+    try {
+      const newRate = isNaN(Number(generalSCRateInput)) ? 0 : Math.max(0, Math.min(100, Number(generalSCRateInput)));
+      
+      // 1. Update tenants table default_service_charge_rate
+      const { error: tenantErr } = await supabase
+        .from('tenants')
+        .update({ default_service_charge_rate: newRate })
+        .eq('id', tenant.id);
+
+      if (tenantErr) throw tenantErr;
+
+      // 2. If user also checked "Reset / Apply to all existing branches"
+      if (applyToAllBranches) {
+        const { error: branchErr } = await supabase
+          .from('branches')
+          .update({ service_charge_rate: null })
+          .eq('tenant_id', tenant.id);
+
+        if (branchErr) throw branchErr;
+      }
+
+      await refreshTenant();
+      await refreshProfile();
+      setGeneralSCModalOpen(false);
+      showSuccess(
+        applyToAllBranches
+          ? `General Service Charge updated to ${newRate}% and reset across all branches.`
+          : `General Service Charge updated to ${newRate}%. Branches set to inherit will now use this rate.`
+      );
+    } catch (err: any) {
+      console.error(err);
+      showError(err.message || 'Failed to update general service charge.');
+    } finally {
+      setSavingGeneralSC(false);
+    }
+  };
 
   // ── Plan limits ─────────────────────────────────────────────────────────────
   const parentBranchesCount = branches.filter(b => !b.parent_id).length;
@@ -89,19 +155,26 @@ export const BranchManagement: React.FC = () => {
 
   const openCreateSheet = (parent?: any) => {
     setParentForSubStore(parent ?? null);
-    setForm({ ...EMPTY_FORM, location: parent?.location ?? '' });
+    setForm({
+      ...EMPTY_FORM,
+      location: parent?.location ?? '',
+      serviceChargeMode: 'inherit',
+      customServiceChargeRate: tenantGeneralSCRate,
+    });
     setEditingBranch(null);
     setSheetMode('create');
   };
 
   const openEditSheet = (branch: any) => {
     setEditingBranch(branch);
+    const hasBranchOverride = branch.service_charge_rate !== null && branch.service_charge_rate !== undefined;
     setForm({
       name: branch.name,
       location: branch.location || '',
       isWarehouse: branch.is_warehouse ?? false,
       status: branch.status || 'active',
-      serviceChargeRate: branch.service_charge_rate != null ? Number(branch.service_charge_rate) : 0,
+      serviceChargeMode: hasBranchOverride ? 'custom' : 'inherit',
+      customServiceChargeRate: hasBranchOverride ? Number(branch.service_charge_rate) : tenantGeneralSCRate,
     });
     setParentForSubStore(null);
     setSheetMode('edit');
@@ -185,13 +258,18 @@ export const BranchManagement: React.FC = () => {
 
     setSubmitting(true);
     try {
+      const finalSCRate =
+        form.serviceChargeMode === 'custom'
+          ? Math.max(0, Math.min(100, Number(form.customServiceChargeRate) || 0))
+          : null;
+
       if (sheetMode === 'create') {
         const { error } = await supabase.from('branches').insert({
           name: form.name.trim(),
           location: form.location.trim() || null,
           is_warehouse: form.isWarehouse,
           status: form.status,
-          service_charge_rate: Number(form.serviceChargeRate) || 0,
+          service_charge_rate: finalSCRate,
           parent_id: parentForSubStore?.id || null,
           tenant_id: tenant?.id,
         });
@@ -209,7 +287,7 @@ export const BranchManagement: React.FC = () => {
             location: form.location.trim() || null,
             is_warehouse: form.isWarehouse,
             status: form.status,
-            service_charge_rate: Number(form.serviceChargeRate) || 0,
+            service_charge_rate: finalSCRate,
           })
           .eq('id', editingBranch.id);
         if (error) throw error;
@@ -268,7 +346,8 @@ export const BranchManagement: React.FC = () => {
   // ── Render helpers ─────────────────────────────────────────────────────────
 
   const TypeBadge = ({ branch }: { branch: any }) => {
-    const rate = Number(branch.service_charge_rate) || 0;
+    const isCustom = branch.service_charge_rate !== null && branch.service_charge_rate !== undefined;
+    const effectiveRate = isCustom ? Number(branch.service_charge_rate) : tenantGeneralSCRate;
     return (
       <div className="flex flex-wrap items-center gap-1.5">
         {branch.parent_id ? (
@@ -284,11 +363,27 @@ export const BranchManagement: React.FC = () => {
             <Store className="w-2.5 h-2.5" /> Retail Branch
           </Badge>
         )}
-        {rate > 0 && (
-          <Badge variant="outline" className="text-[10px] font-semibold border-amber-500/40 text-amber-500 bg-amber-500/10">
-            SC: {rate}%
+        {effectiveRate > 0 ? (
+          <Badge
+            variant="outline"
+            className={`text-[10px] font-semibold ${
+              isCustom
+                ? 'border-amber-500/50 text-amber-500 bg-amber-500/10'
+                : 'border-blue-500/40 text-blue-400 bg-blue-500/10'
+            }`}
+            title={isCustom ? 'Branch custom override' : 'Inherited from general service charge'}
+          >
+            SC: {effectiveRate}% {isCustom ? '(Custom)' : '(Default)'}
           </Badge>
-        )}
+        ) : isCustom && Number(branch.service_charge_rate) === 0 ? (
+          <Badge
+            variant="outline"
+            className="text-[10px] font-semibold border-muted-foreground/30 text-muted-foreground bg-muted/40"
+            title="Branch explicitly exempt from service charge"
+          >
+            SC: Exempt (0%)
+          </Badge>
+        ) : null}
       </div>
     );
   };
@@ -439,25 +534,35 @@ export const BranchManagement: React.FC = () => {
                   </TooltipContent>
                 </Tooltip>
               )}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      onClick={() => openCreateSheet()}
-                      disabled={limitReached}
-                      className="gap-1.5"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Create New Branch
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                {limitReached && (
-                  <TooltipContent>
-                    Branch limit reached — upgrade your "{tenant?.plan_type}" plan to add more.
-                  </TooltipContent>
-                )}
-              </Tooltip>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={openGeneralSCModal}
+                  className="gap-1.5 border-amber-500/30 text-amber-500 hover:bg-amber-500/10 hover:text-amber-400"
+                >
+                  <SettingsIcon className="h-3.5 w-3.5" />
+                  General Service Charge {tenantGeneralSCRate > 0 ? `(${tenantGeneralSCRate}%)` : '(None)'}
+                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        onClick={() => openCreateSheet()}
+                        disabled={limitReached}
+                        className="gap-1.5"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Create New Branch
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {limitReached && (
+                    <TooltipContent>
+                      Branch limit reached — upgrade your "{tenant?.plan_type}" plan to add more.
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </div>
             </div>
           )}
         </div>
@@ -824,28 +929,76 @@ export const BranchManagement: React.FC = () => {
                 </Select>
               </div>
 
-              {/* Service Charge Rate */}
-              <div className="space-y-2">
+              {/* Service Charge Configuration */}
+              <div className="space-y-3 p-3.5 bg-muted/30 rounded-lg border border-border/60">
                 <div className="flex justify-between items-center">
-                  <Label htmlFor="sc_rate">Service Charge Rate (%)</Label>
-                  <span className="text-[11px] text-muted-foreground font-medium">Optional</span>
+                  <Label className="font-semibold text-sm">Service Charge</Label>
+                  <span className="text-[11px] text-muted-foreground font-medium">Branch Setting</span>
                 </div>
-                <Input
-                  id="sc_rate"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={form.serviceChargeRate === 0 ? '' : form.serviceChargeRate}
-                  onChange={e => {
-                    const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
-                    setForm(f => ({ ...f, serviceChargeRate: isNaN(val) ? 0 : val }));
-                  }}
-                  placeholder="0.00 (Leave 0 for no service charge)"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Applied as a percentage on the gross bill total before discounts. If 0%, no service charge line will appear on bills or receipts.
-                </p>
+
+                <div className="space-y-2">
+                  <label className="flex items-start gap-2.5 p-2 rounded-md border cursor-pointer hover:bg-muted/50 transition-colors">
+                    <input
+                      type="radio"
+                      name="sc_mode"
+                      className="mt-1"
+                      checked={form.serviceChargeMode === 'inherit'}
+                      onChange={() => setForm(f => ({ ...f, serviceChargeMode: 'inherit' }))}
+                    />
+                    <div className="flex-1 text-xs">
+                      <div className="font-semibold text-foreground flex items-center gap-1.5">
+                        <span>Use General Default</span>
+                        <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-500/40 bg-blue-500/10">
+                          {tenantGeneralSCRate}% Rate
+                        </Badge>
+                      </div>
+                      <p className="text-muted-foreground text-[11px] mt-0.5">
+                        Automatically mirrors the organization-wide service charge.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 p-2 rounded-md border cursor-pointer hover:bg-muted/50 transition-colors">
+                    <input
+                      type="radio"
+                      name="sc_mode"
+                      className="mt-1"
+                      checked={form.serviceChargeMode === 'custom'}
+                      onChange={() => setForm(f => ({ ...f, serviceChargeMode: 'custom' }))}
+                    />
+                    <div className="flex-1 text-xs">
+                      <div className="font-semibold text-foreground">
+                        Custom Rate for this Branch
+                      </div>
+                      <p className="text-muted-foreground text-[11px] mt-0.5">
+                        Specify a branch-specific percentage (or 0% to exempt this branch from service charge).
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {form.serviceChargeMode === 'custom' && (
+                  <div className="pt-2 border-t border-border/50 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <Label htmlFor="custom_sc_rate" className="text-xs font-semibold">Custom Branch Rate (%)</Label>
+                      <span className="text-[10px] text-muted-foreground">0 = Exempt / No SC</span>
+                    </div>
+                    <Input
+                      id="custom_sc_rate"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={form.customServiceChargeRate === 0 ? '' : form.customServiceChargeRate}
+                      onChange={e => {
+                        const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                        setForm(f => ({ ...f, customServiceChargeRate: isNaN(val) ? 0 : val }));
+                      }}
+                      placeholder="0.00 (0% = No service charge)"
+                      autoFocus
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Warehouse toggle (only for top-level branches) */}
@@ -887,6 +1040,87 @@ export const BranchManagement: React.FC = () => {
             </form>
           </SheetContent>
         </Sheet>
+
+        {/* ── General Service Charge Configuration Modal ── */}
+        <Dialog open={generalSCModalOpen} onOpenChange={setGeneralSCModalOpen}>
+          <DialogContent className="sm:max-w-[460px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <SettingsIcon className="w-5 h-5 text-amber-500" />
+                General Service Charge
+              </DialogTitle>
+              <DialogDescription>
+                Configure the organization-wide default service charge rate for all branches under{' '}
+                <strong className="text-foreground">{tenant?.name || 'this tenant'}</strong>.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-3">
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <Label htmlFor="gen_sc_rate" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    General Default Rate (%)
+                  </Label>
+                  <span className="text-[11px] text-muted-foreground">0% = Disabled by default</span>
+                </div>
+                <Input
+                  id="gen_sc_rate"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={generalSCRateInput === 0 ? '' : generalSCRateInput}
+                  onChange={e => {
+                    const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                    setGeneralSCRateInput(isNaN(val) ? 0 : val);
+                  }}
+                  placeholder="0.00 (e.g. 5 or 10)"
+                  className="font-mono text-base font-bold"
+                  autoFocus
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Branches configured to "Use General Default" will automatically collect this percentage on gross customer bills.
+                </p>
+              </div>
+
+              <div className="p-3 bg-muted/40 rounded-lg border border-border/60 space-y-2">
+                <div className="flex items-start gap-2.5">
+                  <Checkbox
+                    id="applyToAllBranches"
+                    checked={applyToAllBranches}
+                    onCheckedChange={checked => setApplyToAllBranches(!!checked)}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <Label htmlFor="applyToAllBranches" className="text-xs font-semibold cursor-pointer">
+                      Reset and apply to ALL branches
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Clears branch-specific custom overrides and switches all branches and sub-stores to inherit this general rate.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setGeneralSCModalOpen(false)}
+                disabled={savingGeneralSC}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveGeneralSC}
+                disabled={savingGeneralSC}
+                className="gap-1.5"
+              >
+                {savingGeneralSC ? 'Saving…' : 'Save General Rate'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   );

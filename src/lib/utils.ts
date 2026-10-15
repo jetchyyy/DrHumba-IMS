@@ -12,7 +12,7 @@ export interface Branch {
   location: string | null;
   status?: string;
   parent_id?: string | null;
-  service_charge_rate?: number;
+  service_charge_rate?: number | null;
 }
 
 export interface OrganizedBranch extends Branch {
