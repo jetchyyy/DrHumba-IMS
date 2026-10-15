@@ -158,7 +158,9 @@ export const Transactions: React.FC = () => {
       let salesQuery = supabase
         .from('sales')
         .select(`
-          id, control_number, branch_id, cashier_id, total_amount, status, payment_method, amount_tendered, change_given, void_reason, created_at, branches (name)
+          id, control_number, branch_id, cashier_id, total_amount, status, payment_method, amount_tendered, change_given, void_reason, created_at,
+          service_charge_rate, service_charge_amount, discount_type, discount_amount, discount_metadata, vatable_sales, vat_amount, vat_exempt_sales,
+          branches (name)
         `);
       if (!isAdminRole && profile.branch_id) {
         salesQuery = salesQuery.eq('branch_id', profile.branch_id);

@@ -1790,7 +1790,15 @@ export const POS: React.FC<POSProps> = ({
     sale_category: saleResult.sale_category || 'Dine in',
     reference_number: saleResult.reference_number || '',
     queue_number: saleResult.queue_number,
-    items: saleResult.items
+    items: saleResult.items,
+    service_charge_rate: saleResult.service_charge_rate,
+    service_charge_amount: saleResult.service_charge_amount,
+    discount_type: saleResult.discount_type,
+    discount_amount: saleResult.discount_amount,
+    discount_metadata: saleResult.discount_metadata,
+    vatable_sales: saleResult.vatable_sales,
+    vat_amount: saleResult.vat_amount,
+    vat_exempt_sales: saleResult.vat_exempt_sales,
   });
 
   const handlePrintThermalBluetooth = async (saleResult: any) => {
