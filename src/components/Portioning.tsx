@@ -32,14 +32,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/
 import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Textarea } from './ui/textarea';
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "./ui/pagination";
+import { DataTablePagination } from "./ui/DataTablePagination";
 
 interface PortioningRequest {
   id: string;
@@ -183,7 +176,7 @@ export const Portioning: React.FC = () => {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -837,35 +830,16 @@ export const Portioning: React.FC = () => {
       </Card>
 
       {/* Pagination Controls */}
-      {totalPages > 1 && (
-        <Pagination className="mt-4">
-          <PaginationContent>
-            <PaginationItem>
-              <PaginationPrevious
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-              />
-            </PaginationItem>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-              <PaginationItem key={page}>
-                <PaginationLink
-                  onClick={() => setCurrentPage(page)}
-                  isActive={currentPage === page}
-                  className="cursor-pointer"
-                >
-                  {page}
-                </PaginationLink>
-              </PaginationItem>
-            ))}
-            <PaginationItem>
-              <PaginationNext
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-              />
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
-      )}
+      <DataTablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={filteredRequests.length}
+        itemsPerPage={itemsPerPage}
+        onPageChange={setCurrentPage}
+        onItemsPerPageChange={setItemsPerPage}
+        showPageSizeSelector={true}
+        pageSizeOptions={[10, 20, 50, 100]}
+      />
 
       {/* MODAL: Create Portioning Request */}
       <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>

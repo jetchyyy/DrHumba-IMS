@@ -24,15 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Calendar as CalendarComponent } from './ui/calendar';
 import { useAuth } from '../contexts/AuthContext';
 import { format, isToday } from 'date-fns';
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from './ui/pagination';
+import { DataTablePagination } from './ui/DataTablePagination';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -105,18 +97,6 @@ const stringToHslColor = (str: string): string => {
 };
 
 /** Build smart ellipsis page list */
-const buildPageList = (current: number, total: number): (number | 'ellipsis')[] => {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  const pages: (number | 'ellipsis')[] = [];
-  const left = Math.max(2, current - 1);
-  const right = Math.min(total - 1, current + 1);
-  pages.push(1);
-  if (left > 2) pages.push('ellipsis');
-  for (let p = left; p <= right; p++) pages.push(p);
-  if (right < total - 1) pages.push('ellipsis');
-  pages.push(total);
-  return pages;
-};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -133,7 +113,7 @@ export const AuditLogs: React.FC = () => {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Lookup maps
   const [userEmails, setUserEmails] = useState<Record<string, string>>({});
@@ -700,7 +680,6 @@ export const AuditLogs: React.FC = () => {
 
   const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
   const paginatedLogs = filteredLogs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-  const pageList = buildPageList(currentPage, totalPages);
 
   // ── Stats (derived client-side from full log array) ──────────────────────
 
@@ -1147,44 +1126,18 @@ export const AuditLogs: React.FC = () => {
             </Table>
 
             {/* ── Smart Pagination ── */}
-            {!loading && totalPages > 1 && (
-              <div className="py-4 border-t flex items-center justify-between px-6">
-                <span className="text-xs text-muted-foreground hidden sm:block">
-                  Page {currentPage} of {totalPages} &bull; {filteredLogs.length} entries
-                </span>
-                <Pagination className="mx-0 w-auto">
-                  <PaginationContent>
-                    <PaginationItem>
-                      <PaginationPrevious
-                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        className={currentPage === 1 ? 'pointer-events-none opacity-40' : 'cursor-pointer'}
-                      />
-                    </PaginationItem>
-                    {pageList.map((page, idx) =>
-                      page === 'ellipsis' ? (
-                        <PaginationItem key={`ell-${idx}`}>
-                          <PaginationEllipsis />
-                        </PaginationItem>
-                      ) : (
-                        <PaginationItem key={page}>
-                          <PaginationLink
-                            onClick={() => setCurrentPage(page)}
-                            isActive={currentPage === page}
-                            className="cursor-pointer"
-                          >
-                            {page}
-                          </PaginationLink>
-                        </PaginationItem>
-                      )
-                    )}
-                    <PaginationItem>
-                      <PaginationNext
-                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                        className={currentPage === totalPages ? 'pointer-events-none opacity-40' : 'cursor-pointer'}
-                      />
-                    </PaginationItem>
-                  </PaginationContent>
-                </Pagination>
+            {!loading && (
+              <div className="border-t">
+                <DataTablePagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalItems={filteredLogs.length}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={setCurrentPage}
+                  onItemsPerPageChange={setItemsPerPage}
+                  showPageSizeSelector={true}
+                  pageSizeOptions={[10, 20, 50, 100]}
+                />
               </div>
             )}
           </CardContent>

@@ -19,14 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { useModal } from '../contexts/ModalContext';
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "./ui/pagination";
+import { DataTablePagination } from "./ui/DataTablePagination";
 
 interface ExpenseRecord {
   id: string;
@@ -74,7 +67,7 @@ export const Expenses: React.FC = () => {
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const standardCategories = ['Utilities', 'Salaries', 'Rent', 'Supplies', 'Marketing', 'Repairs', 'Others'];
 
@@ -484,38 +477,18 @@ export const Expenses: React.FC = () => {
             </TableBody>
           </Table>
 
-          {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="py-4 border-t">
-              <Pagination>
-                <PaginationContent>
-                  <PaginationItem>
-                    <PaginationPrevious
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                    />
-                  </PaginationItem>
-                  {Array.from({ length: totalPages }).map((_, i) => (
-                    <PaginationItem key={i}>
-                      <PaginationLink
-                        onClick={() => setCurrentPage(i + 1)}
-                        isActive={currentPage === i + 1}
-                        className="cursor-pointer"
-                      >
-                        {i + 1}
-                      </PaginationLink>
-                    </PaginationItem>
-                  ))}
-                  <PaginationItem>
-                    <PaginationNext
-                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                    />
-                  </PaginationItem>
-                </PaginationContent>
-              </Pagination>
-            </div>
-          )}
+          <div className="border-t">
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={expenses.length}
+              itemsPerPage={itemsPerPage}
+              onPageChange={setCurrentPage}
+              onItemsPerPageChange={setItemsPerPage}
+              showPageSizeSelector={true}
+              pageSizeOptions={[10, 20, 50, 100]}
+            />
+          </div>
         </CardContent>
       </Card>
 

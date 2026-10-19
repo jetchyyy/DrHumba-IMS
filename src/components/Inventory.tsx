@@ -15,14 +15,7 @@ import { Card, CardContent } from './ui/card';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { useModal } from '../contexts/ModalContext';
 import { Checkbox } from './ui/checkbox';
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "./ui/pagination";
+import { DataTablePagination } from "./ui/DataTablePagination";
 
 interface InventoryItem {
   id: string;
@@ -62,7 +55,7 @@ export const Inventory: React.FC = () => {
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   useEffect(() => {
     setCurrentPage(1);
@@ -654,37 +647,18 @@ export const Inventory: React.FC = () => {
                   )}
                 </TableBody>
               </Table>
-              {totalPages > 1 && (
-                <div className="py-4 border-t">
-                  <Pagination>
-                    <PaginationContent>
-                      <PaginationItem>
-                        <PaginationPrevious 
-                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                          className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                        />
-                      </PaginationItem>
-                      {Array.from({ length: totalPages }).map((_, i) => (
-                        <PaginationItem key={i}>
-                          <PaginationLink 
-                            onClick={() => setCurrentPage(i + 1)}
-                            isActive={currentPage === i + 1}
-                            className="cursor-pointer"
-                          >
-                            {i + 1}
-                          </PaginationLink>
-                        </PaginationItem>
-                      ))}
-                      <PaginationItem>
-                        <PaginationNext 
-                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                          className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                        />
-                      </PaginationItem>
-                    </PaginationContent>
-                  </Pagination>
-                </div>
-              )}
+              <div className="border-t">
+                <DataTablePagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalItems={filteredItems.length}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={setCurrentPage}
+                  onItemsPerPageChange={setItemsPerPage}
+                  showPageSizeSelector={true}
+                  pageSizeOptions={[10, 20, 50, 100]}
+                />
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -791,37 +765,18 @@ export const Inventory: React.FC = () => {
                   )}
                 </TableBody>
               </Table>
-              {totalPages > 1 && (
-                <div className="py-4 border-t">
-                  <Pagination>
-                    <PaginationContent>
-                      <PaginationItem>
-                        <PaginationPrevious 
-                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                          className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                        />
-                      </PaginationItem>
-                      {Array.from({ length: totalPages }).map((_, i) => (
-                        <PaginationItem key={i}>
-                          <PaginationLink 
-                            onClick={() => setCurrentPage(i + 1)}
-                            isActive={currentPage === i + 1}
-                            className="cursor-pointer"
-                          >
-                            {i + 1}
-                          </PaginationLink>
-                        </PaginationItem>
-                      ))}
-                      <PaginationItem>
-                        <PaginationNext 
-                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                          className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                        />
-                      </PaginationItem>
-                    </PaginationContent>
-                  </Pagination>
-                </div>
-              )}
+              <div className="border-t">
+                <DataTablePagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalItems={filteredItems.length}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={setCurrentPage}
+                  onItemsPerPageChange={setItemsPerPage}
+                  showPageSizeSelector={true}
+                  pageSizeOptions={[10, 20, 50, 100]}
+                />
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

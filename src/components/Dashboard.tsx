@@ -23,15 +23,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "./ui/pagination";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import { usePendingApprovalCounts } from '../hooks/usePendingApprovalCounts';
 
 interface DashboardStats {
@@ -73,7 +65,7 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   useEffect(() => {
     setCurrentPage(1);
@@ -242,21 +234,6 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
   const totalPages = Math.ceil(filteredGrid.length / itemsPerPage);
   const paginatedGrid = filteredGrid.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const getPageNumbers = () => {
-    const pages: (number | 'ellipsis')[] = [];
-    if (totalPages <= 5) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      if (currentPage <= 3) {
-        pages.push(1, 2, 3, 4, 'ellipsis', totalPages);
-      } else if (currentPage >= totalPages - 2) {
-        pages.push(1, 'ellipsis', totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
-      } else {
-        pages.push(1, 'ellipsis', currentPage - 1, currentPage, currentPage + 1, 'ellipsis', totalPages);
-      }
-    }
-    return pages;
-  };
 
   const revenueTrend = stats?.todayRevenue && stats?.yesterdayRevenue
     ? ((stats.todayRevenue - stats.yesterdayRevenue) / stats.yesterdayRevenue) * 100
@@ -601,48 +578,18 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
               </TableBody>
             </Table>
           </div>
-          {totalPages > 1 && (
-            <div className="py-4 border-t px-6 bg-muted/10">
-              <Pagination className="mx-0 w-auto justify-center sm:justify-end">
-                <PaginationContent className="flex-wrap">
-                  <PaginationItem>
-                    <PaginationPrevious 
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                    />
-                  </PaginationItem>
-                  
-                  {getPageNumbers().map((page, index) => (
-                    <PaginationItem key={index}>
-                      {page === 'ellipsis' ? (
-                        <PaginationEllipsis />
-                      ) : (
-                        <PaginationLink 
-                          onClick={() => setCurrentPage(page as number)}
-                          isActive={currentPage === page}
-                          className="cursor-pointer hidden sm:inline-flex"
-                        >
-                          {page}
-                        </PaginationLink>
-                      )}
-                    </PaginationItem>
-                  ))}
-                  
-                  {/* Always show current page on mobile even if we hide the rest */}
-                  <div className="sm:hidden flex items-center px-4 text-sm font-medium">
-                    Page {currentPage} of {totalPages}
-                  </div>
-
-                  <PaginationItem>
-                    <PaginationNext 
-                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                    />
-                  </PaginationItem>
-                </PaginationContent>
-              </Pagination>
-            </div>
-          )}
+          <div className="border-t">
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredGrid.length}
+              itemsPerPage={itemsPerPage}
+              onPageChange={setCurrentPage}
+              onItemsPerPageChange={setItemsPerPage}
+              showPageSizeSelector={true}
+              pageSizeOptions={[10, 20, 50, 100]}
+            />
+          </div>
         </CardContent>
       </Card>
       </div>
