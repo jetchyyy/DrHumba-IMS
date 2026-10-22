@@ -18,6 +18,7 @@ import { format } from 'date-fns';
 import { CalendarIcon as Calendar } from '@radix-ui/react-icons';
 import { useModal } from '../contexts/ModalContext';
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { getBranchInventoryCatalog, getInventoryItemsForCategory } from '../lib/utils';
 
 interface Adjustment {
   id: string;
@@ -98,6 +99,9 @@ export const Adjustments: React.FC = () => {
   const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
   
   const [processing, setProcessing] = useState(false);
+
+  const branchCatalog = getBranchInventoryCatalog(catalog, selectedBranch?.id);
+  const categoryItems = getInventoryItemsForCategory(branchCatalog.items, itemCategoryFilter);
 
   // Camera & File Attachment States
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -303,9 +307,11 @@ export const Adjustments: React.FC = () => {
     setItemSearchTerm('');
     setItemCategoryFilter('All');
     stopCamera();
-    if (catalog.length > 0) {
-      setCurrentSelectedItemId(catalog[0].id);
+    if (branchCatalog.items.length > 0) {
+      setCurrentSelectedItemId(branchCatalog.items[0].id);
       setCurrentQty('');
+    } else {
+      setCurrentSelectedItemId('');
     }
     setShowCreateModal(true);
   };
@@ -327,6 +333,11 @@ export const Adjustments: React.FC = () => {
 
   const handleAddItem = () => {
     if (!currentSelectedItemId) return;
+
+    if (!categoryItems.some(item => item.id === currentSelectedItemId)) {
+      showError("Select an item available for the active branch and category.");
+      return;
+    }
     
     const exists = addedItems.find(i => i.item_id === currentSelectedItemId);
     if (exists) {
@@ -931,13 +942,20 @@ export const Adjustments: React.FC = () => {
                   <div className="space-y-2 relative">
                     <Label>Search Item</Label>
                     <div className="flex flex-col gap-2">
-                      <Select value={itemCategoryFilter} onValueChange={setItemCategoryFilter}>
+                      <Select
+                        value={itemCategoryFilter}
+                        onValueChange={(category) => {
+                          setItemCategoryFilter(category);
+                          const firstCategoryItem = getInventoryItemsForCategory(branchCatalog.items, category)[0];
+                          setCurrentSelectedItemId(firstCategoryItem?.id || '');
+                        }}
+                      >
                         <SelectTrigger className="h-8 w-full">
                           <SelectValue placeholder="Category" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="All">All Categories</SelectItem>
-                          {Array.from(new Set(catalog.filter(c => !(selectedBranch?.name?.toLowerCase().includes('main') && c.category?.toLowerCase().includes('portioned'))).map(c => c.category).filter(Boolean))).sort().map(cat => (
+                          {branchCatalog.categories.map(cat => (
                             <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                           ))}
                         </SelectContent>
@@ -951,17 +969,9 @@ export const Adjustments: React.FC = () => {
                     {(itemSearchTerm.trim() !== '' || itemCategoryFilter !== 'All') && (
                       <div className="absolute z-10 top-full left-0 right-0 mt-1 border bg-background rounded-md shadow-md max-h-48 overflow-y-auto">
                         {(() => {
-                          const filtered = catalog.filter(item => {
-                            if (selectedBranch?.name?.toLowerCase().includes('main') && item.category?.toLowerCase().includes('portioned')) {
-                              return false;
-                            }
-                            
-                            const isAvailable = !item.available_branches || 
-                              item.available_branches.length === 0 || 
-                              (selectedBranch && item.available_branches.includes(selectedBranch.id));
-                            const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
-                            return isAvailable && matchesCategory && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
-                          });
+                          const filtered = categoryItems.filter(item =>
+                            item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())
+                          );
                           return filtered.length > 0 ? (
                             filtered.map(item => (
                             <div 
@@ -989,17 +999,7 @@ export const Adjustments: React.FC = () => {
                         <SelectValue placeholder="Select an item" />
                       </SelectTrigger>
                       <SelectContent>
-                        {catalog.filter(item => {
-                          if (selectedBranch?.name?.toLowerCase().includes('main') && item.category?.toLowerCase().includes('portioned')) {
-                            return false;
-                          }
-                          
-                          const isAvailable = !item.available_branches || 
-                            item.available_branches.length === 0 || 
-                            (selectedBranch && item.available_branches.includes(selectedBranch.id));
-                          const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
-                          return isAvailable && matchesCategory;
-                        }).map(item => (
+                        {categoryItems.map(item => (
                           <SelectItem key={item.id} value={item.id}>
                             {item.item_name} ({item.base_unit})
                           </SelectItem>

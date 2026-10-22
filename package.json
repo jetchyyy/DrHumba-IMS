@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:drhumba": "vite --mode drhumba",
     "dev:erpsaas": "vite --mode erpsaas",
+    "test": "node --test tests/utils.test.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

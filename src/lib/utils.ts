@@ -5,6 +5,38 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export interface BranchInventoryCatalogItem {
+  available_branches?: string[] | null;
+  category?: string | null;
+}
+
+export function getBranchInventoryCatalog<T extends BranchInventoryCatalogItem>(
+  items: T[],
+  branchId?: string
+) {
+  const availableItems = items.filter(item =>
+    !item.available_branches ||
+    item.available_branches.length === 0 ||
+    Boolean(branchId && item.available_branches.includes(branchId))
+  );
+
+  const categories = Array.from(new Set(
+    availableItems
+      .map(item => item.category)
+      .filter((category): category is string => Boolean(category))
+  )).sort();
+
+  return { items: availableItems, categories };
+}
+
+export function getInventoryItemsForCategory<T extends BranchInventoryCatalogItem>(
+  items: T[],
+  category: string
+) {
+  if (category === 'All') return items;
+  return items.filter(item => item.category === category);
+}
+
 export interface Branch {
   id: string;
   name: string;
