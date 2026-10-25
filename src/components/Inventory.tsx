@@ -16,6 +16,7 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { useModal } from '../contexts/ModalContext';
 import { Checkbox } from './ui/checkbox';
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { fetchPortionPackSizes, formatPackSizes, type PortionPackSizes } from '../lib/packSizes';
 
 interface InventoryItem {
   id: string;
@@ -109,6 +110,11 @@ export const Inventory: React.FC = () => {
     return merged.filter(u => u && u.trim().length > 0);
   }, [items]);
 
+  const [portionPackSizes, setPortionPackSizes] = useState<PortionPackSizes>({});
+
+  // Portioned items come in several pack sizes, so no single catalog pack factor applies
+  const packFactor = (item: InventoryItem) => (portionPackSizes[item.id]?.length ? 1 : Number(item.conversion_factor) || 1);
+
   // Stock In state
   const [stockInItem, setStockInItem] = useState<InventoryItem | null>(null);
   const [stockInQty, setStockInQty] = useState<number>(0);
@@ -127,6 +133,7 @@ export const Inventory: React.FC = () => {
         .order('item_name');
       if (itemsError) throw itemsError;
       setItems(itemsData || []);
+      setPortionPackSizes(await fetchPortionPackSizes());
 
       if (selectedBranch) {
         const { data: balData, error: balError } = await supabase
@@ -550,9 +557,14 @@ export const Inventory: React.FC = () => {
                         <TableCell className="pl-6 font-semibold flex items-center space-x-2">
                           <div className="flex flex-col">
                             <span className="font-semibold">{item.item_name}</span>
-                            {item.conversion_factor && Number(item.conversion_factor) > 1 && (
+                            {packFactor(item) > 1 && (
                               <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold w-fit mt-0.5">
                                 1 {item.purchase_unit || (item.base_unit === 'pack' ? 'pack' : 'pkg')} = {item.conversion_factor} {item.base_unit === 'pack' ? 'pcs' : item.base_unit}
+                              </Badge>
+                            )}
+                            {!!portionPackSizes[item.id]?.length && (
+                              <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold w-fit mt-0.5">
+                                {formatPackSizes(portionPackSizes[item.id], item.base_unit)}
                               </Badge>
                             )}
                             {(item.foodpanda_price || item.grab_price) && (
@@ -583,7 +595,7 @@ export const Inventory: React.FC = () => {
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           <div>{item.reorder_level.toLocaleString()} {item.base_unit}</div>
-                          {item.conversion_factor && Number(item.conversion_factor) > 1 && item.base_unit === 'pack' && (
+                          {packFactor(item) > 1 && item.base_unit === 'pack' && (
                             <div className="text-[10px] text-muted-foreground font-mono">
                               (= {(item.reorder_level * Number(item.conversion_factor)).toLocaleString()} pcs)
                             </div>
@@ -593,7 +605,7 @@ export const Inventory: React.FC = () => {
                           <div>
                             <span>{qty.toLocaleString()}</span> <span className="text-[10px] font-normal text-muted-foreground">{item.base_unit}</span>
                           </div>
-                          {item.conversion_factor && Number(item.conversion_factor) > 1 && (
+                          {packFactor(item) > 1 && (
                             <div className="text-[11px] font-normal text-muted-foreground font-mono">
                               {item.base_unit === 'pack' ? (
                                 <span>(= {(qty * Number(item.conversion_factor)).toLocaleString()} pcs)</span>
@@ -689,9 +701,14 @@ export const Inventory: React.FC = () => {
                       <TableCell className="font-bold">
                         <div className="flex flex-col">
                           <span>{item.item_name}</span>
-                          {item.conversion_factor && Number(item.conversion_factor) > 1 && (
+                          {packFactor(item) > 1 && (
                             <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold w-fit mt-0.5 font-mono">
                               1 {item.purchase_unit || (item.base_unit === 'pack' ? 'pack' : 'pkg')} = {item.conversion_factor} {item.base_unit === 'pack' ? 'pcs' : item.base_unit}
+                            </Badge>
+                          )}
+                          {!!portionPackSizes[item.id]?.length && (
+                            <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold w-fit mt-0.5 font-mono">
+                              {formatPackSizes(portionPackSizes[item.id], item.base_unit)}
                             </Badge>
                           )}
                           {(item.selling_price || item.foodpanda_price || item.grab_price) && (
@@ -719,9 +736,13 @@ export const Inventory: React.FC = () => {
                       <TableCell className="font-semibold">{item.base_unit}</TableCell>
                       <TableCell className="text-muted-foreground">{item.purchase_unit}</TableCell>
                       <TableCell className="text-muted-foreground font-mono text-xs">
-                        {item.conversion_factor && Number(item.conversion_factor) > 1 ? (
+                        {packFactor(item) > 1 ? (
                           <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold font-mono">
                             1 {item.purchase_unit || 'pack'} = {item.conversion_factor} {item.base_unit === 'pack' ? 'pcs' : item.base_unit}
+                          </Badge>
+                        ) : portionPackSizes[item.id]?.length ? (
+                          <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold font-mono">
+                            {formatPackSizes(portionPackSizes[item.id], item.base_unit)}
                           </Badge>
                         ) : (
                           <span>1 {item.purchase_unit} = 1 {item.base_unit}</span>
@@ -1444,7 +1465,7 @@ export const Inventory: React.FC = () => {
                 </div>
               </div>
 
-              {stockInItem.conversion_factor && Number(stockInItem.conversion_factor) > 1 && (
+              {packFactor(stockInItem) > 1 && (
                 <div className="p-2 bg-primary/10 border border-primary/20 rounded text-[11px] text-primary font-mono">
                   Packaging: 1 {stockInItem.purchase_unit || 'pack'} = {stockInItem.conversion_factor} {stockInItem.base_unit === 'pack' ? 'pcs' : stockInItem.base_unit}
                 </div>
@@ -1461,7 +1482,7 @@ export const Inventory: React.FC = () => {
                   onChange={(e) => setStockInQty(Number(e.target.value))}
                   placeholder="Enter quantity"
                 />
-                {stockInItem.conversion_factor && Number(stockInItem.conversion_factor) > 1 && stockInQty > 0 && (
+                {packFactor(stockInItem) > 1 && stockInQty > 0 && (
                   <p className="text-[11px] text-muted-foreground font-mono">
                     {stockInItem.base_unit === 'pack'
                       ? `Total: ${(stockInQty * Number(stockInItem.conversion_factor)).toLocaleString()} pcs`
@@ -1511,7 +1532,7 @@ export const Inventory: React.FC = () => {
                 </div>
               </div>
 
-              {editStockItem.conversion_factor && Number(editStockItem.conversion_factor) > 1 && (
+              {packFactor(editStockItem) > 1 && (
                 <div className="p-2 bg-primary/10 border border-primary/20 rounded text-[11px] text-primary font-mono">
                   Packaging: 1 {editStockItem.purchase_unit || 'pack'} = {editStockItem.conversion_factor} {editStockItem.base_unit === 'pack' ? 'pcs' : editStockItem.base_unit}
                 </div>
@@ -1528,7 +1549,7 @@ export const Inventory: React.FC = () => {
                   onChange={(e) => setEditStockQty(e.target.value === '' ? 0 : Number(e.target.value))}
                   placeholder="Enter new balance"
                 />
-                {editStockItem.conversion_factor && Number(editStockItem.conversion_factor) > 1 && editStockQty > 0 && (
+                {packFactor(editStockItem) > 1 && editStockQty > 0 && (
                   <p className="text-[11px] text-muted-foreground font-mono">
                     {editStockItem.base_unit === 'pack'
                       ? `Total: ${(editStockQty * Number(editStockItem.conversion_factor)).toLocaleString()} pcs`

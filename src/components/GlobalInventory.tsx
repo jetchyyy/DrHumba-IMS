@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from './ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from './ui/sheet';
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { fetchPortionPackSizes, formatPackSizes } from '../lib/packSizes';
 
 interface BranchBalance {
   branch_id: string;
@@ -26,6 +27,7 @@ interface GlobalStockItem {
   base_unit: string;
   purchase_unit?: string;
   conversion_factor?: number;
+  pack_sizes?: number[];
   cost_per_base_unit: number;
   reorder_level: number;
   total_quantity: number;
@@ -68,6 +70,8 @@ export const GlobalInventory: React.FC = () => {
       
       if (balancesError) throw balancesError;
 
+      const portionPackSizes = await fetchPortionPackSizes();
+
       const mappedItems: GlobalStockItem[] = (items || []).map(item => {
         const itemBalances = (balances || []).filter(b => b.item_id === item.id);
         
@@ -91,7 +95,9 @@ export const GlobalInventory: React.FC = () => {
           category: item.category,
           base_unit: item.base_unit,
           purchase_unit: item.purchase_unit,
-          conversion_factor: item.conversion_factor ? Number(item.conversion_factor) : 1,
+          // Portioned items come in several pack sizes, so no single pack factor applies
+          conversion_factor: portionPackSizes[item.id] ? 1 : (item.conversion_factor ? Number(item.conversion_factor) : 1),
+          pack_sizes: portionPackSizes[item.id],
           cost_per_base_unit: Number(item.cost_per_base_unit),
           reorder_level: Number(item.reorder_level),
           total_quantity: totalQty,
@@ -322,6 +328,11 @@ export const GlobalInventory: React.FC = () => {
                             {item.conversion_factor && Number(item.conversion_factor) > 1 && (
                               <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold w-fit mt-0.5 font-mono">
                                 1 {item.purchase_unit || (item.base_unit === 'pack' ? 'pack' : 'pkg')} = {item.conversion_factor} {item.base_unit === 'pack' ? 'pcs' : item.base_unit}
+                              </Badge>
+                            )}
+                            {item.pack_sizes && (
+                              <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold w-fit mt-0.5 font-mono">
+                                {formatPackSizes(item.pack_sizes, item.base_unit)}
                               </Badge>
                             )}
                           </div>

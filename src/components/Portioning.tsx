@@ -464,17 +464,8 @@ export const Portioning: React.FC = () => {
         }
       }
 
-      // Update target item standard packaging size if declared in pack mode
-      if (portionYieldMode === 'pack' && Number(portionPackSize) > 0) {
-        await supabase
-          .from('inventory_items')
-          .update({
-            conversion_factor: Number(portionPackSize),
-            purchase_unit: 'pack'
-          })
-          .eq('id', formTargetItemId);
-      }
-
+      // Pack size is recorded per request (pieces_per_pack) rather than written onto the
+      // catalog item, so batches of different pack sizes can share one item.
       showSuccess('Portioning request submitted successfully! Awaiting Admin approval.');
       setShowCreateModal(false);
       fetchData();

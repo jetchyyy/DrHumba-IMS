@@ -18,6 +18,7 @@ import { format } from 'date-fns';
 import { CalendarIcon as Calendar } from '@radix-ui/react-icons';
 import { useModal } from '../contexts/ModalContext';
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { fetchPortionPackSizes, getPackSizeOptions, type PortionPackSizes } from '../lib/packSizes';
 
 interface TransferRequest {
   id: string;
@@ -95,7 +96,7 @@ const pluralizeUnit = (unit: string, quantity: number) => {
  * catalog's packaging unit. Keep both values visible so the display is clear
  * without changing the quantity submitted to transfer RPCs.
  */
-const formatAvailableQuantity = (quantity: number, item?: CatalogItem) => {
+const formatAvailableQuantity = (quantity: number, item?: CatalogItem, showPacks = true) => {
   const baseQuantity = Number.isFinite(quantity) ? quantity : 0;
   const baseUnit = item?.base_unit?.trim() || 'units';
   const packageUnit = item?.purchase_unit?.trim();
@@ -103,7 +104,8 @@ const formatAvailableQuantity = (quantity: number, item?: CatalogItem) => {
   const baseDisplay = `${formatQuantity(baseQuantity)} ${baseUnit}`;
 
   if (
-    !packageUnit
+    !showPacks
+    || !packageUnit
     || conversionFactor <= 1
     || packageUnit.toLowerCase() === baseUnit.toLowerCase()
   ) {
@@ -112,6 +114,60 @@ const formatAvailableQuantity = (quantity: number, item?: CatalogItem) => {
 
   const packageQuantity = baseQuantity / conversionFactor;
   return `${formatQuantity(packageQuantity)} ${pluralizeUnit(packageUnit, packageQuantity)} (${baseDisplay})`;
+};
+
+const OTHER_PACK_SIZE = 'other';
+
+/**
+ * Pack size picker for portioned items: lists every size the item was packed in,
+ * plus "Other" for a size not packed before.
+ */
+const PackSizeSelect: React.FC<{
+  options: number[];
+  value: number | string;
+  onChange: (value: number | '') => void;
+  unit: string;
+  className?: string;
+}> = ({ options, value, onChange, unit, className }) => {
+  const [isOther, setIsOther] = useState(() => !options.includes(Number(value)));
+
+  return (
+    <div className="space-y-1.5">
+      <Select
+        value={isOther ? OTHER_PACK_SIZE : String(value)}
+        onValueChange={(val) => {
+          if (val === OTHER_PACK_SIZE) {
+            setIsOther(true);
+            onChange('');
+          } else {
+            setIsOther(false);
+            onChange(Number(val));
+          }
+        }}
+      >
+        <SelectTrigger className={className}>
+          <SelectValue placeholder="Choose pack size" />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map(size => (
+            <SelectItem key={size} value={String(size)}>Pack of {formatQuantity(size)} {unit}</SelectItem>
+          ))}
+          <SelectItem value={OTHER_PACK_SIZE}>Other size…</SelectItem>
+        </SelectContent>
+      </Select>
+      {isOther && (
+        <Input
+          type="number"
+          min="1"
+          step="any"
+          value={value}
+          onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
+          placeholder={`${unit} per pack`}
+          className={className}
+        />
+      )}
+    </div>
+  );
 };
 
 export const Transfers: React.FC = () => {
@@ -176,6 +232,26 @@ export const Transfers: React.FC = () => {
   const [addModalSearch, setAddModalSearch] = useState('');
   const [addModalCategory, setAddModalCategory] = useState('all');
 
+  // Pack sizes each portioned item has been packed in (e.g. Calamares: 5 & 10 pcs)
+  const [portionPackSizes, setPortionPackSizes] = useState<PortionPackSizes>({});
+
+  // Portioned items pick a pack size per transfer; other items with a catalog
+  // pack size keep it locked. Returns null when the size is not locked.
+  const getLockedPackSize = (item?: CatalogItem | null): number | null => {
+    if (!item || portionPackSizes[item.id]?.length) return null;
+    const factor = Number(item.conversion_factor);
+    return factor > 1 ? factor : null;
+  };
+
+  const isPortionedPackItem = (item?: CatalogItem | null) => Boolean(item && portionPackSizes[item.id]?.length);
+
+  const getDefaultPackSize = (item: CatalogItem): number | null => {
+    const options = getPackSizeOptions(item, portionPackSizes);
+    if (options.length === 0) return null;
+    const factor = Number(item.conversion_factor);
+    return factor > 1 ? factor : options[0];
+  };
+
   const loadData = async () => {
     try {
       const { data: tranData, error: tranError } = await supabase
@@ -226,6 +302,7 @@ export const Transfers: React.FC = () => {
         .eq('status', 'active');
       if (catError) throw catError;
       setCatalog(catData || []);
+      setPortionPackSizes(await fetchPortionPackSizes());
     } catch (err) {
       console.error(err);
     }
@@ -294,7 +371,7 @@ export const Transfers: React.FC = () => {
     let pkgUnit = 'pc';
     let pkgCount: number | undefined = undefined;
     let pcsPerPkg: number | undefined = undefined;
-    const hasDefinedPackSize = Boolean(selectedCatalogItem?.conversion_factor && Number(selectedCatalogItem.conversion_factor) > 1);
+    const hasDefinedPackSize = getLockedPackSize(selectedCatalogItem) !== null;
     const effectivePackSize = hasDefinedPackSize ? Number(selectedCatalogItem?.conversion_factor) : Number(packSize);
 
     if (entryMode === 'pack') {
@@ -621,7 +698,7 @@ export const Transfers: React.FC = () => {
       return;
     }
 
-    const hasDefinedPackSize = Boolean(item.conversion_factor && Number(item.conversion_factor) > 1);
+    const hasDefinedPackSize = getLockedPackSize(item) !== null;
     const effectivePackSize = hasDefinedPackSize ? Number(item.conversion_factor) : (Number(addModalPackSize) || 5);
     const isPackMode = addModalEntryMode === 'pack';
     const pCount = Number(addModalPackCount) || 0;
@@ -1292,7 +1369,7 @@ export const Transfers: React.FC = () => {
                         return (
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-muted-foreground">
-                              Available: <strong className="text-foreground">{formatAvailableQuantity(sourceInventory[currentSelectedItemId] || 0, item)}</strong>
+                              Available: <strong className="text-foreground">{formatAvailableQuantity(sourceInventory[currentSelectedItemId] || 0, item, !isPortionedPackItem(item))}</strong>
                             </span>
                             {minQty !== null && (
                               <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-bold">
@@ -1319,7 +1396,7 @@ export const Transfers: React.FC = () => {
                                 <div className="flex items-center justify-between w-full pr-2">
                                   <span className="font-medium text-foreground truncate">{item.item_name}</span>
                                   <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono shrink-0 ml-2">
-                                    {formatAvailableQuantity(qty, item)}
+                                    {formatAvailableQuantity(qty, item, !isPortionedPackItem(item))}
                                   </span>
                                 </div>
                               ) : "Select an item";
@@ -1399,16 +1476,17 @@ export const Transfers: React.FC = () => {
                                       setCurrentSelectedItemId(item.id);
                                       setItemPopoverOpen(false);
                                       setItemSearchTerm('');
-                                      if (item.conversion_factor && Number(item.conversion_factor) > 1) {
+                                      const defaultPackSize = getDefaultPackSize(item);
+                                      if (defaultPackSize !== null) {
                                         setEntryMode('pack');
-                                        setPackSize(Number(item.conversion_factor));
+                                        setPackSize(defaultPackSize);
                                       }
                                     }}
                                     className={`w-full text-left px-3 py-2 rounded-sm text-sm transition-colors hover:bg-accent hover:text-accent-foreground flex items-center justify-between ${isSelected ? 'bg-accent/50 font-medium' : ''}`}
                                   >
                                     <span className="truncate">{item.item_name}</span>
                                     <span className="text-xs text-muted-foreground shrink-0 pl-2">
-                                      {formatAvailableQuantity(qty, item)}
+                                      {formatAvailableQuantity(qty, item, !isPortionedPackItem(item))}
                                     </span>
                                   </button>
                                 );
@@ -1426,7 +1504,7 @@ export const Transfers: React.FC = () => {
                       const selectedCatalogItem = catalog.find(c => c.id === currentSelectedItemId);
                       const baseU = selectedCatalogItem?.base_unit || 'units';
                       const pkgU = selectedCatalogItem?.purchase_unit || 'pack';
-                      const hasDefinedPackSize = Boolean(selectedCatalogItem?.conversion_factor && Number(selectedCatalogItem.conversion_factor) > 1);
+                      const hasDefinedPackSize = getLockedPackSize(selectedCatalogItem) !== null;
                       const effectivePackSize = hasDefinedPackSize ? Number(selectedCatalogItem?.conversion_factor) : (Number(packSize) || 5);
                       const pCount = Number(packCount) || 0;
 
@@ -1484,6 +1562,16 @@ export const Transfers: React.FC = () => {
                                       </span>
                                     )}
                                   </div>
+                                  {isPortionedPackItem(selectedCatalogItem) ? (
+                                    <PackSizeSelect
+                                      key={selectedCatalogItem?.id}
+                                      options={getPackSizeOptions(selectedCatalogItem, portionPackSizes)}
+                                      value={packSize}
+                                      onChange={setPackSize}
+                                      unit={baseU}
+                                      className="h-9 bg-background"
+                                    />
+                                  ) : (
                                   <Input
                                     type="number"
                                     min="1"
@@ -1499,6 +1587,7 @@ export const Transfers: React.FC = () => {
                                     placeholder="e.g. 5 or 10"
                                     className={`h-9 ${hasDefinedPackSize ? 'bg-muted/70 text-foreground font-semibold cursor-not-allowed border-muted-foreground/30' : 'bg-background'}`}
                                   />
+                                  )}
                                 </div>
                               </div>
 
@@ -1537,7 +1626,7 @@ export const Transfers: React.FC = () => {
                     {currentSelectedItemId && (() => {
                       const item = catalog.find(c => c.id === currentSelectedItemId);
                       const minQty = item?.min_transfer_qty && item.min_transfer_qty > 0 ? item.min_transfer_qty : null;
-                      const hasDefinedPackSize = Boolean(item?.conversion_factor && Number(item.conversion_factor) > 1);
+                      const hasDefinedPackSize = getLockedPackSize(item) !== null;
                       const effectivePackSize = hasDefinedPackSize ? Number(item?.conversion_factor) : (Number(packSize) || 5);
                       const calculatedQty = entryMode === 'pack' 
                         ? ((Number(packCount) || 0) * effectivePackSize)
@@ -2371,7 +2460,7 @@ export const Transfers: React.FC = () => {
 
             const selectedAddCatalogItem = (catalog || []).find(c => c.id === addModalItemId);
             const stock = selectedAddCatalogItem ? (sourceInventory[selectedAddCatalogItem.id] || 0) : 0;
-            const hasDefinedPackSize = Boolean(selectedAddCatalogItem?.conversion_factor && Number(selectedAddCatalogItem.conversion_factor) > 1);
+            const hasDefinedPackSize = getLockedPackSize(selectedAddCatalogItem) !== null;
             const effectivePackSize = hasDefinedPackSize ? Number(selectedAddCatalogItem?.conversion_factor) : (Number(addModalPackSize) || 5);
             const pieceUnit = (!selectedAddCatalogItem?.base_unit || selectedAddCatalogItem.base_unit.toLowerCase() === 'pack') ? 'pcs' : (selectedAddCatalogItem?.base_unit || 'units');
             const addPkgUnit = selectedAddCatalogItem?.purchase_unit || 'pack';
@@ -2428,8 +2517,9 @@ export const Transfers: React.FC = () => {
                           setAddModalItemId(val);
                           const item = catalog.find(c => c.id === val);
                           if (item) {
-                            const hasPack = Boolean(item.conversion_factor && Number(item.conversion_factor) > 1) || item.purchase_unit === 'pack';
-                            const packConv = Number(item.conversion_factor) > 1 ? Number(item.conversion_factor) : 5;
+                            const defaultPackSize = getDefaultPackSize(item);
+                            const hasPack = defaultPackSize !== null || item.purchase_unit === 'pack';
+                            const packConv = defaultPackSize ?? 5;
                             setAddModalEntryMode(hasPack ? 'pack' : 'base');
                             setAddModalPackCount(1);
                             setAddModalPackSize(packConv);
@@ -2555,6 +2645,16 @@ export const Transfers: React.FC = () => {
                                   <span className="text-[9px] text-primary font-medium">Standard</span>
                                 )}
                               </div>
+                              {isPortionedPackItem(selectedAddCatalogItem) ? (
+                                <PackSizeSelect
+                                  key={selectedAddCatalogItem?.id}
+                                  options={getPackSizeOptions(selectedAddCatalogItem, portionPackSizes)}
+                                  value={addModalPackSize}
+                                  onChange={setAddModalPackSize}
+                                  unit={pieceUnit}
+                                  className="h-8 text-xs bg-background"
+                                />
+                              ) : (
                               <Input
                                 type="number"
                                 min="1"
@@ -2565,6 +2665,7 @@ export const Transfers: React.FC = () => {
                                 onChange={(e) => !hasDefinedPackSize && setAddModalPackSize(e.target.value === '' ? '' : Number(e.target.value))}
                                 className={`h-8 text-xs ${hasDefinedPackSize ? 'bg-muted/70 text-foreground font-semibold cursor-not-allowed' : 'bg-background'}`}
                               />
+                              )}
                             </div>
                           </div>
 
