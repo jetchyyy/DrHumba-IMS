@@ -931,23 +931,21 @@ export const Transfers: React.FC = () => {
         if (received < 0) {
           throw new Error(`Arrived quantity for ${item.inventory_items?.item_name || 'item'} cannot be negative.`);
         }
-        if (received > item.quantity_base_unit) {
-          throw new Error(`Arrived quantity for ${item.inventory_items?.item_name || 'item'} cannot exceed the dispatched quantity (${item.quantity_base_unit}).`);
+        if (received !== Number(item.quantity_base_unit) && !reason.trim()) {
+          const kind = received < item.quantity_base_unit ? 'missing' : 'extra';
+          throw new Error(`A reason/note is required for the ${kind} quantity of ${item.inventory_items?.item_name || 'item'}.`);
         }
-        if (received < item.quantity_base_unit && !reason.trim()) {
-          throw new Error(`A reason/note is required for the missing quantity of ${item.inventory_items?.item_name || 'item'}.`);
-        }
-        
+
         return {
           item_id: item.item_id,
           received_quantity_base_unit: received,
-          missing_reason: received < item.quantity_base_unit ? reason.trim() : null
+          missing_reason: received !== Number(item.quantity_base_unit) ? reason.trim() : null
         };
       });
 
       if (!await confirm(
         'Submit Receipt for Admin Approval',
-        'Are you sure you want to submit this receipt with discrepancy reports? Stock will NOT be added until an admin approves the discrepancy.'
+        'Are you sure you want to submit this receipt with short/over quantities? Stock will NOT move until an admin approves. The approved quantities will be deducted from the source branch and added to your branch.'
       )) return;
 
       setSubmittingReceipt(true);
@@ -970,15 +968,28 @@ export const Transfers: React.FC = () => {
   };
 
   const handleApproveReceipt = async (transferId: string) => {
+    const activeItems = transferItems.filter(item => !item.is_rejected && Number(item.quantity_base_unit) > 0);
+    const approvedItems = activeItems.map(item => ({
+      item_id: item.item_id,
+      approved_quantity_base_unit: receivedQuantities[item.item_id] ?? item.received_quantity_base_unit ?? item.quantity_base_unit
+    }));
+
+    const invalid = approvedItems.find(item => !(item.approved_quantity_base_unit >= 0));
+    if (invalid) {
+      showError('Approved quantities must be zero or more.');
+      return;
+    }
+
     if (!await confirm(
       'Approve Delivery Receipt',
-      'Are you sure you want to approve this delivery receipt? The received quantities will be added to the target branch inventory and a stock receipt will be generated.'
+      'Are you sure you want to approve this delivery receipt? The approved quantities will be deducted from the source branch and added to the target branch, and a stock receipt will be generated.'
     )) return;
 
     setSubmittingReceipt(true);
     try {
       const { error } = await supabase.rpc('fn_approve_transfer_receipt', {
-        p_transfer_id: transferId
+        p_transfer_id: transferId,
+        p_items: approvedItems
       });
 
       if (error) throw error;
@@ -1092,6 +1103,12 @@ export const Transfers: React.FC = () => {
     profile.is_platform_admin ||
     (profile.allowed_tabs && profile.allowed_tabs.includes('transfers_dispatch'))
   );
+
+  // Matches fn_approve_transfer_receipt: only these roles can settle short/over receipts
+  const canApproveReceipt = Boolean(profile && (
+    ['super_admin', 'inventory_manager'].includes(profile.role_name) ||
+    profile.is_platform_admin
+  ));
 
   const filteredTransfers = transfers.filter(transfer => {
     let matchesDate = true;
@@ -1860,7 +1877,8 @@ export const Transfers: React.FC = () => {
                                   const pcsPerPack = getItemPcsPerPack(item);
                                   const pCount = item.package_count || (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
                                   const receivedVal = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
-                                  const isMissing = receivedVal < item.quantity_base_unit;
+                                  const isShort = receivedVal < item.quantity_base_unit;
+                                  const isOver = receivedVal > item.quantity_base_unit;
                                   const isRejected = Boolean(item.is_rejected) || (Number(item.quantity_base_unit) === 0 && Number(item.original_quantity_base_unit) > 0);
 
                                   if (isRejected) {
@@ -1904,21 +1922,25 @@ export const Transfers: React.FC = () => {
                                       <TableCell className="text-right">
                                         <Input 
                                           type="number" 
-                                          min={0} 
-                                          max={item.quantity_base_unit} 
+                                          min={0}
                                           step="any"
-                                          value={receivedVal} 
+                                          value={receivedVal}
                                           onChange={(e) => {
                                             const val = Number(e.target.value);
                                             setReceivedQuantities(prev => ({ ...prev, [item.item_id]: val }));
-                                          }} 
-                                          className="w-20 text-right h-8" 
+                                          }}
+                                          className="w-20 text-right h-8"
                                         />
+                                        {(isShort || isOver) && (
+                                          <span className={`block text-[10px] font-semibold mt-1 ${isShort ? 'text-red-500' : 'text-amber-600'}`}>
+                                            {isShort ? 'Short' : 'Over'} {Math.abs(receivedVal - item.quantity_base_unit)} {unit}
+                                          </span>
+                                        )}
                                       </TableCell>
                                       <TableCell>
-                                        {isMissing ? (
-                                          <Input 
-                                            placeholder="Why is it missing?" 
+                                        {isShort || isOver ? (
+                                          <Input
+                                            placeholder={isShort ? 'Why is it missing?' : 'Why is there extra?'}
                                             value={missingReasons[item.item_id] || ''} 
                                             onChange={(e) => {
                                               const val = e.target.value;
@@ -1943,8 +1965,10 @@ export const Transfers: React.FC = () => {
                                 <TableRow>
                                   <TableHead>Item Name</TableHead>
                                   <TableHead className="text-right">Sent Qty</TableHead>
-                                  <TableHead className="text-right">Arrived Qty</TableHead>
-                                  <TableHead className="text-right">Missing Qty</TableHead>
+                                  <TableHead className="text-right">
+                                    {selectedTransfer.status === 'pending_receipt_approval' && canApproveReceipt ? 'Approve Qty' : 'Arrived Qty'}
+                                  </TableHead>
+                                  <TableHead className="text-right">Short / Over</TableHead>
                                   <TableHead>Reason for Discrepancy</TableHead>
                                 </TableRow>
                               </TableHeader>
@@ -1955,8 +1979,10 @@ export const Transfers: React.FC = () => {
                                   const pkgUnit = item.packaging_unit || (item.inventory_items as any)?.purchase_unit || 'pack';
                                   const pcsPerPack = getItemPcsPerPack(item);
                                   const pCount = item.package_count || (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
-                                  const received = item.received_quantity_base_unit ?? item.quantity_base_unit;
-                                  const missing = item.quantity_base_unit - received;
+                                  const declared = item.received_quantity_base_unit ?? item.quantity_base_unit;
+                                  const isEditable = selectedTransfer.status === 'pending_receipt_approval' && canApproveReceipt;
+                                  const received = isEditable ? (receivedQuantities[item.item_id] ?? declared) : declared;
+                                  const difference = received - item.quantity_base_unit;
                                   const isRejected = Boolean(item.is_rejected) || (Number(item.quantity_base_unit) === 0 && Number(item.original_quantity_base_unit) > 0);
 
                                   if (isRejected) {
@@ -1989,12 +2015,35 @@ export const Transfers: React.FC = () => {
                                         ) : null}
                                       </TableCell>
                                       <TableCell className="text-right font-semibold">{item.quantity_base_unit} {unit}</TableCell>
-                                      <TableCell className="text-right font-semibold text-green-600">{received} {unit}</TableCell>
-                                      <TableCell className="text-right font-semibold text-red-500">
-                                        {missing > 0 ? `${missing} ${unit}` : '0'}
+                                      <TableCell className="text-right font-semibold text-green-600">
+                                        {isEditable ? (
+                                          <div className="flex flex-col items-end">
+                                            <Input
+                                              type="number"
+                                              min={0}
+                                              step="any"
+                                              value={received}
+                                              onChange={(e) => {
+                                                const val = Number(e.target.value);
+                                                setReceivedQuantities(prev => ({ ...prev, [item.item_id]: val }));
+                                              }}
+                                              className="w-20 text-right h-8"
+                                            />
+                                            {received !== declared && (
+                                              <span className="text-[10px] text-muted-foreground font-normal mt-1">
+                                                Declared: {declared} {unit}
+                                              </span>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <>{received} {unit}</>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className={`text-right font-semibold ${difference < 0 ? 'text-red-500' : difference > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                                        {difference < 0 ? `Short ${Math.abs(difference)} ${unit}` : difference > 0 ? `Over ${difference} ${unit}` : '0'}
                                       </TableCell>
                                       <TableCell className="text-xs italic text-muted-foreground">
-                                        {missing > 0 ? (item.missing_reason || 'No reason provided') : '-'}
+                                        {declared !== Number(item.quantity_base_unit) ? (item.missing_reason || 'No reason provided') : '-'}
                                       </TableCell>
                                     </TableRow>
                                   );
@@ -2323,7 +2372,7 @@ export const Transfers: React.FC = () => {
                     const isRejected = Boolean(item.is_rejected) || Number(item.quantity_base_unit) === 0;
                     if (isRejected) return false;
                     const received = receivedQuantities[item.item_id] ?? item.quantity_base_unit;
-                    return received < item.quantity_base_unit;
+                    return received !== Number(item.quantity_base_unit);
                   });
 
                   if (selectedTransfer.status === 'requested' && canApprove) {
