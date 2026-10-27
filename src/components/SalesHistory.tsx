@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useBusinessVocab } from '../hooks/useBusinessVocab';
@@ -71,6 +71,92 @@ const PAYMENT_LABELS: Record<string, string> = {
 const formatPHP = (amount: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(amount);
 
+type EodSale = Pick<SaleRecord, 'id' | 'created_at' | 'branch_id' | 'cashier_id' | 'status' | 'total_amount' | 'payment_method'>;
+
+interface SalesStats {
+  count: number;
+  revenue: number;
+  foodpanda: number;
+  grab: number;
+}
+
+const EMPTY_STATS: SalesStats = { count: 0, revenue: 0, foodpanda: 0, grab: 0 };
+
+// PostgREST returns at most 1000 rows per request, so summary rows are fetched in chunks
+const STATS_CHUNK = 1000;
+
+const SALE_SELECT = `
+  id,
+  control_number,
+  branch_id,
+  sub_store_id,
+  cashier_id,
+  total_amount,
+  refunded_amount,
+  status,
+  payment_method,
+  sale_category,
+  reference_number,
+  amount_tendered,
+  change_given,
+  void_reason,
+  voided_at,
+  created_at,
+  service_charge_rate,
+  service_charge_amount,
+  branches:branches!branch_id (name),
+  sub_stores:branches!sub_store_id (name),
+  sale_items (
+    id,
+    quantity,
+    unit_price,
+    subtotal,
+    voided_quantity,
+    void_reason,
+    voided_at,
+    menu_items (name, sku)
+  )
+`;
+
+// Fallback for when migration 20261015131000_line_item_void_support.sql hasn't been applied yet
+const SALE_SELECT_LEGACY = `
+  id,
+  control_number,
+  branch_id,
+  sub_store_id,
+  cashier_id,
+  total_amount,
+  status,
+  payment_method,
+  sale_category,
+  reference_number,
+  amount_tendered,
+  change_given,
+  void_reason,
+  voided_at,
+  created_at,
+  branches:branches!branch_id (name),
+  sub_stores:branches!sub_store_id (name),
+  sale_items (
+    id,
+    quantity,
+    unit_price,
+    subtotal,
+    menu_items (name, sku)
+  )
+`;
+
+const isMissingColumnError = (error: any) =>
+  error?.code === '42703' || error?.message?.includes('does not exist');
+
+// Turns a hex prefix like "3f2a9c1e" (the short ID shown in the table) into an inclusive UUID range
+const uuidPrefixRange = (term: string): [string, string] | null => {
+  const hex = term.replace(/-/g, '').toLowerCase();
+  if (!/^[0-9a-f]{1,32}$/.test(hex)) return null;
+  const toUuid = (h: string) => `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  return [toUuid(hex.padEnd(32, '0')), toUuid(hex.padEnd(32, 'f'))];
+};
+
 export const SalesHistory: React.FC = () => {
   const { profile, branches } = useAuth();
   const { showSuccess, showError } = useModal();
@@ -78,15 +164,20 @@ export const SalesHistory: React.FC = () => {
   const { tenant } = useTenant();
   const isRestaurant = tenant?.is_restaurant ?? true;
   
+  // `sales` holds only the current page; `stats` covers every sale matching the filters
   const [sales, setSales] = useState<SaleRecord[]>([]);
+  const [stats, setStats] = useState<SalesStats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [eodSales, setEodSales] = useState<EodSale[]>([]);
   const [isPrintingEODBluetooth, setIsPrintingEODBluetooth] = useState(false);
   
   // Filtering States
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedBranchId, setSelectedBranchId] = useState('All');
   const [selectedSubStoreId, setSelectedSubStoreId] = useState('All');
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('today');
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
   const [saleCategoryFilter, setSaleCategoryFilter] = useState<string>('all');
@@ -100,8 +191,13 @@ export const SalesHistory: React.FC = () => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter]);
+  }, [debouncedSearch, itemsPerPage, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter]);
 
   const getCategoryBadge = (category: string | null) => {
     const cat = (category || vocab.defaultSaleCategory).toLowerCase();
@@ -148,6 +244,7 @@ export const SalesHistory: React.FC = () => {
   const [openingCash, setOpeningCash] = useState<number>(10000);
   const [actualCash, setActualCash] = useState<number>(10000);
   const [profilesList, setProfilesList] = useState<{ id: string; email: string; branch_id: string | null }[]>([]);
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
 
   // Initialize eodBranchId and eodCashierId when profile or branches load
   useEffect(() => {
@@ -166,6 +263,38 @@ export const SalesHistory: React.FC = () => {
     }
   }, [profile, branches, isAdminRole]);
 
+  // Load only the selected day's sales for the End of Day report
+  useEffect(() => {
+    if (!showEODModal || !eodDate || !eodBranchId) return;
+
+    const startOfDay = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), 0, 0, 0, 0);
+    const endOfDay = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), 23, 59, 59, 999);
+    let cancelled = false;
+
+    let query = supabase
+      .from('sales')
+      .select('id, created_at, branch_id, cashier_id, status, total_amount, payment_method')
+      .eq('branch_id', eodBranchId)
+      .gte('created_at', startOfDay.toISOString())
+      .lte('created_at', endOfDay.toISOString());
+    if (eodCashierId !== 'All') {
+      query = query.eq('cashier_id', eodCashierId);
+    }
+
+    query.order('created_at', { ascending: true }).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        console.error('Error fetching end of day sales:', error);
+        showError(`Couldn't load sales for the End of Day report: ${error.message}`);
+        setEodSales([]);
+        return;
+      }
+      setEodSales((data || []) as EodSale[]);
+    });
+
+    return () => { cancelled = true; };
+  }, [showEODModal, eodDate, eodBranchId, eodCashierId]);
+
   // Auto-fill time fields based on selected cashier and date transactions
   useEffect(() => {
     if (!showEODModal || !eodDate || !eodBranchId) return;
@@ -173,7 +302,7 @@ export const SalesHistory: React.FC = () => {
     const startOfDay = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), 0, 0, 0, 0);
     const endOfDay = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), 23, 59, 59, 999);
 
-    const matches = sales.filter(s => {
+    const matches = eodSales.filter(s => {
       const saleDate = new Date(s.created_at);
       const matchesBranch = s.branch_id === eodBranchId;
       const matchesCashier = eodCashierId === 'All' || s.cashier_id === eodCashierId;
@@ -198,7 +327,7 @@ export const SalesHistory: React.FC = () => {
       setEodStartTime('00:00');
       setEodEndTime('23:59');
     }
-  }, [eodDate, eodBranchId, eodCashierId, sales, showEODModal]);
+  }, [eodDate, eodBranchId, eodCashierId, eodSales, showEODModal]);
 
   // Aggregate stats dynamically for the selected branch, cashier, and date/time range
   const eodReportData = useMemo(() => {
@@ -215,7 +344,7 @@ export const SalesHistory: React.FC = () => {
     const startTimestamp = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), startHour, startMin, 0, 0);
     const endTimestamp = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), endHour, endMin, 59, 999);
 
-    const daySales = sales.filter(s => {
+    const daySales = eodSales.filter(s => {
       const saleDate = new Date(s.created_at);
       const matchesBranch = s.branch_id === eodBranchId;
       const matchesCashier = eodCashierId === 'All' || s.cashier_id === eodCashierId;
@@ -333,7 +462,7 @@ export const SalesHistory: React.FC = () => {
       actualDrawer: Number(actualCash),
       overShort
     };
-  }, [sales, eodBranchId, eodDate, eodStartTime, eodEndTime, eodCashierId, openingCash, actualCash, branches, profile, profilesList]);
+  }, [eodSales, eodBranchId, eodDate, eodStartTime, eodEndTime, eodCashierId, openingCash, actualCash, branches, profile, profilesList]);
 
   // Set default actual cash counted drawer value when expected drawer changes
   const expectedVal = eodReportData?.expectedDrawer || 10000;
@@ -379,153 +508,211 @@ export const SalesHistory: React.FC = () => {
 
   const eligibleCashiers = profilesList;
 
-  const loadSalesData = async () => {
+  const mapSaleRecord = (sale: any): SaleRecord => {
+    const cashierProfile = profilesList.find(p => p.id === sale.cashier_id);
+    return {
+      id: sale.id,
+      control_number: sale.control_number || null,
+      branch_id: sale.branch_id,
+      cashier_id: sale.cashier_id,
+      total_amount: Number(sale.total_amount),
+      refunded_amount: Number(sale.refunded_amount) || 0,
+      status: sale.status,
+      payment_method: sale.payment_method || null,
+      sale_category: sale.sale_category || null,
+      reference_number: sale.reference_number || null,
+      amount_tendered: sale.amount_tendered != null ? Number(sale.amount_tendered) : null,
+      change_given: sale.change_given != null ? Number(sale.change_given) : null,
+      void_reason: sale.void_reason || null,
+      voided_at: sale.voided_at || null,
+      created_at: sale.created_at,
+      branch_name: sale.branches?.name || 'Unknown Branch',
+      cashier_email: cashierProfile?.email || 'System / Cashier',
+      sub_store_id: sale.sub_store_id || null,
+      sub_store_name: sale.sub_stores?.name || null,
+      service_charge_rate: Number(sale.service_charge_rate) || 0,
+      service_charge_amount: Number(sale.service_charge_amount) || 0,
+      items: (sale.sale_items || []).map((si: any) => ({
+        id: si.id,
+        quantity: Number(si.quantity),
+        unit_price: Number(si.unit_price),
+        subtotal: Number(si.subtotal),
+        voided_quantity: Number(si.voided_quantity) || 0,
+        void_reason: si.void_reason || null,
+        voided_at: si.voided_at || null,
+        item_name: si.menu_items?.name || ('Unknown ' + (vocab.itemUnit.charAt(0).toUpperCase() + vocab.itemUnit.slice(1))),
+        sku: si.menu_items?.sku || ''
+      }))
+    };
+  };
+
+  // Applies the ledger filters to a `sales` query so filtering happens in the database
+  const applySaleFilters = (query: any) => {
+    if (!isAdminRole && profile?.branch_id) {
+      query = query.eq('branch_id', profile.branch_id);
+    } else if (selectedBranchId !== 'All') {
+      query = query.eq('branch_id', selectedBranchId);
+    }
+
+    if (selectedSubStoreId === 'parent') {
+      query = query.is('sub_store_id', null);
+    } else if (selectedSubStoreId !== 'All') {
+      query = query.eq('sub_store_id', selectedSubStoreId);
+    }
+
+    // A sale with no category counts as the default category
+    if (saleCategoryFilter === 'other') {
+      const defaults = vocab.saleCategories
+        .map(c => c.value)
+        .filter(v => v.toLowerCase() !== 'other')
+        .flatMap(v => [v, v.toLowerCase()]);
+      query = query.not('sale_category', 'in', `(${defaults.map(v => `"${v}"`).join(',')})`);
+    } else if (saleCategoryFilter !== 'all') {
+      const category = vocab.saleCategories.find(c => c.value.toLowerCase() === saleCategoryFilter)?.value ?? saleCategoryFilter;
+      query = category.toLowerCase() === vocab.defaultSaleCategory.toLowerCase()
+        ? query.or(`sale_category.ilike."${category}",sale_category.is.null`)
+        : query.ilike('sale_category', category);
+    }
+
+    const now = new Date();
+    let from: Date | undefined;
+    let to: Date | undefined;
+    if (dateFilter === 'today') {
+      from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (dateFilter === 'week') {
+      from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (dateFilter === 'month') {
+      from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (dateFilter === 'custom') {
+      if (startDate) {
+        from = new Date(startDate);
+        from.setHours(0, 0, 0, 0);
+      }
+      if (endDate) {
+        to = new Date(endDate);
+        to.setHours(23, 59, 59, 999);
+      }
+    }
+    if (from) query = query.gte('created_at', from.toISOString());
+    if (to) query = query.lte('created_at', to.toISOString());
+
+    if (debouncedSearch) {
+      const term = debouncedSearch.toLowerCase();
+      const clauses = [`control_number.ilike.*${debouncedSearch.replace(/[,()"*\\]/g, '')}*`];
+      const idRange = uuidPrefixRange(debouncedSearch);
+      if (idRange) clauses.push(`and(id.gte.${idRange[0]},id.lte.${idRange[1]})`);
+      const cashierIds = profilesList.filter(p => p.email?.toLowerCase().includes(term)).map(p => p.id);
+      if (cashierIds.length > 0) clauses.push(`cashier_id.in.(${cashierIds.join(',')})`);
+      query = query.or(clauses.join(','));
+    }
+
+    return query;
+  };
+
+  const pageRequest = useRef(0);
+  const statsRequest = useRef(0);
+
+  const reportLoadError = (err: any) => {
+    console.error('Error fetching sales history:', err);
+    const message = err?.message || 'Unknown error';
+    setLoadError(message);
+    showError(`Couldn't load sales history: ${message}`);
+  };
+
+  const loadPage = async () => {
     if (!profile) return;
+    const request = ++pageRequest.current;
     setLoading(true);
+    setLoadError(null);
     try {
-      let query = supabase
-        .from('sales')
-        .select(`
-          id,
-          control_number,
-          branch_id,
-          sub_store_id,
-          cashier_id,
-          total_amount,
-          refunded_amount,
-          status,
-          payment_method,
-          sale_category,
-          reference_number,
-          amount_tendered,
-          change_given,
-          void_reason,
-          voided_at,
-          created_at,
-          service_charge_rate,
-          service_charge_amount,
-          branches:branches!branch_id (name),
-          sub_stores:branches!sub_store_id (name),
-          sale_items (
-            id,
-            quantity,
-            unit_price,
-            subtotal,
-            voided_quantity,
-            void_reason,
-            voided_at,
-            menu_items (name, sku)
-          )
-        `);
+      const offset = (currentPage - 1) * itemsPerPage;
+      const fetchRows = (select: string) =>
+        applySaleFilters(supabase.from('sales').select(select))
+          .order('created_at', { ascending: false })
+          .range(offset, offset + itemsPerPage - 1);
 
-      if (!isAdminRole && profile.branch_id) {
-        query = query.eq('branch_id', profile.branch_id);
+      let { data, error } = await fetchRows(SALE_SELECT);
+      if (error && isMissingColumnError(error)) {
+        ({ data, error } = await fetchRows(SALE_SELECT_LEGACY));
       }
-
-      let { data: salesData, error: salesError } = await query.order('created_at', { ascending: false });
-
-      if (salesError && (salesError.code === '42703' || salesError.message?.includes('does not exist'))) {
-        // Fallback for when migration 20261015131000_line_item_void_support.sql hasn't been applied yet
-        let fallbackQuery = supabase
-          .from('sales')
-          .select(`
-            id,
-            control_number,
-            branch_id,
-            sub_store_id,
-            cashier_id,
-            total_amount,
-            status,
-            payment_method,
-            sale_category,
-            reference_number,
-            amount_tendered,
-            change_given,
-            void_reason,
-            voided_at,
-            created_at,
-            branches:branches!branch_id (name),
-            sub_stores:branches!sub_store_id (name),
-            sale_items (
-              id,
-              quantity,
-              unit_price,
-              subtotal,
-              menu_items (name, sku)
-            )
-          `);
-
-        if (!isAdminRole && profile.branch_id) {
-          fallbackQuery = fallbackQuery.eq('branch_id', profile.branch_id);
-        }
-
-        const fallbackRes = await fallbackQuery.order('created_at', { ascending: false });
-        if (fallbackRes.error) throw fallbackRes.error;
-        salesData = fallbackRes.data as any;
-      } else if (salesError) {
-        throw salesError;
-      }
-
-      const { data: profilesData, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, email, branch_id');
-      if (profilesError) throw profilesError;
-      setProfilesList(profilesData || []);
-
-      const mappedSales: SaleRecord[] = (salesData || []).map((sale: any) => {
-        const cashierProfile = (profilesData || []).find(p => p.id === sale.cashier_id);
-        return {
-          id: sale.id,
-          control_number: sale.control_number || null,
-          branch_id: sale.branch_id,
-          cashier_id: sale.cashier_id,
-          total_amount: Number(sale.total_amount),
-          refunded_amount: Number(sale.refunded_amount) || 0,
-          status: sale.status,
-          payment_method: sale.payment_method || null,
-          sale_category: sale.sale_category || null,
-          reference_number: sale.reference_number || null,
-          amount_tendered: sale.amount_tendered != null ? Number(sale.amount_tendered) : null,
-          change_given: sale.change_given != null ? Number(sale.change_given) : null,
-          void_reason: sale.void_reason || null,
-          voided_at: sale.voided_at || null,
-          created_at: sale.created_at,
-          branch_name: sale.branches?.name || 'Unknown Branch',
-          cashier_email: cashierProfile?.email || 'System / Cashier',
-          sub_store_id: sale.sub_store_id || null,
-          sub_store_name: sale.sub_stores?.name || null,
-          service_charge_rate: Number(sale.service_charge_rate) || 0,
-          service_charge_amount: Number(sale.service_charge_amount) || 0,
-          items: (sale.sale_items || []).map((si: any) => ({
-            id: si.id,
-            quantity: Number(si.quantity),
-            unit_price: Number(si.unit_price),
-            subtotal: Number(si.subtotal),
-            voided_quantity: Number(si.voided_quantity) || 0,
-            void_reason: si.void_reason || null,
-            voided_at: si.voided_at || null,
-            item_name: si.menu_items?.name || ('Unknown ' + (vocab.itemUnit.charAt(0).toUpperCase() + vocab.itemUnit.slice(1))),
-            sku: si.menu_items?.sku || ''
-          }))
-        };
-      });
-
-      setSales(mappedSales);
+      if (error) throw error;
+      if (request !== pageRequest.current) return;
+      setSales((data || []).map(mapSaleRecord));
     } catch (err) {
-      console.error('Error fetching sales history:', err);
+      if (request !== pageRequest.current) return;
+      setSales([]);
+      reportLoadError(err);
     } finally {
-      setLoading(false);
+      if (request === pageRequest.current) setLoading(false);
     }
   };
 
+  const loadStats = async () => {
+    if (!profile) return;
+    const request = ++statsRequest.current;
+    try {
+      const rows: { total_amount: number; sale_category: string | null; status: string }[] = [];
+      for (let offset = 0; ; offset += STATS_CHUNK) {
+        const { data, error } = await applySaleFilters(
+          supabase.from('sales').select('id, total_amount, sale_category, status')
+        )
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: true })
+          .range(offset, offset + STATS_CHUNK - 1);
+        if (error) throw error;
+        if (request !== statsRequest.current) return;
+        rows.push(...(data || []));
+        if (!data || data.length < STATS_CHUNK) break;
+      }
+
+      const isCompletedIn = (s: typeof rows[number], ...needles: string[]) =>
+        s.status === 'completed' && !!s.sale_category && needles.some(n => s.sale_category!.toLowerCase().includes(n));
+      const sum = (list: typeof rows) => list.reduce((total, s) => total + Number(s.total_amount), 0);
+
+      setStats({
+        count: rows.length,
+        revenue: sum(rows),
+        foodpanda: sum(rows.filter(s => isCompletedIn(s, 'foodpanda', 'food panda'))),
+        grab: sum(rows.filter(s => isCompletedIn(s, 'grab'))),
+      });
+    } catch (err) {
+      if (request !== statsRequest.current) return;
+      setStats(EMPTY_STATS);
+      reportLoadError(err);
+    }
+  };
+
+  const loadSalesData = () => {
+    loadPage();
+    loadStats();
+  };
+
   useEffect(() => {
-    loadSalesData();
-    if (!isAdminRole && profile?.branch_id) {
+    if (!profile) return;
+    if (!isAdminRole && profile.branch_id) {
       setSelectedBranchId(profile.branch_id);
     } else {
       setSelectedBranchId('All');
     }
+
+    supabase
+      .from('profiles')
+      .select('id, email, branch_id')
+      .then(({ data, error }) => {
+        if (error) console.error('Error fetching cashier profiles:', error);
+        setProfilesList(data || []);
+        setProfilesLoaded(true);
+      });
   }, [profile]);
+
+  // The cashier search maps emails to profile IDs, so wait for profiles before querying
+  useEffect(() => {
+    if (profilesLoaded) loadStats();
+  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter]);
+
+  useEffect(() => {
+    if (profilesLoaded) loadPage();
+  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter, currentPage, itemsPerPage]);
 
   const openSheet = (sale: SaleRecord) => {
     setSelectedSale(sale);
@@ -612,58 +799,7 @@ export const SalesHistory: React.FC = () => {
     }
   };
 
-  const filteredSales = sales.filter(sale => {
-    const matchesSearch = 
-      sale.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      sale.cashier_email.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesBranch = selectedBranchId === 'All' || sale.branch_id === selectedBranchId;
-    const matchesSubStore = selectedSubStoreId === 'All' || 
-      (selectedSubStoreId === 'parent' && !sale.sub_store_id) || 
-      sale.sub_store_id === selectedSubStoreId;
-
-    const normalizedCategory = (sale.sale_category || vocab.defaultSaleCategory).toLowerCase();
-    const defaultCategories = vocab.saleCategories.map(c => c.value.toLowerCase()).filter(c => c !== 'other');
-    let matchesSaleCategory = false;
-    if (saleCategoryFilter === 'all') {
-      matchesSaleCategory = true;
-    } else if (saleCategoryFilter === 'other') {
-      matchesSaleCategory = !defaultCategories.includes(normalizedCategory);
-    } else {
-      matchesSaleCategory = normalizedCategory === saleCategoryFilter;
-    }
-
-    let matchesDate = true;
-    const saleDate = new Date(sale.created_at);
-    const now = new Date();
-
-    if (dateFilter === 'today') {
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      matchesDate = saleDate >= todayStart;
-    } else if (dateFilter === 'week') {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      matchesDate = saleDate >= weekAgo;
-    } else if (dateFilter === 'month') {
-      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      matchesDate = saleDate >= monthAgo;
-    } else if (dateFilter === 'custom') {
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        matchesDate = matchesDate && saleDate >= start;
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        matchesDate = matchesDate && saleDate <= end;
-      }
-    }
-
-    return matchesSearch && matchesBranch && matchesSubStore && matchesDate && matchesSaleCategory;
-  });
-
-  const totalPages = Math.ceil(filteredSales.length / itemsPerPage);
-  const paginatedSales = filteredSales.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = Math.ceil(stats.count / itemsPerPage);
 
   const handlePrintReceipt = (sale: SaleRecord) => {
     const printWindow = window.open('', '_blank');
@@ -818,17 +954,11 @@ export const SalesHistory: React.FC = () => {
     }
   };
 
-  const totalRevenue = filteredSales.reduce((sum, s) => sum + Number(s.total_amount), 0);
-  const totalTransactions = filteredSales.length;
+  const totalRevenue = stats.revenue;
+  const totalTransactions = stats.count;
   const avgOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
-
-  const foodpandaRevenue = filteredSales
-    .filter(s => s.status === 'completed' && s.sale_category && (s.sale_category.toLowerCase().includes('foodpanda') || s.sale_category.toLowerCase().includes('food panda')))
-    .reduce((sum, s) => sum + Number(s.total_amount), 0);
-
-  const grabRevenue = filteredSales
-    .filter(s => s.status === 'completed' && s.sale_category && s.sale_category.toLowerCase().includes('grab'))
-    .reduce((sum, s) => sum + Number(s.total_amount), 0);
+  const foodpandaRevenue = stats.foodpanda;
+  const grabRevenue = stats.grab;
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
@@ -930,7 +1060,7 @@ export const SalesHistory: React.FC = () => {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by Invoice UUID or cashier email..."
+              placeholder="Search by control no, sale ID or cashier email..."
               className="pl-9"
             />
           </div>
@@ -1002,7 +1132,7 @@ export const SalesHistory: React.FC = () => {
               <span className="text-xs text-muted-foreground font-medium">Date Scope:</span>
               <Select value={dateFilter} onValueChange={(v: any) => setDateFilter(v)}>
                 <SelectTrigger className="w-[140px]">
-                  <SelectValue placeholder="All Time" />
+                  <SelectValue placeholder="Today" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Time</SelectItem>
@@ -1101,14 +1231,25 @@ export const SalesHistory: React.FC = () => {
                     Fetching sales transaction ledger...
                   </TableCell>
                 </TableRow>
-              ) : filteredSales.length === 0 ? (
+              ) : loadError ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-24 text-center">
+                    <div className="text-destructive font-medium">Couldn't load sales history.</div>
+                    <div className="text-xs text-muted-foreground mt-1 mb-3">{loadError}</div>
+                    <Button variant="outline" size="sm" onClick={loadSalesData}>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Try again
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ) : sales.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                     No sales history transactions found matching filter criteria.
                   </TableCell>
                 </TableRow>
               ) : (
-                paginatedSales.map(sale => {
+                sales.map(sale => {
                   const dateStr = new Date(sale.created_at).toLocaleString();
                   return (
                     <React.Fragment key={sale.id}>
@@ -1184,7 +1325,7 @@ export const SalesHistory: React.FC = () => {
             <DataTablePagination
               currentPage={currentPage}
               totalPages={totalPages}
-              totalItems={filteredSales.length}
+              totalItems={stats.count}
               itemsPerPage={itemsPerPage}
               onPageChange={setCurrentPage}
               onItemsPerPageChange={setItemsPerPage}
