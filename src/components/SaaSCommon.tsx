@@ -83,6 +83,61 @@ export const UnauthorizedTenantPage: React.FC<{ tenantName: string; signOut: () 
   );
 };
 
+// 3b. Platform admin whose active tenant differs from this portal's tenant.
+// Data access follows profiles.tenant_id, so the admin must switch before entering.
+export const PlatformAdminTenantMismatchPage: React.FC<{
+  profileId: string;
+  tenantId: string;
+  tenantName: string;
+  signOut: () => void;
+}> = ({ profileId, tenantId, tenantName, signOut }) => {
+  const [switching, setSwitching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSwitch = async () => {
+    setSwitching(true);
+    setError(null);
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ tenant_id: tenantId })
+      .eq('id', profileId);
+    if (updateError) {
+      setError(updateError.message);
+      setSwitching(false);
+      return;
+    }
+    window.location.reload();
+  };
+
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <Card className="w-full max-w-md text-center border-amber-500/50 shadow-2xl shadow-amber-500/10">
+        <CardContent className="pt-8 space-y-6">
+          <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/20 mx-auto text-amber-500">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold tracking-wide">Different Workspace Active</h2>
+            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+              Your platform admin account is currently working in another tenant. Switch to
+              {' '}<strong>{tenantName}</strong> to view this workspace's data.
+            </p>
+            {error && <p className="text-xs text-destructive mt-2">{error}</p>}
+          </div>
+          <div className="space-y-2">
+            <Button onClick={handleSwitch} disabled={switching} className="w-full font-bold">
+              {switching ? 'Switching...' : `Switch to ${tenantName}`}
+            </Button>
+            <Button variant="outline" onClick={signOut} disabled={switching} className="w-full font-bold">
+              Sign Out & Return
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
 // 4. Gorgeous Premium SaaS Landing Page
 export const SaaSLandingPage: React.FC = () => {
   const [dbPlans, setDbPlans] = useState<any[]>([]);

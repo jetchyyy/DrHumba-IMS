@@ -5,7 +5,7 @@ import { ModalProvider } from './contexts/ModalContext';
 import { PendingApprovalsProvider } from './contexts/PendingApprovalsContext';
 import { supabase } from './lib/supabase';
 import { useTenant } from './contexts/TenantContext';
-import { TenantSuspendedPage, TenantNotFoundPage, UnauthorizedTenantPage, SaaSLandingPage } from './components/SaaSCommon';
+import { TenantSuspendedPage, TenantNotFoundPage, UnauthorizedTenantPage, PlatformAdminTenantMismatchPage, SaaSLandingPage } from './components/SaaSCommon';
 import { OnboardingPage } from './components/OnboardingPage';
 import { SuperAdminDashboard } from './components/SuperAdminDashboard';
 import { Sidebar, MobileHeader, MobileBottomNav } from './components/Sidebar';
@@ -226,8 +226,20 @@ const AppContent: React.FC = () => {
     }
   }
 
-  // 3. Authenticated Tenant Verification (prevent cross-tenant logins)
-  if (user && profile && !profile.is_platform_admin && profile.tenant_id !== tenant?.id) {
+  // 3. Authenticated Tenant Verification (prevent cross-tenant logins).
+  // RLS scopes data by profiles.tenant_id, so a mismatch would show another tenant's data
+  // under this portal's branding. Platform admins included: they get the option to switch.
+  if (user && profile && profile.tenant_id !== tenant?.id) {
+    if (profile.is_platform_admin && tenant) {
+      return (
+        <PlatformAdminTenantMismatchPage
+          profileId={profile.id}
+          tenantId={tenant.id}
+          tenantName={tenant.name}
+          signOut={signOut}
+        />
+      );
+    }
     return <UnauthorizedTenantPage tenantName={tenant?.name || 'Workspace'} signOut={signOut} />;
   }
 
