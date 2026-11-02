@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { settingsService } from '../lib/settingsService';
@@ -67,6 +67,24 @@ interface AddedTransferItem {
   packaging_unit?: string;
   package_count?: number;
   pieces_per_pack?: number;
+}
+
+interface TransferDraft {
+  id: string;
+  draft_type: 'request' | 'send';
+  source_branch_id: string;
+  target_branch_id: string;
+  items: Array<{
+    item_id: string;
+    quantity_base_unit: number;
+    packaging_unit?: string | null;
+    package_count?: number | null;
+    pieces_per_pack?: number | null;
+  }>;
+  created_by: string | null;
+  updated_at: string;
+  source_branch?: { name: string };
+  target_branch?: { name: string };
 }
 
 interface CatalogItem {
@@ -175,6 +193,7 @@ export const Transfers: React.FC = () => {
   const { confirm, showSuccess, showError } = useModal();
   
   const [transfers, setTransfers] = useState<TransferRequest[]>([]);
+  const [drafts, setDrafts] = useState<TransferDraft[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   
   // Filter state
@@ -214,6 +233,11 @@ export const Transfers: React.FC = () => {
   const [approving, setApproving] = useState(false);
   const [receiving, setReceiving] = useState(false);
   const [isProactive, setIsProactive] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  // Draft currently open in the create modal (null for a brand-new transfer)
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  // Items to restore once the source-branch effect below has reset the form
+  const pendingDraftItemsRef = useRef<AddedTransferItem[] | null>(null);
 
   // Discrepancy inputs state
   const [receivedQuantities, setReceivedQuantities] = useState<Record<string, number>>({});
@@ -296,6 +320,24 @@ export const Transfers: React.FC = () => {
 
       setTransfers(mappedTransfers);
 
+      const { data: draftData, error: draftError } = await supabase
+        .from('transfer_drafts')
+        .select(`
+          id,
+          draft_type,
+          source_branch_id,
+          target_branch_id,
+          items,
+          created_by,
+          updated_at,
+          source_branch:branches!transfer_drafts_source_branch_id_fkey(name),
+          target_branch:branches!transfer_drafts_target_branch_id_fkey(name)
+        `)
+        .order('updated_at', { ascending: false });
+      // Drafts are optional here: a failure must not block the transfer list or catalog
+      if (draftError) console.error('Error loading transfer drafts:', draftError);
+      setDrafts((draftData as any[]) || []);
+
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
         .select('id, item_name, base_unit, purchase_unit, conversion_factor, min_transfer_qty, available_branches, category')
@@ -337,7 +379,10 @@ export const Transfers: React.FC = () => {
   useEffect(() => {
     if (showCreateModal && sourceBranchId) {
       fetchSourceInventory(sourceBranchId);
-      setAddedItems([]); // Reset items when source branch changes to prevent invalid stock transfer levels
+      // Reset items when source branch changes to prevent invalid stock transfer levels,
+      // unless a draft was just opened and its items are waiting to be restored
+      setAddedItems(pendingDraftItemsRef.current ?? []);
+      pendingDraftItemsRef.current = null;
       setCurrentSelectedItemId('');
       setCurrentQty('');
     } else {
@@ -347,6 +392,8 @@ export const Transfers: React.FC = () => {
 
   const handleOpenCreateModal = (proactive: boolean = false) => {
     setIsProactive(proactive);
+    setEditingDraftId(null);
+    pendingDraftItemsRef.current = null;
     const warehouse = branches.find(b => b.is_warehouse);
     setSourceBranchId(warehouse?.id || selectedBranch?.id || '');
     setTargetBranchId(proactive ? '' : selectedBranch?.id || '');
@@ -430,6 +477,62 @@ export const Transfers: React.FC = () => {
     setAddedItems(addedItems.filter((_, i) => i !== index));
   };
 
+  const buildItemsPayload = () => addedItems.map(item => ({
+    item_id: item.item_id,
+    quantity_base_unit: item.qty,
+    packaging_unit: item.packaging_unit || 'pc',
+    package_count: item.package_count || null,
+    pieces_per_pack: item.pieces_per_pack || null
+  }));
+
+  // Saves the open form as a draft (insert or update) and returns its id
+  const persistDraft = async (): Promise<string> => {
+    const draftRow = {
+      draft_type: isProactive ? 'send' : 'request',
+      source_branch_id: sourceBranchId,
+      target_branch_id: targetBranchId,
+      items: buildItemsPayload(),
+      updated_at: new Date().toISOString()
+    };
+
+    if (editingDraftId) {
+      const { error } = await supabase.from('transfer_drafts').update(draftRow).eq('id', editingDraftId);
+      if (error) throw error;
+      return editingDraftId;
+    }
+
+    const { data, error } = await supabase.from('transfer_drafts').insert(draftRow).select('id').single();
+    if (error) throw error;
+    setEditingDraftId(data.id);
+    return data.id;
+  };
+
+  const handleSaveDraft = async () => {
+    if (!sourceBranchId || !targetBranchId) {
+      showError("Select both the source and target branch before saving a draft");
+      return;
+    }
+    if (sourceBranchId === targetBranchId) {
+      showError("Source and Target branch cannot be the same");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await persistDraft();
+      showSuccess("Draft saved. You can finalize it later from the Drafts list.");
+      setTimeout(() => {
+        setShowCreateModal(false);
+        loadData();
+      }, 800);
+    } catch (err: any) {
+      console.error(err);
+      showError(err.message || 'Error saving draft');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSaveTransferRequest = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -458,35 +561,23 @@ export const Transfers: React.FC = () => {
       }
     }
 
+    setSubmitting(true);
     try {
-      const itemsPayload = addedItems.map(item => ({
-        item_id: item.item_id,
-        quantity_base_unit: item.qty,
-        packaging_unit: item.packaging_unit || 'pc',
-        package_count: item.package_count || null,
-        pieces_per_pack: item.pieces_per_pack || null
-      }));
-
-      if (isProactive) {
-        const { error } = await supabase.rpc('fn_send_transfer', {
-          p_source_branch_id: sourceBranchId,
-          p_target_branch_id: targetBranchId,
-          p_items: itemsPayload
-        });
-
+      if (editingDraftId) {
+        // Save the latest edits first, then finalize the draft in one server call
+        const draftId = await persistDraft();
+        const { error } = await supabase.rpc('fn_submit_transfer_draft', { p_draft_id: draftId });
         if (error) throw error;
-        showSuccess("Stock shipment sent and in transit successfully!");
       } else {
-        const { error } = await supabase.rpc('fn_request_transfer', {
+        const { error } = await supabase.rpc(isProactive ? 'fn_send_transfer' : 'fn_request_transfer', {
           p_source_branch_id: sourceBranchId,
           p_target_branch_id: targetBranchId,
-          p_items: itemsPayload
+          p_items: buildItemsPayload()
         });
-
         if (error) throw error;
-        showSuccess("Transfer request submitted successfully!");
       }
 
+      showSuccess(isProactive ? "Stock shipment sent and in transit successfully!" : "Transfer request submitted successfully!");
       setTimeout(() => {
         setShowCreateModal(false);
         loadData();
@@ -494,6 +585,68 @@ export const Transfers: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       showError(err.message || 'Error submitting transfer');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleOpenDraft = (draft: TransferDraft) => {
+    setIsProactive(draft.draft_type === 'send');
+    setEditingDraftId(draft.id);
+    pendingDraftItemsRef.current = (draft.items || []).map(item => ({
+      item_id: item.item_id,
+      qty: Number(item.quantity_base_unit),
+      packaging_unit: item.packaging_unit || 'pc',
+      package_count: item.package_count ?? undefined,
+      pieces_per_pack: item.pieces_per_pack ?? undefined
+    }));
+    setSourceBranchId(draft.source_branch_id);
+    setTargetBranchId(draft.target_branch_id);
+    setRemarks('');
+    setCurrentSelectedItemId('');
+    setCurrentQty('');
+    setPackCount('');
+    setPackSize('5');
+    setEntryMode('base');
+    setItemSearchTerm('');
+    setItemCategoryFilter('All');
+    setItemPopoverOpen(false);
+    setShowCreateModal(true);
+  };
+
+  const handleSubmitDraft = async (draft: TransferDraft) => {
+    const isSend = draft.draft_type === 'send';
+    const route = `${draft.source_branch?.name || 'source'} → ${draft.target_branch?.name || 'target'}`;
+    const confirmed = await confirm(
+      isSend ? 'Send Shipment' : 'Submit Request',
+      isSend
+        ? `Send this shipment now (${route})? Stock will be deducted from the source branch.`
+        : `Submit this transfer request now (${route})?`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.rpc('fn_submit_transfer_draft', { p_draft_id: draft.id });
+      if (error) throw error;
+      showSuccess(isSend ? "Stock shipment sent and in transit successfully!" : "Transfer request submitted successfully!");
+      loadData();
+    } catch (err: any) {
+      console.error(err);
+      showError(err.message || 'Error submitting draft');
+    }
+  };
+
+  const handleDeleteDraft = async (draft: TransferDraft) => {
+    if (!await confirm('Delete Draft', 'Delete this draft? This cannot be undone.')) return;
+
+    try {
+      const { error } = await supabase.from('transfer_drafts').delete().eq('id', draft.id);
+      if (error) throw error;
+      showSuccess("Draft deleted");
+      loadData();
+    } catch (err: any) {
+      console.error(err);
+      showError(err.message || 'Error deleting draft');
     }
   };
 
@@ -1238,6 +1391,61 @@ export const Transfers: React.FC = () => {
         </Card>
       )}
 
+      {drafts.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="px-6 py-4">
+            <CardTitle>Drafts</CardTitle>
+            <CardDescription>Saved requests and shipments that have not been submitted yet. No stock moves until you submit.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-6">Type / Last Saved</TableHead>
+                  <TableHead>Source Branch</TableHead>
+                  <TableHead>Target Branch</TableHead>
+                  <TableHead>Items</TableHead>
+                  <TableHead className="text-right pr-6">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {drafts.map(d => (
+                  <TableRow key={d.id}>
+                    <TableCell className="pl-6">
+                      <div className="font-bold">{d.draft_type === 'send' ? 'Shipment' : 'Request'}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{new Date(d.updated_at).toLocaleString()}</div>
+                    </TableCell>
+                    <TableCell className="font-semibold">{d.source_branch?.name || 'Unknown'}</TableCell>
+                    <TableCell className="font-semibold text-primary">{d.target_branch?.name || 'Unknown'}</TableCell>
+                    <TableCell className="text-muted-foreground">{d.items?.length || 0}</TableCell>
+                    <TableCell className="text-right pr-6">
+                      <div className="flex justify-end space-x-1">
+                        <Button variant="ghost" size="sm" onClick={() => handleOpenDraft(d)}>
+                          <Eye className="mr-2 h-4 w-4" />
+                          Edit
+                        </Button>
+                        <Button variant="default" size="sm" onClick={() => handleSubmitDraft(d)} disabled={!d.items?.length}>
+                          {d.draft_type === 'send' ? 'Send' : 'Submit'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteDraft(d)}
+                          title="Delete Draft"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="px-6 py-4">
           <CardTitle>Transfer History</CardTitle>
@@ -1323,7 +1531,10 @@ export const Transfers: React.FC = () => {
       <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
           <DialogHeader className="p-6 pb-4 border-b shrink-0">
-            <DialogTitle>{isProactive ? 'Send Stock Shipment' : 'New Transfer Request'}</DialogTitle>
+            <DialogTitle>
+              {isProactive ? 'Send Stock Shipment' : 'New Transfer Request'}
+              {editingDraftId && <Badge variant="outline" className="ml-2 uppercase text-[10px] align-middle">Draft</Badge>}
+            </DialogTitle>
             <DialogDescription>
               {isProactive ? 'Ship inventory from your branch to another location.' : 'Request inventory from a warehouse or branch.'}
             </DialogDescription>
@@ -1732,8 +1943,11 @@ export const Transfers: React.FC = () => {
               <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
                 Cancel
               </Button>
-              <Button type="submit">
-                {isProactive ? 'Send Shipment' : 'Submit Request'}
+              <Button type="button" variant="secondary" onClick={handleSaveDraft} disabled={submitting}>
+                {editingDraftId ? 'Update Draft' : 'Save as Draft'}
+              </Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? 'Saving...' : isProactive ? 'Send Shipment' : 'Submit Request'}
               </Button>
             </DialogFooter>
           </form>
