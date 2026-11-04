@@ -264,12 +264,19 @@ export const Transfers: React.FC = () => {
   const getLockedPackSize = (item?: CatalogItem | null): number | null => {
     if (!item || portionPackSizes[item.id]?.length) return null;
     const factor = Number(item.conversion_factor);
-    return factor > 1 ? factor : null;
+    if (factor > 1) return factor;
+    // A packaging unit of its own with factor 1 (e.g. 1 pack = 1 kg) is still a
+    // fixed catalog size; leaving it open let a stale or typed size slip in.
+    const purchaseUnit = item.purchase_unit?.trim().toLowerCase();
+    const hasOwnPackaging = Boolean(purchaseUnit) && purchaseUnit !== item.base_unit?.trim().toLowerCase();
+    return factor > 0 && hasOwnPackaging ? factor : null;
   };
 
   const isPortionedPackItem = (item?: CatalogItem | null) => Boolean(item && portionPackSizes[item.id]?.length);
 
   const getDefaultPackSize = (item: CatalogItem): number | null => {
+    const lockedSize = getLockedPackSize(item);
+    if (lockedSize !== null) return lockedSize;
     const options = getPackSizeOptions(item, portionPackSizes);
     if (options.length === 0) return null;
     const factor = Number(item.conversion_factor);
@@ -1708,6 +1715,10 @@ export const Transfers: React.FC = () => {
                                       if (defaultPackSize !== null) {
                                         setEntryMode('pack');
                                         setPackSize(defaultPackSize);
+                                      } else {
+                                        // Don't carry the previous item's pack size over
+                                        setEntryMode('base');
+                                        setPackSize('5');
                                       }
                                     }}
                                     className={`w-full text-left px-3 py-2 rounded-sm text-sm transition-colors hover:bg-accent hover:text-accent-foreground flex items-center justify-between ${isSelected ? 'bg-accent/50 font-medium' : ''}`}
