@@ -36,6 +36,7 @@ export interface OfflineSale {
     quantity: number; 
     name?: string; 
     price?: number;
+    notes?: string;
     discount_amount?: number;
     is_vat_exempt?: boolean;
     vatable_sales?: number;
@@ -43,6 +44,7 @@ export interface OfflineSale {
     vat_exempt_sales?: number;
   }>;
   total_amount: number;
+  notes?: string;
   queue_number?: string;
   queue_status?: string;
   discount_type?: string | null;

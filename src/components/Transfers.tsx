@@ -198,6 +198,7 @@ export const Transfers: React.FC = () => {
   
   // Filter state
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | TransferRequest['status']>('all');
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
   
@@ -207,7 +208,7 @@ export const Transfers: React.FC = () => {
   
   useEffect(() => {
     setCurrentPage(1);
-  }, [dateFilter, startDate, endDate]);
+  }, [dateFilter, startDate, endDate, statusFilter]);
   
   // Modals state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -1296,7 +1297,10 @@ export const Transfers: React.FC = () => {
         matchesDate = matchesDate && tDate <= end;
       }
     }
-    return matchesDate;
+
+    const matchesStatus = statusFilter === 'all' || transfer.status === statusFilter;
+
+    return matchesDate && matchesStatus;
   });
 
   const totalPages = Math.ceil(filteredTransfers.length / itemsPerPage);
@@ -1345,6 +1349,23 @@ export const Transfers: React.FC = () => {
               <SelectItem value="week">Last 7 Days</SelectItem>
               <SelectItem value="month">Last 30 Days</SelectItem>
               <SelectItem value="custom">Custom Range</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <span className="text-sm text-muted-foreground font-medium">Filter by Status:</span>
+          <Select value={statusFilter} onValueChange={(v: any) => setStatusFilter(v)}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="requested">Requested</SelectItem>
+              <SelectItem value="approved">In Transit (Approved)</SelectItem>
+              <SelectItem value="pending_receipt_approval">Pending Receipt Approval</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1474,7 +1495,7 @@ export const Transfers: React.FC = () => {
               {filteredTransfers.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                    No stock transfers found for the selected dates.
+                    No stock transfers found matching the selected filters.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -1493,7 +1514,9 @@ export const Transfers: React.FC = () => {
                       t.status === 'approved' ? 'default' :
                       t.status === 'rejected' ? 'destructive' : 'secondary'
                     } className="uppercase text-[10px]">
-                      {t.status === 'approved' ? 'In Transit' : t.status}
+                      {t.status === 'approved' ? 'In Transit' :
+                       t.status === 'pending_receipt_approval' ? 'Pending Receipt Approval' :
+                       t.status}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right pr-6">

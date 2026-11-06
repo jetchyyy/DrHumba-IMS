@@ -7,14 +7,14 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
     return;
   }
 
-  const displayStatus = transfer.status === 'pending_receipt_approval' 
-    ? 'PENDING APPROVAL' 
-    : transfer.status === 'approved' 
-    ? 'IN TRANSIT' 
-    : (transfer.status || 'PENDING');
+  const displayStatus = transfer.status === 'pending_receipt_approval'
+    ? 'PENDING APPROVAL'
+    : transfer.status === 'approved'
+      ? 'IN TRANSIT'
+      : (transfer.status || 'PENDING');
 
   const isCompletedOrPending = ['completed', 'pending_receipt_approval'].includes(transfer.status);
-  
+
   // Keep excluded lines on the receipt as an audit trail. They remain excluded from
   // dispatch and inventory movement; only the printed representation is retained.
   const isExcludedItem = (item: any) =>
@@ -29,9 +29,9 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
   const dispatchedItems = printableItems.filter(item => !isExcludedItem(item));
 
   const hasDiscrepancies = isCompletedOrPending && dispatchedItems.some(
-    item => item.received_quantity_base_unit !== null && 
-            item.received_quantity_base_unit !== undefined && 
-            Number(item.received_quantity_base_unit) < Number(item.quantity_base_unit)
+    item => item.received_quantity_base_unit !== null &&
+      item.received_quantity_base_unit !== undefined &&
+      Number(item.received_quantity_base_unit) < Number(item.quantity_base_unit)
   );
 
   const itemsHtml = printableItems.map(item => {
@@ -68,8 +68,8 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
       `;
     }
 
-    const received = item.received_quantity_base_unit !== null && item.received_quantity_base_unit !== undefined 
-      ? Number(item.received_quantity_base_unit) 
+    const received = item.received_quantity_base_unit !== null && item.received_quantity_base_unit !== undefined
+      ? Number(item.received_quantity_base_unit)
       : Number(item.quantity_base_unit);
     const missing = Number(item.quantity_base_unit) - received;
 
@@ -78,8 +78,8 @@ export const printTransferSlip = (transfer: any, items: any[], template: Transfe
     const modNote = isAddedByApprover
       ? `<span style="display: block; font-size: 10px; color: #7c3aed; font-weight: 600; margin-top: 1px;">Approved: ${item.quantity_base_unit} ${unit} (Added at Dispatch)</span>`
       : isModified
-      ? `<span style="display: block; font-size: 10px; color: #b45309; font-weight: 600; margin-top: 1px;">Approved: ${item.quantity_base_unit} ${unit} (Requested: ${item.original_quantity_base_unit} ${unit})</span>`
-      : '';
+        ? `<span style="display: block; font-size: 10px; color: #b45309; font-weight: 600; margin-top: 1px;">Approved: ${item.quantity_base_unit} ${unit} (Requested: ${item.original_quantity_base_unit} ${unit})</span>`
+        : '';
 
     const pcsPerPack = Number(item.pieces_per_pack) || Number(item.inventory_items?.conversion_factor) || 1;
     const pkgUnitName = item.packaging_unit || item.inventory_items?.purchase_unit || 'pack';
@@ -975,12 +975,27 @@ export const printKitchenReceipt = (sale: any, template: SalesInvoiceTemplate) =
   }
 
   const itemsHtml = sale.items.map((item: any) => {
+    const noteHtml = item.notes ? `
+      <div style="font-size: 0.85em; font-weight: bold; color: #b91c1c; margin-top: 3px; font-style: italic; background-color: #fef2f2; border: 1px dashed #ef4444; padding: 2px 6px; border-radius: 3px;">
+        *** NOTE: ${item.notes} ***
+      </div>
+    ` : '';
+
     return `
       <tr style="border-bottom: 1px dashed #cccccc;">
-        <td style="padding: 6px 0; font-weight: bold; font-size: 1.2em;">${item.quantity} x ${item.item_name}</td>
+        <td style="padding: 6px 0; font-weight: bold; font-size: 1.2em;">
+          ${item.quantity} x ${item.item_name || item.name}
+          ${noteHtml}
+        </td>
       </tr>
     `;
   }).join('');
+
+  const orderNoteHtml = (sale.notes || sale.kitchen_notes) ? `
+    <div style="background-color: #fef3c7; border: 2px solid #f59e0b; color: #92400e; padding: 6px 8px; border-radius: 4px; font-weight: bold; font-size: 1.05em; margin: 8px 0; text-transform: uppercase;">
+      ORDER NOTE: ${sale.notes || sale.kitchen_notes}
+    </div>
+  ` : '';
 
   const dateStr = new Date(sale.created_at || new Date()).toLocaleString();
 
@@ -1076,6 +1091,7 @@ export const printKitchenReceipt = (sale: any, template: SalesInvoiceTemplate) =
           </div>
 
           ${sale.sale_category ? `<div class="category-badge">${sale.sale_category}</div>` : ''}
+          ${orderNoteHtml}
 
           <div class="separator"></div>
 
@@ -1226,7 +1242,7 @@ export const printEndOfDayReport = (report: any, template: SalesInvoiceTemplate)
     return;
   }
 
-  const formatVal = (num: number) => 
+  const formatVal = (num: number) =>
     (num || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const renderSummaryBlock = (title: string, data: any) => {
@@ -1577,7 +1593,7 @@ export const printEndOfDayPDFReport = (report: any, template: TransferSlipTempla
     return;
   }
 
-  const formatVal = (num: number) => 
+  const formatVal = (num: number) =>
     (num || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const renderSummaryRow = (title: string, data: any) => {

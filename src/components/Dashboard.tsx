@@ -16,6 +16,7 @@ import {
   Activity,
   Minus,
   X,
+  Calendar,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -25,6 +26,8 @@ import { Badge } from './ui/badge';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { usePendingApprovalCounts } from '../hooks/usePendingApprovalCounts';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { getOrganizedBranches } from '../lib/utils';
 
 interface DashboardStats {
   totalInventoryValue: number;
@@ -34,7 +37,46 @@ interface DashboardStats {
   pendingTransfersCount: number;
   todayRevenue: number;
   yesterdayRevenue?: number;
+  periodRevenue?: number;
+  prevRevenue?: number;
 }
+
+const formatLocalDate = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getPresetDates = (preset: 'today' | 'yesterday' | '7days' | '30days' | 'this_month') => {
+  const now = new Date();
+  const todayStr = formatLocalDate(now);
+  
+  if (preset === 'today') {
+    return { start: todayStr, end: todayStr };
+  }
+  if (preset === 'yesterday') {
+    const y = new Date(now);
+    y.setDate(y.getDate() - 1);
+    const yStr = formatLocalDate(y);
+    return { start: yStr, end: yStr };
+  }
+  if (preset === '7days') {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 6);
+    return { start: formatLocalDate(d), end: todayStr };
+  }
+  if (preset === '30days') {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 29);
+    return { start: formatLocalDate(d), end: todayStr };
+  }
+  if (preset === 'this_month') {
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { start: formatLocalDate(firstDay), end: todayStr };
+  }
+  return { start: todayStr, end: todayStr };
+};
 
 interface ItemStockGrid {
   id: string;
@@ -62,6 +104,12 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Branch and Date Filters
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
+  const [dateRangeType, setDateRangeType] = useState<'today' | 'yesterday' | '7days' | '30days' | 'this_month' | 'custom'>('today');
+  const [startDate, setStartDate] = useState<string>(() => formatLocalDate(new Date()));
+  const [endDate, setEndDate] = useState<string>(() => formatLocalDate(new Date()));
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -71,36 +119,122 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
     setCurrentPage(1);
   }, [inventoryGrid.length]);
 
+  const handleStartDateChange = (newStart: string) => {
+    setStartDate(newStart);
+    setDateRangeType('custom');
+    if (endDate && newStart > endDate) {
+      setEndDate(newStart);
+    }
+  };
+
+  const handleEndDateChange = (newEnd: string) => {
+    setEndDate(newEnd);
+    setDateRangeType('custom');
+    if (startDate && newEnd < startDate) {
+      setStartDate(newEnd);
+    }
+  };
+
   const loadData = async () => {
+    if (!startDate || !endDate) return;
+    const currentStartMs = new Date(`${startDate}T00:00:00`).getTime();
+    const currentEndMs = new Date(`${endDate}T23:59:59.999`).getTime();
+    if (isNaN(currentStartMs) || isNaN(currentEndMs)) return;
+
     setRefreshing(true);
     try {
-      const { data: statsData, error: statsError } = await supabase.rpc('get_overall_dashboard_stats');
-      if (statsError) throw statsError;
-      
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const startOfYesterday = new Date(yesterday.setHours(0,0,0,0)).toISOString();
-      const endOfYesterday = new Date(yesterday.setHours(23,59,59,999)).toISOString();
+      const startIso = new Date(`${startDate}T00:00:00`).toISOString();
+      const endIso = new Date(`${endDate}T23:59:59.999`).toISOString();
 
-      const { data: yesterdaySales } = await supabase
+      const durationMs = Math.max(86400000, currentEndMs - currentStartMs + 1);
+      const prevStartIso = new Date(currentStartMs - durationMs).toISOString();
+      const prevEndIso = new Date(currentStartMs - 1).toISOString();
+
+      let salesQuery = supabase
         .from('sales')
         .select('total_amount')
-        .gte('created_at', startOfYesterday)
-        .lte('created_at', endOfYesterday);
+        .eq('status', 'completed')
+        .gte('created_at', startIso)
+        .lte('created_at', endIso);
 
-      const yesterdayRevenue = yesterdaySales?.reduce((sum, s) => sum + Number(s.total_amount), 0) || 0;
-      setStats({ ...statsData, yesterdayRevenue });
+      let prevSalesQuery = supabase
+        .from('sales')
+        .select('total_amount')
+        .eq('status', 'completed')
+        .gte('created_at', prevStartIso)
+        .lte('created_at', prevEndIso);
 
+      if (selectedBranchId !== 'ALL') {
+        salesQuery = salesQuery.eq('branch_id', selectedBranchId);
+        prevSalesQuery = prevSalesQuery.eq('branch_id', selectedBranchId);
+      }
+
+      const [
+        { data: salesData, error: salesError },
+        { data: prevSalesData, error: prevSalesError },
+        { data: items, error: itemsError },
+        { data: balances, error: balancesError },
+        { data: alerts, error: alertsError },
+        { data: pendingTransfers, error: transfersError }
+      ] = await Promise.all([
+        salesQuery,
+        prevSalesQuery,
+        supabase.from('inventory_items').select('*').order('item_name'),
+        supabase.from('inventory_balances').select('*'),
+        supabase.rpc('get_inventory_alerts'),
+        supabase.from('transfer_requests').select('id, source_branch_id, target_branch_id').eq('status', 'requested')
+      ]);
+
+      if (salesError) console.error('Error fetching sales:', salesError);
+      if (prevSalesError) console.error('Error fetching prev sales:', prevSalesError);
+      if (itemsError) throw itemsError;
+      if (balancesError) throw balancesError;
+      if (alertsError) throw alertsError;
+      if (transfersError) console.error('Error fetching transfers:', transfersError);
+
+      const periodRevenue = salesData?.reduce((sum, s) => sum + Number(s.total_amount || 0), 0) || 0;
+      const prevRevenue = prevSalesData?.reduce((sum, s) => sum + Number(s.total_amount || 0), 0) || 0;
+
+      const itemsMap = new Map((items || []).map(it => [it.id, Number(it.cost_per_base_unit || 0)]));
+      const totalInventoryValue = (balances || [])
+        .filter(b => selectedBranchId === 'ALL' || b.branch_id === selectedBranchId)
+        .reduce((sum, b) => {
+          const cost = itemsMap.get(b.item_id) || 0;
+          return sum + (Number(b.quantity || 0) * cost);
+        }, 0);
+
+      const branchAlerts = ((alerts as any[]) || []).filter((a: any) => selectedBranchId === 'ALL' || a.branch_id === selectedBranchId);
+      setLowStockItems(branchAlerts);
+      const lowStockCount = branchAlerts.length;
+
+      const pendingTransfersCount = (pendingTransfers || []).filter(t => {
+        if (selectedBranchId === 'ALL') return true;
+        return t.source_branch_id === selectedBranchId || t.target_branch_id === selectedBranchId;
+      }).length;
+
+      setStats({
+        totalInventoryValue,
+        totalSales: periodRevenue,
+        totalBranches: selectedBranchId === 'ALL' ? branches.length : 1,
+        lowStockCount,
+        pendingTransfersCount,
+        todayRevenue: periodRevenue,
+        yesterdayRevenue: prevRevenue,
+        periodRevenue,
+        prevRevenue
+      });
+
+      // Activity logs
       const { data: activity, error: activityError } = await supabase
         .from('audit_logs')
         .select('id, action, module, timestamp, user_id')
         .order('timestamp', { ascending: false })
         .limit(5);
-      
+
       if (activityError) {
         console.error('Error fetching recent activity:', activityError);
       }
-      
+
       if (activity && activity.length > 0) {
         const userIds = [...new Set(activity.map(a => a.user_id).filter(Boolean))];
         let profilesMap: Record<string, string> = {};
@@ -134,21 +268,6 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
       } else {
         setRecentActivity([]);
       }
-
-      const { data: items, error: itemsError } = await supabase
-        .from('inventory_items')
-        .select('*')
-        .order('item_name');
-      if (itemsError) throw itemsError;
-
-      const { data: balances, error: balancesError } = await supabase
-        .from('inventory_balances')
-        .select('*');
-      if (balancesError) throw balancesError;
-
-      const { data: alerts, error: alertsError } = await supabase.rpc('get_inventory_alerts');
-      if (alertsError) throw alertsError;
-      setLowStockItems(alerts || []);
 
       const grid: ItemStockGrid[] = (items || []).map(item => {
         const itemBalances = (balances || []).filter(b => b.item_id === item.id);
@@ -187,7 +306,7 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
 
   useEffect(() => {
     loadData();
-  }, [branches]);
+  }, [branches, selectedBranchId, startDate, endDate]);
 
   if (loading) {
     return (
@@ -235,20 +354,71 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
   const paginatedGrid = filteredGrid.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
 
-  const revenueTrend = stats?.todayRevenue && stats?.yesterdayRevenue
-    ? ((stats.todayRevenue - stats.yesterdayRevenue) / stats.yesterdayRevenue) * 100
-    : 0;
+  const organizedBranches = getOrganizedBranches(branches);
+  const selectedBranchName = selectedBranchId === 'ALL'
+    ? 'All Branches'
+    : (branches.find(b => b.id === selectedBranchId)?.name || 'Selected Branch');
+
+  const displayedBranches = selectedBranchId === 'ALL'
+    ? branches
+    : branches.filter(b => b.id === selectedBranchId);
+
+  const isSingleDay = startDate === endDate;
+  const todayStr = formatLocalDate(new Date());
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterdayStr = formatLocalDate(yesterdayDate);
+
+  let salesTitle = "Sales Revenue";
+  let comparisonLabel = "vs previous period";
+
+  if (isSingleDay) {
+    if (startDate === todayStr) {
+      salesTitle = "Today's Sales";
+      comparisonLabel = "vs yesterday";
+    } else if (startDate === yesterdayStr) {
+      salesTitle = "Yesterday's Sales";
+      comparisonLabel = "vs prior day";
+    } else {
+      salesTitle = `Sales (${startDate})`;
+      comparisonLabel = "vs prior day";
+    }
+  } else {
+    if (dateRangeType === '7days') {
+      salesTitle = "Last 7 Days Sales";
+      comparisonLabel = "vs prior 7 days";
+    } else if (dateRangeType === '30days') {
+      salesTitle = "Last 30 Days Sales";
+      comparisonLabel = "vs prior 30 days";
+    } else if (dateRangeType === 'this_month') {
+      salesTitle = "This Month's Sales";
+      comparisonLabel = "vs prior period";
+    } else {
+      salesTitle = `Sales (${startDate} to ${endDate})`;
+      comparisonLabel = "vs prior period";
+    }
+  }
+
+  const curRev = stats?.periodRevenue ?? stats?.todayRevenue ?? 0;
+  const prevRev = stats?.prevRevenue ?? stats?.yesterdayRevenue ?? 0;
+  const revenueTrend = prevRev > 0
+    ? ((curRev - prevRev) / prevRev) * 100
+    : curRev > 0 ? 100 : 0;
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 space-y-4 md:space-y-0">
         <div>
           <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
             <LayoutDashboard className="w-8 h-8 text-primary" />
             <span>Overview Dashboard</span>
           </h2>
-          <p className="text-muted-foreground">Real-time status across all warehouses and restaurant branches.</p>
+          <p className="text-muted-foreground">
+            {selectedBranchId === 'ALL'
+              ? 'Real-time status across all warehouses and restaurant branches.'
+              : `Filtered view for ${selectedBranchName}.`}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground hidden sm:inline-block">
@@ -257,6 +427,104 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
           <Button onClick={loadData} disabled={refreshing} variant="outline" size="icon" className="h-9 w-9">
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
           </Button>
+        </div>
+      </div>
+
+      {/* ── Filter Toolbar (Branch & Custom Date Filters) ── */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 p-3 sm:p-4 rounded-xl bg-card/60 border border-border/60 backdrop-blur shadow-sm">
+        {/* Left: Branch Filter */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Store className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Branch:</span>
+          </div>
+          <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
+            <SelectTrigger className="w-[190px] sm:w-[220px] h-9 text-xs bg-background">
+              <SelectValue placeholder="All Branches" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL" className="text-xs font-bold">
+                All Branches
+              </SelectItem>
+              {organizedBranches.map(b => (
+                <SelectItem key={b.id} value={b.id} className="text-xs">
+                  {b.parent_id ? `└─ ${b.name}` : b.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Right: Date Range Preset & Custom Date Inputs */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Period:</span>
+          </div>
+          <Select
+            value={dateRangeType}
+            onValueChange={(val: any) => {
+              setDateRangeType(val);
+              if (val !== 'custom') {
+                const { start, end } = getPresetDates(val);
+                setStartDate(start);
+                setEndDate(end);
+              }
+            }}
+          >
+            <SelectTrigger className="w-[130px] sm:w-[145px] h-9 text-xs bg-background">
+              <SelectValue placeholder="Select Range" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="today" className="text-xs">Today</SelectItem>
+              <SelectItem value="yesterday" className="text-xs">Yesterday</SelectItem>
+              <SelectItem value="7days" className="text-xs">Last 7 Days</SelectItem>
+              <SelectItem value="30days" className="text-xs">Last 30 Days</SelectItem>
+              <SelectItem value="this_month" className="text-xs">This Month</SelectItem>
+              <SelectItem value="custom" className="text-xs font-medium text-primary">Custom Dates</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Custom Date Inputs */}
+          {dateRangeType === 'custom' && (
+            <div className="flex items-center gap-1.5 bg-background border border-border/80 rounded-md px-2 py-1 h-9">
+              <Input
+                type="date"
+                value={startDate}
+                max={endDate}
+                onChange={(e) => handleStartDateChange(e.target.value)}
+                className="h-7 text-xs border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 w-[115px]"
+              />
+              <span className="text-muted-foreground text-xs font-medium">to</span>
+              <Input
+                type="date"
+                value={endDate}
+                min={startDate}
+                onChange={(e) => handleEndDateChange(e.target.value)}
+                className="h-7 text-xs border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 w-[115px]"
+              />
+            </div>
+          )}
+
+          {/* Reset button if any filter is active */}
+          {(selectedBranchId !== 'ALL' || dateRangeType !== 'today') && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setSelectedBranchId('ALL');
+                setDateRangeType('today');
+                const { start, end } = getPresetDates('today');
+                setStartDate(start);
+                setEndDate(end);
+              }}
+              title="Reset to All Branches & Today"
+            >
+              <X className="w-3.5 h-3.5 mr-1" />
+              Reset
+            </Button>
+          )}
         </div>
       </div>
 
@@ -350,10 +618,10 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
               <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 text-emerald-500">
                 <DollarSign className="w-5 h-5" />
               </div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Today's Sales</p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{salesTitle}</p>
             </div>
             <div>
-              <h3 className="text-3xl font-bold">{formatCurrency(stats?.todayRevenue || 0)}</h3>
+              <h3 className="text-3xl font-bold">{formatCurrency(stats?.periodRevenue ?? stats?.todayRevenue ?? 0)}</h3>
               <div className="flex items-center mt-2 text-xs">
                 {revenueTrend > 0 ? (
                   <span className="text-emerald-500 flex items-center font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded mr-2">
@@ -368,7 +636,7 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
                     <Minus className="w-3 h-3 mr-1" /> 0%
                   </span>
                 )}
-                <span className="text-muted-foreground">vs yesterday</span>
+                <span className="text-muted-foreground">{comparisonLabel}</span>
               </div>
             </div>
           </CardContent>
@@ -384,7 +652,11 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
             </div>
             <div>
               <h3 className="text-3xl font-bold">{formatCurrency(stats?.totalInventoryValue || 0)}</h3>
-              <p className="text-xs text-muted-foreground mt-2">Across all branches and warehouses</p>
+              <p className="text-xs text-muted-foreground mt-2">
+                {selectedBranchId === 'ALL'
+                  ? 'Across all branches and warehouses'
+                  : `For ${selectedBranchName}`}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -403,7 +675,9 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
             <div className="flex items-end justify-between">
               <div>
                 <h3 className="text-3xl font-bold">{stats?.lowStockCount || 0}</h3>
-                <p className="text-xs text-muted-foreground mt-2">Items need reordering</p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {selectedBranchId === 'ALL' ? 'Items need reordering' : `Items low in ${selectedBranchName}`}
+                </p>
               </div>
               <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-1 transition-transform mb-1" />
             </div>
@@ -424,7 +698,9 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
             <div className="flex items-end justify-between">
               <div>
                 <h3 className="text-3xl font-bold">{stats?.pendingTransfersCount || 0}</h3>
-                <p className="text-xs text-muted-foreground mt-2">Pending requests</p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {selectedBranchId === 'ALL' ? 'Pending requests' : `Pending for ${selectedBranchName}`}
+                </p>
               </div>
               <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-1 transition-transform mb-1" />
             </div>
@@ -437,7 +713,7 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
         <Alert variant="destructive" className="mb-8 border-amber-500/50 text-amber-500 bg-amber-500/5 relative">
           <AlertTriangle className="h-4 w-4" color="currentColor" />
           <AlertTitle className="uppercase tracking-wider font-bold text-xs mb-3 flex items-center justify-between">
-            <span>Critical Reorder Alerts</span>
+            <span>Critical Reorder Alerts {selectedBranchId !== 'ALL' && `— ${selectedBranchName}`}</span>
             <Button variant="link" size="sm" className="h-auto p-0 text-amber-600 hover:text-amber-500 font-semibold" onClick={() => setActiveTab('notifications')}>
               View all alerts &rarr;
             </Button>
@@ -515,8 +791,19 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
           <Card className="h-full">
             <CardHeader className="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b">
               <div>
-                <CardTitle className="text-lg">Multi-Branch Inventory Grid</CardTitle>
-                <CardDescription>Real-time stock balance compared across all locations.</CardDescription>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-lg">Multi-Branch Inventory Grid</CardTitle>
+                  {selectedBranchId !== 'ALL' && (
+                    <Badge variant="outline" className="text-[10px] text-primary border-primary/30 bg-primary/5">
+                      Filtered: {selectedBranchName}
+                    </Badge>
+                  )}
+                </div>
+                <CardDescription>
+                  {selectedBranchId === 'ALL'
+                    ? 'Real-time stock balance compared across all locations.'
+                    : `Showing stock balances for ${selectedBranchName}. Select "All Branches" to view all locations.`}
+                </CardDescription>
               </div>
               <div className="relative w-full sm:w-64 shrink-0">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -536,12 +823,14 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
                   <TableHead className="pl-6 sticky left-0 z-20 bg-card min-w-[200px] border-r">Item Name</TableHead>
                   <TableHead className="min-w-[120px]">SKU</TableHead>
                   <TableHead className="min-w-[100px]">Category</TableHead>
-                  {branches.map(b => (
+                  {displayedBranches.map(b => (
                     <TableHead key={b.id} className="text-center text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap min-w-[110px]">
                       {b.name}
                     </TableHead>
                   ))}
-                  <TableHead className="text-right pr-6 font-bold border-l pl-4">Total Stock</TableHead>
+                  <TableHead className="text-right pr-6 font-bold border-l pl-4">
+                    {selectedBranchId === 'ALL' ? 'Total Stock' : 'Total (All Branches)'}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -552,8 +841,8 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
                     <TableCell>
                       <Badge variant="secondary" className="text-[9px] uppercase font-bold">{item.category}</Badge>
                     </TableCell>
-                    {branches.map(b => {
-                      const qty = item.stocks[b.id];
+                    {displayedBranches.map(b => {
+                      const qty = item.stocks[b.id] ?? 0;
                       return (
                         <TableCell key={b.id} className="text-center">
                           {renderStockValue(qty, item.reorderLevel, item.baseUnit)}
@@ -567,7 +856,7 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
                 ))}
                 {filteredGrid.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={4 + branches.length} className="h-48 text-center text-muted-foreground">
+                    <TableCell colSpan={4 + displayedBranches.length} className="h-48 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center">
                         <Store className="w-8 h-8 mb-2 opacity-20" />
                         <p>No inventory items found.</p>

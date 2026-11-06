@@ -7,10 +7,11 @@ import {
   MinusIcon as Minus,
   TrashIcon as Trash2,
   MagnifyingGlassIcon as Search,
-  CheckCircledIcon as CheckCircle,
   ExclamationTriangleIcon as WifiOff,
-  FileTextIcon as Printer,
   ReloadIcon as Spinner,
+  Cross2Icon as X,
+  Pencil1Icon as Edit3,
+  ChatBubbleIcon as MessageSquare,
 } from '@radix-ui/react-icons';
 import {
   getTerminalConfig,
@@ -26,1210 +27,35 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
-
-import { useModal } from '../contexts/ModalContext';
-import { ScrollArea } from './ui/scroll-area';
-import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from './ui/sheet';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
-import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Separator } from './ui/separator';
-import { useNetworkStatus } from '../hooks/use-network-status';
-import { useBusinessVocab } from '../hooks/useBusinessVocab';
-import { useTenant } from '../contexts/TenantContext';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface MenuItem {
-  id: string;
-  name: string;
-  sku: string;
-  category: string;
-  price: number;
-  is_available: boolean;
-  foodpanda_price?: number | null;
-  grab_price?: number | null;
-}
-
-interface CartItem {
-  menu_item_id: string;
-  name: string;
-  price: number;
-  quantity: number;
-  needsAdjustment?: boolean;
-}
-
-interface ItemAvailability {
-  stockAvailable: boolean;
-  hasSufficientStock: boolean;
-}
-
-type PaymentMethod = 'cash' | 'card' | 'gcash' | 'maya' | 'other';
-
-const PAYMENT_LABELS: Record<PaymentMethod, string> = {
-  cash:  'Cash',
-  card:  'Credit / Debit Card',
-  gcash: 'GCash',
-  maya:  'Maya',
-  other: 'Other',
-};
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const formatPHP = (n: number) =>
-  new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n);
-
-const QUICK_CASH_AMOUNTS = (total: number): number[] => {
-  const ceil50 = Math.ceil(total / 50) * 50;
-  const ceil100 = Math.ceil(total / 100) * 100;
-  const suggestions = new Set<number>();
-
-  if (ceil50 >= total) suggestions.add(ceil50);
-  if (ceil100 >= total) suggestions.add(ceil100);
-
-  // Common Philippine denominations
-  if (total <= 500) suggestions.add(500);
-  if (total <= 1000) suggestions.add(1000);
-  if (total > 1000) {
-    suggestions.add(Math.ceil(total / 500) * 500);
-    suggestions.add(Math.ceil(total / 1000) * 1000);
-  }
-
-  return Array.from(suggestions)
-    .filter(v => v >= total)
-    .sort((a, b) => a - b)
-    .slice(0, 4);
-};
-
-// ─── Payment Dialog ───────────────────────────────────────────────────────────
-
-interface PaymentDialogProps {
-  open: boolean;
-  onClose: () => void;
-  cartTotal: number;
-  cart: CartItem[];
-  onConfirm: (
-    method: PaymentMethod,
-    tendered: number | null,
-    saleCategory: string,
-    referenceNumber: string,
-    queueNumber: string,
-    subStoreId: string | null,
-    discountType: string | null,
-    discountAmount: number,
-    discountMetadata: any[],
-    discountedItems: any[],
-    payableTotal?: number
-  ) => Promise<void>;
-  processing: boolean;
-  onStateChange?: (state: { 
-    method: PaymentMethod; 
-    tendered: number; 
-    refNumber: string;
-    applyDiscount?: boolean;
-    discountType?: string;
-    discountAmount?: number;
-    payableTotal?: number;
-    vatRelief?: number;
-    serviceChargeAmount?: number;
-  } | null) => void;
-  saleCategories: Array<{ value: string; label: string }>;
-  defaultSaleCategory: string;
-  subStores: any[];
-  initialSubStore: any | null;
-  serviceChargeRate?: number;
-}
-
-const PaymentDialog: React.FC<PaymentDialogProps> = ({
-  open,
-  onClose,
-  cartTotal,
-  cart,
-  onConfirm,
-  processing,
-  onStateChange,
-  saleCategories,
-  defaultSaleCategory,
-  subStores,
-  initialSubStore,
-  serviceChargeRate = 0,
-}) => {
-  const [method, setMethod] = useState<PaymentMethod>('cash');
-  const [tenderedStr, setTenderedStr] = useState('');
-  const [saleCategory, setSaleCategory] = useState<string>(defaultSaleCategory);
-  const [customCategory, setCustomCategory] = useState<string>('');
-  const [refNumber, setRefNumber] = useState<string>('');
-  const [queueNumber, setQueueNumber] = useState<string>('');
-  const [dialogSubStoreId, setDialogSubStoreId] = useState<string>('parent');
-
-  // Discount states
-  const [applyDiscount, setApplyDiscount] = useState(false);
-  const [discountMode, setDiscountMode] = useState<'shared' | 'itemized'>('shared');
-  const [discountType, setDiscountType] = useState<string>('sc'); // sc, pwd, mov, solo, custom
-  const [groupSize, setGroupSize] = useState<number>(1);
-  const [discountCount, setDiscountCount] = useState<number>(1);
-  
-  // Custom discount values
-  const [customDiscountRate, setCustomDiscountRate] = useState<number>(20);
-  const [customDiscountIsVatExempt, setCustomDiscountIsVatExempt] = useState<boolean>(true);
-
-  // Card holders metadata
-  const [cardHolders, setCardHolders] = useState<Array<{ name: string; id: string }>>([{ name: '', id: '' }]);
-
-  // Manual unit selection overrides
-  const [manualSelection, setManualSelection] = useState<Record<string, boolean>>({});
-
-  // Flatten the cart into individual units for discount selection
-  const flatUnits = useMemo(() => {
-    let units: Array<{ id: string; menu_item_id: string; price: number; name: string }> = [];
-    cart.forEach(item => {
-      for (let q = 0; q < item.quantity; q++) {
-        units.push({
-          id: `${item.menu_item_id}-${q}`,
-          menu_item_id: item.menu_item_id,
-          price: item.price,
-          name: item.name
-        });
-      }
-    });
-    return units;
-  }, [cart]);
-
-  // Adjust cardholders count when discountCount changes
-  useEffect(() => {
-    setCardHolders(prev => {
-      const next = [...prev];
-      if (next.length < discountCount) {
-        while (next.length < discountCount) {
-          next.push({ name: '', id: '' });
-        }
-      } else if (next.length > discountCount) {
-        next.splice(discountCount);
-      }
-      return next;
-    });
-  }, [discountCount]);
-
-  // Clear manual selections on cardholder count changes to fall back to auto-cheapest
-  useEffect(() => {
-    setManualSelection({});
-  }, [discountCount, discountMode]);
-
-  // Automatically select cheapest units when discount settings change in itemized mode,
-  // or use manual checked selections capped at discountCount
-  const targetUnitIds = useMemo(() => {
-    if (!applyDiscount) return new Set<string>();
-
-    const manualKeys = Object.keys(manualSelection).filter(k => manualSelection[k]);
-    if (manualKeys.length > 0) {
-      return new Set<string>(manualKeys);
-    } else {
-      const sorted = [...flatUnits].sort((a, b) => a.price - b.price);
-      const selected = new Set<string>();
-      for (let i = 0; i < Math.min(discountCount, sorted.length); i++) {
-        selected.add(sorted[i].id);
-      }
-      return selected;
-    }
-  }, [applyDiscount, flatUnits, discountCount, manualSelection]);
-
-  // Comprehensive Philippine BIR-Compliant Discount Calculation Engine
-  const discountCalculation = useMemo(() => {
-    if (!applyDiscount || discountCount <= 0 || groupSize <= 0) {
-      return {
-        discountedItems: cart.map(item => ({
-          menu_item_id: item.menu_item_id,
-          quantity: item.quantity,
-          price: item.price,
-          name: item.name,
-          discount_amount: 0,
-          is_vat_exempt: false,
-          vatable_sales: (item.price * item.quantity) / 1.12,
-          vat_amount: ((item.price * item.quantity) / 1.12) * 0.12,
-          vat_exempt_sales: 0,
-          net_total: item.price * item.quantity
-        })),
-        total_amount: cartTotal,
-        discount_amount: 0,
-        vatable_sales: cartTotal / 1.12,
-        vat_amount: (cartTotal / 1.12) * 0.12,
-        vat_exempt_sales: 0,
-        gross_sales: cartTotal,
-        regular_gross: cartTotal,
-        sc_gross: 0,
-        vat_relief: 0,
-        total_savings: 0,
-        seniorRatio: 0,
-        regularCount: groupSize
-      };
-    }
-
-    let rate = 0.20;
-    let isExempt = true;
-    if (discountType === 'sc' || discountType === 'pwd' || discountType === 'mov') {
-      rate = 0.20;
-      isExempt = true;
-    } else if (discountType === 'solo') {
-      rate = 0.10;
-      isExempt = true;
-    } else if (discountType === 'custom') {
-      rate = customDiscountRate / 100;
-      isExempt = customDiscountIsVatExempt;
-    }
-
-    const seniorRatio = Math.min(1, Math.max(0, discountCount / groupSize));
-    const regularRatio = 1 - seniorRatio;
-
-    let calculatedUnits = flatUnits.map(unit => {
-      let gross_sc = 0;
-      let gross_reg = 0;
-
-      if (discountMode === 'shared') {
-        gross_sc = unit.price * seniorRatio;
-        gross_reg = unit.price * regularRatio;
-      } else {
-        const isSelected = targetUnitIds.has(unit.id);
-        if (isSelected) {
-          gross_sc = unit.price;
-          gross_reg = 0;
-        } else {
-          gross_sc = 0;
-          gross_reg = unit.price;
-        }
-      }
-
-      let vat_exempt_sales = 0;
-      let discount_amount = 0;
-      let vatable_sales_disc = 0;
-      let vat_amount_disc = 0;
-
-      if (gross_sc > 0) {
-        if (isExempt) {
-          vat_exempt_sales = gross_sc / 1.12;
-          discount_amount = vat_exempt_sales * rate;
-        } else {
-          const payable_sc = gross_sc * (1 - rate);
-          vatable_sales_disc = payable_sc / 1.12;
-          vat_amount_disc = vatable_sales_disc * 0.12;
-          discount_amount = gross_sc * rate;
-        }
-      }
-
-      const vatable_sales_reg = gross_reg > 0 ? gross_reg / 1.12 : 0;
-      const vat_amount_reg = vatable_sales_reg * 0.12;
-
-      const total_vatable = vatable_sales_reg + vatable_sales_disc;
-      const total_vat = vat_amount_reg + vat_amount_disc;
-      const net_total = isExempt
-        ? (total_vatable + total_vat + vat_exempt_sales - discount_amount)
-        : (total_vatable + total_vat);
-
-      return {
-        ...unit,
-        isDiscounted: gross_sc > 0,
-        gross_sc,
-        gross_reg,
-        discount_amount,
-        vatable_sales: total_vatable,
-        vat_amount: total_vat,
-        vat_exempt_sales,
-        is_vat_exempt: isExempt && gross_sc > 0,
-        net_total
-      };
-    });
-
-    let groupedItemsMap: Record<string, any> = {};
-    calculatedUnits.forEach(unit => {
-      if (!groupedItemsMap[unit.menu_item_id]) {
-        groupedItemsMap[unit.menu_item_id] = {
-          menu_item_id: unit.menu_item_id,
-          quantity: 0,
-          price: unit.price,
-          name: unit.name,
-          discount_amount: 0,
-          vatable_sales: 0,
-          vat_amount: 0,
-          vat_exempt_sales: 0,
-          is_vat_exempt: false
-        };
-      }
-      let gi = groupedItemsMap[unit.menu_item_id];
-      gi.quantity += 1;
-      gi.discount_amount += unit.discount_amount;
-      gi.vatable_sales += unit.vatable_sales;
-      gi.vat_amount += unit.vat_amount;
-      gi.vat_exempt_sales += unit.vat_exempt_sales;
-      if (unit.is_vat_exempt) {
-        gi.is_vat_exempt = true;
-      }
-    });
-
-    const discountedItems = Object.values(groupedItemsMap);
-
-    let tx_total_amount = 0;
-    let tx_discount_amount = 0;
-    let tx_vatable_sales = 0;
-    let tx_vat_amount = 0;
-    let tx_vat_exempt_sales = 0;
-    let tx_regular_gross = 0;
-    let tx_sc_gross = 0;
-
-    calculatedUnits.forEach(unit => {
-      tx_total_amount += unit.net_total;
-      tx_discount_amount += unit.discount_amount;
-      tx_vatable_sales += unit.vatable_sales;
-      tx_vat_amount += unit.vat_amount;
-      tx_vat_exempt_sales += unit.vat_exempt_sales;
-      tx_regular_gross += unit.gross_reg;
-      tx_sc_gross += unit.gross_sc;
-    });
-
-    const vat_relief = isExempt ? Math.max(0, tx_sc_gross - tx_vat_exempt_sales) : 0;
-    const total_savings = vat_relief + tx_discount_amount;
-
-    return {
-      discountedItems,
-      total_amount: tx_total_amount,
-      discount_amount: tx_discount_amount,
-      vatable_sales: tx_vatable_sales,
-      vat_amount: tx_vat_amount,
-      vat_exempt_sales: tx_vat_exempt_sales,
-      gross_sales: cartTotal,
-      regular_gross: tx_regular_gross,
-      sc_gross: tx_sc_gross,
-      vat_relief,
-      total_savings,
-      seniorRatio,
-      regularCount: groupSize - discountCount
-    };
-  }, [applyDiscount, discountMode, flatUnits, discountCount, groupSize, discountType, customDiscountRate, customDiscountIsVatExempt, targetUnitIds, cart, cartTotal]);
-
-  const handleToggleUnit = (unitId: string) => {
-    setManualSelection(prev => {
-      const next = { ...prev };
-      next[unitId] = !next[unitId];
-      return next;
-    });
-  };
-
-  const effectiveSCRate = useMemo(() => {
-    if (dialogSubStoreId && dialogSubStoreId !== 'parent') {
-      const sub = subStores.find(s => s.id === dialogSubStoreId);
-      if (sub && sub.service_charge_rate !== undefined && sub.service_charge_rate !== null) {
-        return Number(sub.service_charge_rate);
-      }
-    }
-    return serviceChargeRate;
-  }, [dialogSubStoreId, subStores, serviceChargeRate]);
-
-  const serviceChargeAmount = effectiveSCRate > 0 ? Number((cartTotal * (effectiveSCRate / 100)).toFixed(2)) : 0;
-  const payableTotal = Number((discountCalculation.total_amount + serviceChargeAmount).toFixed(2));
-  const tendered = parseFloat(tenderedStr) || 0;
-  const change = method === 'cash' ? tendered - payableTotal : 0;
-
-  const isRefNumRequired = method === 'gcash' || method === 'maya';
-  const hasRefNum = !isRefNumRequired || refNumber.trim().length > 0;
-  const isCustomCatRequired = saleCategory === 'other';
-  const hasCustomCat = !isCustomCatRequired || customCategory.trim().length > 0;
-  const isValidCash = method !== 'cash' || tendered >= (payableTotal - 0.009);
-
-  const canConfirm = isValidCash && hasRefNum && hasCustomCat;
-
-  // Propagate state to parent for customer display sync
-  useEffect(() => {
-    if (open && onStateChange) {
-      onStateChange({ 
-        method, 
-        tendered: parseFloat(tenderedStr) || 0, 
-        refNumber,
-        applyDiscount,
-        discountType,
-        discountAmount: applyDiscount ? discountCalculation.discount_amount : 0,
-        payableTotal,
-        vatRelief: applyDiscount ? discountCalculation.vat_relief : 0,
-        serviceChargeAmount
-      });
-    } else if (!open && onStateChange) {
-      onStateChange(null);
-    }
-  }, [open, method, tenderedStr, refNumber, applyDiscount, discountType, discountCalculation, cartTotal, payableTotal, serviceChargeAmount, onStateChange]);
-
-  // Reset when dialog opens
-  useEffect(() => {
-    if (open) {
-      setMethod('cash');
-      setTenderedStr('');
-      setSaleCategory(defaultSaleCategory);
-      setCustomCategory('');
-      setRefNumber('');
-      setQueueNumber('');
-      setDialogSubStoreId(initialSubStore?.id || 'parent');
-      setApplyDiscount(false);
-      setDiscountMode('shared');
-      setDiscountType('sc');
-      setGroupSize(1);
-      setDiscountCount(1);
-      setCustomDiscountRate(20);
-      setCustomDiscountIsVatExempt(true);
-      setCardHolders([{ name: '', id: '' }]);
-      setManualSelection({});
-    }
-  }, [open, defaultSaleCategory, initialSubStore]);
-
-  const handleConfirm = async () => {
-    const tValue = method === 'cash' ? (tendered || null) : null;
-    const finalCategory = saleCategory === 'other' ? customCategory.trim() : saleCategory;
-    const finalRef = (method === 'gcash' || method === 'maya') ? refNumber.trim() : '';
-    const finalSubStoreId = dialogSubStoreId === 'parent' ? null : dialogSubStoreId;
-    
-    const finalMetadata = applyDiscount
-      ? cardHolders.map(ch => ({
-          type: discountType.toUpperCase(),
-          id: ch.id.trim(),
-          name: ch.name.trim()
-        }))
-      : [];
-
-    await onConfirm(
-      method,
-      tValue,
-      finalCategory,
-      finalRef,
-      queueNumber.trim(),
-      finalSubStoreId,
-      applyDiscount ? discountType : null,
-      applyDiscount ? discountCalculation.discount_amount : 0,
-      finalMetadata,
-      discountCalculation.discountedItems,
-      payableTotal
-    );
-  };
-
-  const handleNumpadDigit = (digit: string) => {
-    setTenderedStr(prev => {
-      if (digit === '.') {
-        if (prev.includes('.')) return prev;
-        return prev ? `${prev}.` : '0.';
-      }
-      if (digit === '00') {
-        if (!prev || prev === '0') return '0';
-        if (prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
-        return `${prev}00`;
-      }
-      if (prev === '0') return digit;
-      if (prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
-      return `${prev}${digit}`;
-    });
-  };
-
-  const handleNumpadBackspace = () => {
-    setTenderedStr(prev => (prev.length > 0 ? prev.slice(0, -1) : ''));
-  };
-
-  const handleNumpadClear = () => {
-    setTenderedStr('');
-  };
-
-  const handleAddBill = (val: number) => {
-    const cur = parseFloat(tenderedStr) || 0;
-    setTenderedStr(String(cur + val));
-  };
-
-  const quickAmounts = useMemo(() => QUICK_CASH_AMOUNTS(payableTotal), [payableTotal]);
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v && !processing) onClose(); }}>
-      <DialogContent className="sm:max-w-3xl lg:max-w-4xl">
-        <DialogHeader>
-          <DialogTitle className="text-lg font-bold tracking-tight">Collect Payment</DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
-            Confirm the payment method and tender amount before finalizing the transaction.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 overflow-y-auto max-h-[60vh] md:max-h-[70vh] pr-1">
-          {/* Order Total & Live Visual Discount Breakdown */}
-          <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Gross Cart Total</span>
-              <span className="text-sm font-bold text-muted-foreground">{formatPHP(cartTotal)}</span>
-            </div>
-
-            {applyDiscount && (
-              <div className="pt-2 border-t border-dashed space-y-1 text-xs">
-                <div className="flex items-center justify-between text-muted-foreground">
-                  <span className="font-medium">Calculation Basis:</span>
-                  <span className="font-bold text-foreground">
-                    {discountMode === 'shared'
-                      ? `${groupSize} Pax (${discountCount} ${discountType.toUpperCase()}, ${groupSize - discountCount} Reg) • ${(discountCalculation.seniorRatio * 100).toFixed(0)}% Share`
-                      : `Itemized Selection (${targetUnitIds.size} item${targetUnitIds.size === 1 ? '' : 's'})`}
-                  </span>
-                </div>
-
-                {discountCalculation.regular_gross > 0 && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Regular Share ({groupSize - discountCount} Pax):</span>
-                    <span>{formatPHP(discountCalculation.regular_gross)}</span>
-                  </div>
-                )}
-
-                <div className="flex justify-between text-muted-foreground">
-                  <span>{discountType.toUpperCase()} Share ({discountCount} Pax Gross):</span>
-                  <span>{formatPHP(discountCalculation.sc_gross)}</span>
-                </div>
-
-                {discountCalculation.vat_relief > 0 && (
-                  <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
-                    <span>Less: 12% VAT Exemption (Relief):</span>
-                    <span>- {formatPHP(discountCalculation.vat_relief)}</span>
-                  </div>
-                )}
-
-                {discountCalculation.discount_amount > 0 && (
-                  <div className="flex justify-between text-rose-500 font-semibold">
-                    <span>Less: {discountType.toUpperCase()} Discount ({discountType === 'solo' ? '10%' : discountType === 'custom' ? `${customDiscountRate}%` : '20%'}):</span>
-                    <span>- {formatPHP(discountCalculation.discount_amount)}</span>
-                  </div>
-                )}
-
-                {discountCalculation.total_savings > 0 && (
-                  <div className="flex justify-between font-bold text-emerald-600 dark:text-emerald-400 pt-1 border-t border-dashed">
-                    <span>Total Customer Savings:</span>
-                    <span>- {formatPHP(discountCalculation.total_savings)}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {serviceChargeAmount > 0 && (
-              <div className="flex justify-between items-center text-xs font-semibold text-foreground pt-1 border-t border-dashed">
-                <span>Service Charge:</span>
-                <span>+ {formatPHP(serviceChargeAmount)}</span>
-              </div>
-            )}
-
-            <div className="flex justify-between items-center pt-2 border-t border-primary/20">
-              <div>
-                <span className="text-xs font-black text-muted-foreground uppercase tracking-wider block">Net Amount Due</span>
-                <span className="text-[10px] text-muted-foreground">
-                  {applyDiscount
-                    ? `VATable: ${formatPHP(discountCalculation.vatable_sales)} | VAT: ${formatPHP(discountCalculation.vat_amount)} | Exempt: ${formatPHP(discountCalculation.vat_exempt_sales)}`
-                    : 'Standard 12% VAT Inclusive'}
-                </span>
-              </div>
-              <span className="text-2xl font-black text-primary">{formatPHP(payableTotal)}</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-2">
-            {/* Left Column: Payment Input */}
-            <div className="space-y-4">
-              {/* Payment Method */}
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                  Payment Method
-                </Label>
-                <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(PAYMENT_LABELS) as PaymentMethod[]).map(m => (
-                      <SelectItem key={m} value={m}>{PAYMENT_LABELS[m]}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Reference Number for Gcash/Maya */}
-              {(method === 'gcash' || method === 'maya') && (
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                    Reference Number *
-                  </Label>
-                  <Input
-                    required
-                    value={refNumber}
-                    onChange={(e) => setRefNumber(e.target.value)}
-                    placeholder={`Enter ${PAYMENT_LABELS[method]} Reference Number`}
-                  />
-                </div>
-              )}
-
-              {/* Cash Tendered — Touch-First with On-Screen POS Numpad */}
-              {method === 'cash' && (
-                <div className="space-y-3">
-                  {/* Tendered Display (Read-only on touch to prevent OS keyboard) */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                        Amount Tendered (₱)
-                      </Label>
-                      <span className="text-[11px] font-semibold text-muted-foreground">
-                        Min: {formatPHP(payableTotal)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between border-2 rounded-xl px-4 py-2.5 bg-muted/20 border-primary/30">
-                      <div className="space-y-0.5">
-                        <div className="text-2xl font-black tracking-tight text-foreground flex items-center gap-1">
-                          <span className="text-muted-foreground text-lg">₱</span>
-                          <span>
-                            {tenderedStr
-                              ? Number(tenderedStr).toLocaleString('en-PH', {
-                                  minimumFractionDigits: tenderedStr.includes('.') ? tenderedStr.split('.')[1].length : 0,
-                                  maximumFractionDigits: 2,
-                                })
-                              : '0.00'}
-                          </span>
-                        </div>
-                      </div>
-                      {tenderedStr ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 px-2 text-xs text-muted-foreground hover:text-destructive font-bold"
-                          onClick={handleNumpadClear}
-                        >
-                          Clear
-                        </Button>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px] font-semibold text-muted-foreground">
-                          Exact or Bills
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Smart Philippine Bill Denominations */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Quick Bills</p>
-                      <span className="text-[10px] text-muted-foreground">Tap bill or add</span>
-                    </div>
-                    <div className="flex gap-1.5 flex-wrap">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={Math.abs(tendered - payableTotal) < 0.01 ? 'default' : 'outline'}
-                        className="text-xs font-bold h-8 flex-1 min-w-[70px]"
-                        onClick={() => setTenderedStr(payableTotal.toFixed(2))}
-                      >
-                        Exact
-                      </Button>
-                      {quickAmounts.map(amt => (
-                        <Button
-                          key={amt}
-                          type="button"
-                          size="sm"
-                          variant={tendered === amt ? 'default' : 'outline'}
-                          className="text-xs font-bold h-8 flex-1 min-w-[65px]"
-                          onClick={() => setTenderedStr(String(amt))}
-                        >
-                          ₱{amt.toLocaleString()}
-                        </Button>
-                      ))}
-                    </div>
-
-                    {/* Quick Additive Bill Buttons */}
-                    <div className="flex gap-1.5 pt-0.5">
-                      {[50, 100, 500, 1000].map(addVal => (
-                        <Button
-                          key={addVal}
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          className="text-[11px] font-bold h-7 px-2 flex-1 bg-muted/60 hover:bg-muted active:scale-95 transition-all"
-                          onClick={() => handleAddBill(addVal)}
-                        >
-                          +₱{addVal}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* On-Screen Touch Numpad */}
-                  <div className="grid grid-cols-3 gap-1.5 pt-1">
-                    {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
-                      <Button
-                        key={d}
-                        type="button"
-                        variant="outline"
-                        className="h-10 text-base font-bold hover:bg-primary/10 hover:border-primary active:scale-95 transition-transform"
-                        onClick={() => handleNumpadDigit(d)}
-                      >
-                        {d}
-                      </Button>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-10 text-xs font-bold text-destructive hover:bg-destructive/10 hover:text-destructive active:scale-95"
-                      onClick={handleNumpadClear}
-                    >
-                      CLEAR
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-10 text-base font-bold hover:bg-primary/10 hover:border-primary active:scale-95"
-                      onClick={() => handleNumpadDigit('0')}
-                    >
-                      0
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-10 text-base font-bold hover:bg-primary/10 hover:border-primary active:scale-95"
-                      onClick={handleNumpadBackspace}
-                    >
-                      ⌫
-                    </Button>
-                  </div>
-
-                  {/* Change / Short By banner */}
-                  {tendered > 0 && (
-                    <div className={`flex justify-between items-center rounded-lg px-4 py-2.5 border font-bold ${
-                      change >= 0
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-                        : 'bg-destructive/10 border-destructive/30 text-destructive'
-                    }`}>
-                      <span className="text-xs uppercase tracking-wider">{change >= 0 ? 'Change' : 'Short by'}</span>
-                      <span className="text-xl">{formatPHP(Math.abs(change))}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Non-cash note */}
-              {method !== 'cash' && (
-                <div className="bg-muted/40 border rounded-lg px-4 py-3 text-xs text-muted-foreground">
-                  {PAYMENT_LABELS[method]} — no change calculation required. Confirm when payment is received.
-                </div>
-              )}
-            </div>
-
-            {/* Right Column: Metadata & Attribution & Discounts */}
-            <div className="space-y-4">
-              {/* Sale Category */}
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                  Sale Category
-                </Label>
-                <Select value={saleCategory} onValueChange={setSaleCategory}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {saleCategories.map(cat => (
-                      <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Custom Sale Category Input */}
-              {saleCategory === 'other' && (
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                    Specify Sale Category *
-                  </Label>
-                  <Input
-                    required
-                    value={customCategory}
-                    onChange={(e) => setCustomCategory(e.target.value)}
-                    placeholder="e.g. Delivery Direct"
-                  />
-                </div>
-              )}
-
-              {/* Sub-Store Selection (Attribution) */}
-              {subStores.length > 0 && (
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                    Store Attribution
-                  </Label>
-                  <Select value={dialogSubStoreId} onValueChange={setDialogSubStoreId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Attribution Store" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="parent">Parent Store</SelectItem>
-                      {subStores.map((ss) => (
-                        <SelectItem key={ss.id} value={ss.id}>
-                          {ss.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              {/* Queue / Table / Order Designation */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                    Queue / Table / Order # (Optional)
-                  </Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-[10px] px-2"
-                    onClick={() => {
-                      const randomNum = Math.floor(1000 + Math.random() * 9000);
-                      setQueueNumber(String(randomNum));
-                    }}
-                  >
-                    Random Order #
-                  </Button>
-                </div>
-                <Input
-                  value={queueNumber}
-                  onChange={(e) => setQueueNumber(e.target.value)}
-                  placeholder="e.g. Q-01, Table 5, 8742"
-                />
-              </div>
-
-              {/* Discount Section */}
-              <div className="border border-dashed rounded-lg p-3 space-y-3 bg-muted/20">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="apply-discount-toggle" className="text-xs uppercase tracking-wider text-muted-foreground font-semibold cursor-pointer">
-                    Apply Discount
-                  </Label>
-                  <input
-                    type="checkbox"
-                    id="apply-discount-toggle"
-                    checked={applyDiscount}
-                    onChange={(e) => setApplyDiscount(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  />
-                </div>
-
-                {applyDiscount && (
-                  <div className="space-y-3 pt-2 border-t border-dashed">
-                    {/* Mode Toggle */}
-                    <div className="flex rounded-md bg-muted p-0.5 text-[10px] font-semibold">
-                      <button
-                        type="button"
-                        onClick={() => setDiscountMode('shared')}
-                        className={`flex-1 py-1 px-2 rounded text-center transition-all ${
-                          discountMode === 'shared'
-                            ? 'bg-background text-foreground shadow-sm font-bold'
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        Shared Table / Pax Split
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDiscountMode('itemized')}
-                        className={`flex-1 py-1 px-2 rounded text-center transition-all ${
-                          discountMode === 'itemized'
-                            ? 'bg-background text-foreground shadow-sm font-bold'
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        Itemized Dishes Selection
-                      </button>
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label className="text-[10px] uppercase text-muted-foreground">Discount Type</Label>
-                      <Select value={discountType} onValueChange={setDiscountType}>
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="sc">Senior Citizen (20% + VAT Exempt)</SelectItem>
-                          <SelectItem value="pwd">PWD (20% + VAT Exempt)</SelectItem>
-                          <SelectItem value="mov">Medal of Valor (20% + VAT Exempt)</SelectItem>
-                          <SelectItem value="solo">Solo Parent (10% + VAT Exempt)</SelectItem>
-                          <SelectItem value="custom">Custom Promo Discount</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {discountType === 'custom' && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label className="text-[10px] uppercase text-muted-foreground">Rate (%)</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            max="100"
-                            className="h-8 text-xs"
-                            value={customDiscountRate}
-                            onChange={(e) => setCustomDiscountRate(Number(e.target.value) || 0)}
-                          />
-                        </div>
-                        <div className="flex items-center space-x-2 pt-5">
-                          <input
-                            type="checkbox"
-                            id="custom-exempt-toggle"
-                            checked={customDiscountIsVatExempt}
-                            onChange={(e) => setCustomDiscountIsVatExempt(e.target.checked)}
-                            className="h-4 w-4 rounded border-gray-300 text-primary"
-                          />
-                          <Label htmlFor="custom-exempt-toggle" className="text-[10px] uppercase text-muted-foreground cursor-pointer">
-                            VAT Exempt
-                          </Label>
-                        </div>
-                      </div>
-                    )}
-
-                    {discountMode === 'shared' ? (
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {/* Total Diners Stepper */}
-                          <div className="space-y-1.5">
-                            <Label className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">
-                              Total Diners (Pax)
-                            </Label>
-                            <div className="flex items-center border rounded-lg bg-background overflow-hidden h-9 shadow-sm">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
-                                onClick={() => {
-                                  const newSize = Math.max(1, groupSize - 1);
-                                  setGroupSize(newSize);
-                                  if (discountCount > newSize) setDiscountCount(newSize);
-                                }}
-                                disabled={groupSize <= 1}
-                              >
-                                –
-                              </Button>
-                              <div className="flex-1 text-center font-black text-sm">
-                                {groupSize} <span className="text-[10px] font-normal text-muted-foreground">pax</span>
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
-                                onClick={() => setGroupSize(groupSize + 1)}
-                              >
-                                +
-                              </Button>
-                            </div>
-                            {/* Quick PAX presets */}
-                            <div className="flex gap-1">
-                              {[1, 2, 4, 6, 8].map(p => (
-                                <Button
-                                  key={p}
-                                  type="button"
-                                  variant={groupSize === p ? 'default' : 'outline'}
-                                  size="sm"
-                                  className="h-6 text-[10px] px-1.5 flex-1 font-semibold"
-                                  onClick={() => {
-                                    setGroupSize(p);
-                                    if (discountCount > p) setDiscountCount(p);
-                                  }}
-                                >
-                                  {p}
-                                </Button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* No. of ID Cards Stepper */}
-                          <div className="space-y-1.5">
-                            <div className="flex justify-between items-center">
-                              <Label className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">
-                                ID Cards ({discountType.toUpperCase()})
-                              </Label>
-                              {groupSize > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => setDiscountCount(groupSize)}
-                                  className="text-[9px] text-primary hover:underline font-bold"
-                                >
-                                  All ({groupSize})
-                                </button>
-                              )}
-                            </div>
-                            <div className="flex items-center border rounded-lg bg-background overflow-hidden h-9 shadow-sm">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
-                                onClick={() => setDiscountCount(Math.max(1, discountCount - 1))}
-                                disabled={discountCount <= 1}
-                              >
-                                –
-                              </Button>
-                              <div className="flex-1 text-center font-black text-sm">
-                                {discountCount} <span className="text-[10px] font-normal text-muted-foreground">card{discountCount > 1 ? 's' : ''}</span>
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
-                                onClick={() => setDiscountCount(Math.min(groupSize, discountCount + 1))}
-                                disabled={discountCount >= groupSize}
-                              >
-                                +
-                              </Button>
-                            </div>
-                            {/* Quick Card presets */}
-                            <div className="flex gap-1">
-                              {[1, 2, 3].filter(c => c <= groupSize).map(c => (
-                                <Button
-                                  key={c}
-                                  type="button"
-                                  variant={discountCount === c ? 'default' : 'outline'}
-                                  size="sm"
-                                  className="h-6 text-[10px] px-1.5 flex-1 font-semibold"
-                                  onClick={() => setDiscountCount(c)}
-                                >
-                                  {c}
-                                </Button>
-                              ))}
-                              {groupSize > 1 && discountCount !== groupSize && (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-6 text-[10px] px-1.5 flex-1 font-semibold"
-                                  onClick={() => setDiscountCount(groupSize)}
-                                >
-                                  All
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="bg-muted/40 rounded p-1.5 text-[10px] text-muted-foreground">
-                          💡 <span className="font-semibold">{groupSize} total diners</span> with <span className="font-semibold">{discountCount} {discountType.toUpperCase()}</span> = <span className="text-primary font-bold">{((discountCount / groupSize) * 100).toFixed(0)}%</span> bill discount share.
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">
-                          No. of Cardholders
-                        </Label>
-                        <div className="flex items-center border rounded-lg bg-background overflow-hidden h-9 shadow-sm max-w-[200px]">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
-                            onClick={() => {
-                              const cnt = Math.max(1, discountCount - 1);
-                              setDiscountCount(cnt);
-                              setGroupSize(cnt);
-                            }}
-                            disabled={discountCount <= 1}
-                          >
-                            –
-                          </Button>
-                          <div className="flex-1 text-center font-black text-sm">
-                            {discountCount}
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-full px-3 rounded-none text-base font-bold hover:bg-muted active:scale-95"
-                            onClick={() => {
-                              const cnt = discountCount + 1;
-                              setDiscountCount(cnt);
-                              setGroupSize(cnt);
-                            }}
-                          >
-                            +
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Card Holders Details */}
-                    <div className="space-y-2 pt-1 border-t border-dashed">
-                      <p className="text-[10px] font-bold uppercase text-muted-foreground">Cardholder Details ({cardHolders.length} Card{cardHolders.length === 1 ? '' : 's'})</p>
-                      {cardHolders.map((ch, idx) => (
-                        <div key={idx} className="grid grid-cols-2 gap-2 pt-0.5">
-                          <Input
-                            placeholder={`Cardholder #${idx + 1} Name`}
-                            className="h-8 text-xs"
-                            value={ch.name}
-                            onChange={(e) => {
-                              const newCh = [...cardHolders];
-                              newCh[idx].name = e.target.value;
-                              setCardHolders(newCh);
-                            }}
-                          />
-                          <Input
-                            placeholder="ID / Booklet #"
-                            className="h-8 text-xs font-mono"
-                            value={ch.id}
-                            onChange={(e) => {
-                              const newCh = [...cardHolders];
-                              newCh[idx].id = e.target.value;
-                              setCardHolders(newCh);
-                            }}
-                          />
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Itemized Selection list (Only when itemized mode active) */}
-                    {discountMode === 'itemized' && (
-                      <div className="space-y-2 pt-2 border-t border-dashed">
-                        <div className="flex justify-between items-center">
-                          <p className="text-[10px] font-bold uppercase text-muted-foreground">Select Discounted Items</p>
-                          <span className="text-[9px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-bold">
-                            Selected: {targetUnitIds.size} / {flatUnits.length}
-                          </span>
-                        </div>
-                        <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
-                          {flatUnits.map(unit => (
-                            <div key={unit.id} className="flex items-center justify-between p-1.5 hover:bg-muted/50 rounded text-xs">
-                              <span className="truncate max-w-[150px] font-medium">{unit.name}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-muted-foreground">₱{unit.price.toFixed(2)}</span>
-                                <input
-                                  type="checkbox"
-                                  checked={targetUnitIds.has(unit.id)}
-                                  onChange={() => handleToggleUnit(unit.id)}
-                                  className="h-3.5 w-3.5 rounded border-gray-300 text-primary"
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <Separator />
-
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={onClose} disabled={processing}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleConfirm}
-            disabled={processing || !canConfirm}
-            className="font-bold min-w-[140px]"
-          >
-            {processing ? 'Processing…' : `Confirm ${PAYMENT_LABELS[method]}`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-};
+import { useModal } from "../contexts/ModalContext";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "./ui/sheet";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { useNetworkStatus } from "../hooks/use-network-status";
+import { useBusinessVocab } from "../hooks/useBusinessVocab";
+import { useTenant } from "../contexts/TenantContext";
+import type {
+  MenuItem,
+  CartItem,
+  ItemAvailability,
+  PaymentMethod,
+  PaymentState,
+  LastSaleResult,
+  EditingPriceItem,
+  PriceChannel,
+} from "./pos/types";
+import {
+  COMMON_ITEM_NOTES,
+  formatPHP,
+} from "./pos/types";
+import { PaymentDialog } from "./pos/PaymentDialog";
+import {
+  MatchPriceDialog,
+  SaleSuccessDialog,
+  OpenSessionDialog,
+  XReadDialog,
+  ZReadDialog,
+  ClosedZReportDialog,
+} from "./pos/POSModals";
 
 // ─── Main POS Component ───────────────────────────────────────────────────────
 
@@ -1275,7 +101,6 @@ export const POS: React.FC<POSProps> = ({
   }, [selectedBranch?.id, branches, profile?.branch_id]);
 
   // Cart
-  type PriceChannel = 'standard' | 'foodpanda' | 'grab';
   const [priceChannel, setPriceChannel] = useState<PriceChannel>('standard');
   const [branchPrices, setBranchPrices] = useState<Record<string, Record<string, { price?: number; foodpanda_price?: number; grab_price?: number }>>>({});
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -1284,10 +109,20 @@ export const POS: React.FC<POSProps> = ({
   // Payment dialog
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
-  const [lastSaleResult, setLastSaleResult] = useState<{ id: string; change: number; method: string; sale_category?: string; reference_number?: string; control_number?: string; queue_number?: string | null; items?: any[]; branch_name?: string; cashier_email?: string; total_amount?: number; created_at?: string; service_charge_rate?: number; service_charge_amount?: number; } | null>(null);
+  const [lastSaleResult, setLastSaleResult] = useState<LastSaleResult | null>(null);
   const [isPrintingReceiptBluetooth, setIsPrintingReceiptBluetooth] = useState(false);
   const [isPrintingKitchenBluetooth, setIsPrintingKitchenBluetooth] = useState(false);
   const [isPrintingXZBluetooth, setIsPrintingXZBluetooth] = useState(false);
+
+  // Kitchen Notes States
+  const [orderKitchenNote, setOrderKitchenNote] = useState<string>('');
+  const [editingNoteItemId, setEditingNoteItemId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState<string>('');
+
+  // Delivery Price Adjustment States (Option 3)
+  const [editingPriceItem, setEditingPriceItem] = useState<EditingPriceItem | null>(null);
+  const [priceAdjustmentInput, setPriceAdjustmentInput] = useState<string>('');
+  const [priceAdjustmentReason, setPriceAdjustmentReason] = useState<string>('Platform Campaign Promo');
 
   // Offline and Terminal Sync states
   const [terminalConfig, setTerminalConfig] = useState<TerminalConfig | null>(null);
@@ -1317,20 +152,21 @@ export const POS: React.FC<POSProps> = ({
       for (const sale of queue) {
         try {
           const { error } = await supabase.rpc('fn_process_offline_sale', {
-            p_branch_id:        sale.branch_id,
-            p_items:            sale.items,
-            p_payment_method:   sale.payment_method,
-            p_amount_tendered:  sale.amount_tendered,
-            p_sale_category:    sale.sale_category,
+            p_branch_id: sale.branch_id,
+            p_items: sale.items,
+            p_payment_method: sale.payment_method,
+            p_amount_tendered: sale.amount_tendered,
+            p_sale_category: sale.sale_category,
             p_reference_number: sale.reference_number,
-            p_control_number:   sale.control_number,
-            p_created_at:       sale.created_at,
-            p_cashier_id:       sale.cashier_id,
-            p_queue_number:     sale.queue_number || null,
-            p_sub_store_id:     (sale as any).sub_store_id || null,
-            p_discount_type:     (sale as any).discount_type || null,
-            p_discount_amount:   (sale as any).discount_amount || 0,
+            p_control_number: sale.control_number,
+            p_created_at: sale.created_at,
+            p_cashier_id: sale.cashier_id,
+            p_queue_number: sale.queue_number || null,
+            p_sub_store_id: (sale as any).sub_store_id || null,
+            p_discount_type: (sale as any).discount_type || null,
+            p_discount_amount: (sale as any).discount_amount || 0,
             p_discount_metadata: (sale as any).discount_metadata || [],
+            p_notes: sale.notes || (sale as any).notes || null,
           });
 
           if (error) throw error;
@@ -1368,17 +204,7 @@ export const POS: React.FC<POSProps> = ({
 
   // Customer Display Sync state
   const [supabaseChannel, setSupabaseChannel] = useState<any>(null);
-  const [paymentState, setPaymentState] = useState<{ 
-    method: PaymentMethod; 
-    tendered: number; 
-    refNumber: string;
-    applyDiscount?: boolean;
-    discountType?: string;
-    discountAmount?: number;
-    payableTotal?: number;
-    vatRelief?: number;
-    serviceChargeAmount?: number;
-  } | null>(null);
+  const [paymentState, setPaymentState] = useState<PaymentState | null>(null);
 
   // Cashier Drawer Session & shift control states
   const [activeSession, setActiveSession] = useState<any>(null);
@@ -1401,7 +227,9 @@ export const POS: React.FC<POSProps> = ({
     ? activeStore.service_charge_rate
     : (selectedBranch?.service_charge_rate !== undefined && selectedBranch?.service_charge_rate !== null ? selectedBranch.service_charge_rate : null);
   const serviceChargeRate = Number(rawBranchSCRate !== null ? rawBranchSCRate : (tenant?.default_service_charge_rate || 0));
-  const serviceChargeAmount = serviceChargeRate > 0 ? Number((cartTotal * (serviceChargeRate / 100)).toFixed(2)) : 0;
+  const isCartDineIn = priceChannel === "standard";
+  const effectiveCartSCRate = isCartDineIn ? serviceChargeRate : 0;
+  const serviceChargeAmount = effectiveCartSCRate > 0 ? Number((cartTotal * (effectiveCartSCRate / 100)).toFixed(2)) : 0;
   const cartTotalWithSC = Number((cartTotal + serviceChargeAmount).toFixed(2));
 
   // Set up Supabase Realtime sync channel
@@ -1410,7 +238,7 @@ export const POS: React.FC<POSProps> = ({
 
     const channelName = `pos-sync:${selectedBranch.id}:${profile.id}`;
     const channel = supabase.channel(channelName);
-    
+
     channel.subscribe((status) => {
       console.log(`Supabase Realtime Channel ${channelName} status:`, status);
     });
@@ -1494,7 +322,7 @@ export const POS: React.FC<POSProps> = ({
         p_actual_cash: Number(actualCashStr) || 0
       });
       if (error) throw error;
-      
+
       showSuccess('Register session closed & Z-Read complete.');
       setZReadOpen(false);
       setViewingClosedSummary(data);
@@ -1689,13 +517,15 @@ export const POS: React.FC<POSProps> = ({
           cashier_email: offlineSale.cashier_email,
           queue_number: offlineSale.queue_number || null,
           queue_status: offlineSale.queue_status || null,
+          notes: offlineSale.notes || null,
           items: offlineSale.items.map((item, idx) => ({
             id: String(idx),
             quantity: item.quantity,
             unit_price: item.price || 0,
             subtotal: (item.price || 0) * item.quantity,
             item_name: item.name || 'Unknown Item',
-            sku: ''
+            sku: '',
+            notes: item.notes || null
           }))
         };
       }
@@ -1715,12 +545,14 @@ export const POS: React.FC<POSProps> = ({
         reference_number,
         queue_number,
         queue_status,
+        notes,
         branches (name),
         sale_items (
           id,
           quantity,
           unit_price,
           subtotal,
+          notes,
           menu_items (name, sku)
         )
       `)
@@ -1745,13 +577,15 @@ export const POS: React.FC<POSProps> = ({
           cashier_email: offlineSale.cashier_email,
           queue_number: offlineSale.queue_number || null,
           queue_status: offlineSale.queue_status || null,
+          notes: offlineSale.notes || null,
           items: offlineSale.items.map((item, idx) => ({
             id: String(idx),
             quantity: item.quantity,
             unit_price: item.price || 0,
             subtotal: (item.price || 0) * item.quantity,
             item_name: item.name || 'Unknown Item',
-            sku: ''
+            sku: '',
+            notes: item.notes || null
           }))
         };
       }
@@ -1776,6 +610,7 @@ export const POS: React.FC<POSProps> = ({
       reference_number: saleData.reference_number || '',
       queue_number: saleData.queue_number || null,
       queue_status: saleData.queue_status || null,
+      notes: saleData.notes || null,
       branch_name: (Array.isArray(saleData.branches) ? saleData.branches[0]?.name : (saleData.branches as any)?.name) || selectedBranch?.name || 'Main Branch',
       cashier_email: profileData?.email || profile?.email || 'System',
       items: (saleData.sale_items || []).map((si: any) => ({
@@ -1784,7 +619,8 @@ export const POS: React.FC<POSProps> = ({
         unit_price: Number(si.unit_price),
         subtotal: Number(si.subtotal),
         item_name: si.menu_items?.name || 'Unknown Dish',
-        sku: si.menu_items?.sku || ''
+        sku: si.menu_items?.sku || '',
+        notes: si.notes || null
       }))
     };
   };
@@ -1799,6 +635,8 @@ export const POS: React.FC<POSProps> = ({
     sale_category: saleResult.sale_category || 'Dine in',
     reference_number: saleResult.reference_number || '',
     queue_number: saleResult.queue_number,
+    notes: saleResult.notes,
+    kitchen_notes: saleResult.notes,
     items: saleResult.items,
     service_charge_rate: saleResult.service_charge_rate,
     service_charge_amount: saleResult.service_charge_amount,
@@ -1911,7 +749,7 @@ export const POS: React.FC<POSProps> = ({
           const item = items.find(i => i.id === ci.menu_item_id);
           if (!item) return ci;
           const newPrice = getItemPrice(item, priceChannel);
-          return { ...ci, price: newPrice };
+          return { ...ci, price: newPrice, original_price: newPrice, price_adjustment_reason: undefined };
         })
       );
     }
@@ -1937,7 +775,17 @@ export const POS: React.FC<POSProps> = ({
           ci.menu_item_id === item.id ? { ...ci, quantity: ci.quantity + qty } : ci
         );
       }
-      return [...prev, { menu_item_id: item.id, name: item.name, price: unitPrice, quantity: qty, needsAdjustment: isAltPrep }];
+      return [
+        ...prev,
+        {
+          menu_item_id: item.id,
+          name: item.name,
+          price: unitPrice,
+          original_price: unitPrice,
+          quantity: qty,
+          needsAdjustment: isAltPrep,
+        },
+      ];
     });
     showSuccess(`${qty}× ${item.name} added to cart (${priceChannel === 'standard' ? 'Standard' : priceChannel === 'foodpanda' ? 'Foodpanda' : 'Grab'}).`);
   };
@@ -1974,6 +822,16 @@ export const POS: React.FC<POSProps> = ({
 
   const removeFromCart = (menuItemId: string) =>
     setCart(prev => prev.filter(ci => ci.menu_item_id !== menuItemId));
+
+  const updateCartItemNote = (menuItemId: string, note: string) => {
+    setCart(prev =>
+      prev.map(ci =>
+        ci.menu_item_id === menuItemId
+          ? { ...ci, notes: note.trim() || undefined }
+          : ci
+      )
+    );
+  };
 
   // ─── Checkout ─────────────────────────────────────────────
 
@@ -2021,8 +879,8 @@ export const POS: React.FC<POSProps> = ({
 
       if (isOnline) {
         const { data: saleId, error } = await supabase.rpc('fn_process_sale', {
-          p_branch_id:        selectedBranch.id,
-          p_items:            discountedItems.map(p => ({
+          p_branch_id: selectedBranch.id,
+          p_items: discountedItems.map(p => ({
             menu_item_id: p.menu_item_id,
             quantity: p.quantity,
             price: p.price,
@@ -2030,28 +888,35 @@ export const POS: React.FC<POSProps> = ({
             is_vat_exempt: p.is_vat_exempt || false,
             vatable_sales: p.vatable_sales || 0,
             vat_amount: p.vat_amount || 0,
-            vat_exempt_sales: p.vat_exempt_sales || 0
+            vat_exempt_sales: p.vat_exempt_sales || 0,
+            notes: p.notes || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.notes || null,
           })),
-          p_payment_method:   method,
-          p_amount_tendered:  tendered,
-          p_sale_category:    saleCategory,
+          p_payment_method: method,
+          p_amount_tendered: tendered,
+          p_sale_category: saleCategory,
           p_reference_number: referenceNumber,
-          p_queue_number:     queueNumber || null,
-          p_sub_store_id:     finalSubStoreId,
-          p_discount_type:     discountType,
-          p_discount_amount:   discountAmount,
-          p_discount_metadata: discountMetadata
+          p_queue_number: queueNumber || null,
+          p_sub_store_id: finalSubStoreId,
+          p_discount_type: discountType,
+          p_discount_amount: discountAmount,
+          p_discount_metadata: discountMetadata,
+          p_notes: orderKitchenNote.trim() || null,
         });
 
         if (error) throw error;
 
         const change = method === 'cash' && tendered ? tendered - payableTotal : 0;
 
+        const isDineInSale = priceChannel === "standard" && (
+          (saleCategory || "").toLowerCase().trim() === "dine in" ||
+          (saleCategory || "").toLowerCase().trim() === "dine-in" ||
+          (saleCategory || "").toLowerCase().trim() === "dine"
+        );
         const branchForSC = branches.find(b => b.id === (finalSubStoreId || selectedBranch.id)) || selectedBranch;
         const branchRate = branchForSC?.service_charge_rate !== undefined && branchForSC?.service_charge_rate !== null
           ? branchForSC.service_charge_rate
           : (selectedBranch?.service_charge_rate !== undefined && selectedBranch?.service_charge_rate !== null ? selectedBranch.service_charge_rate : null);
-        const effectiveSCRate = Number(branchRate !== null ? branchRate : (tenant?.default_service_charge_rate || 0));
+        const effectiveSCRate = isDineInSale ? Number(branchRate !== null ? branchRate : (tenant?.default_service_charge_rate || 0)) : 0;
         const computedGrossTotal = discountedItems.reduce((acc, p) => acc + (p.price * p.quantity), 0);
         const effectiveSCAmount = effectiveSCRate > 0 ? Number((computedGrossTotal * (effectiveSCRate / 100)).toFixed(2)) : 0;
 
@@ -2064,6 +929,7 @@ export const POS: React.FC<POSProps> = ({
           queue_number: queueNumber || null,
           service_charge_rate: effectiveSCRate,
           service_charge_amount: effectiveSCAmount,
+          notes: orderKitchenNote.trim() || null,
           items: discountedItems.map((p, idx) => ({
             id: String(idx),
             quantity: p.quantity,
@@ -2071,6 +937,7 @@ export const POS: React.FC<POSProps> = ({
             subtotal: p.price * p.quantity - (p.discount_amount || 0),
             item_name: p.name || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.name || 'Item',
             sku: '',
+            notes: p.notes || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.notes || null,
             discount_amount: p.discount_amount || 0,
             vatable_sales: p.vatable_sales || 0,
             vat_amount: p.vat_amount || 0,
@@ -2090,6 +957,9 @@ export const POS: React.FC<POSProps> = ({
         } as any);
 
         setCart([]);
+        setOrderKitchenNote('');
+        setEditingNoteItemId(null);
+        setEditingNoteText('');
         setPaymentOpen(false);
         setIsCartSheetOpen(false);
 
@@ -2101,11 +971,16 @@ export const POS: React.FC<POSProps> = ({
       } else {
         if (!terminalConfig) throw new Error('No terminal configuration found.');
 
+        const isDineInSale = priceChannel === "standard" && (
+          (saleCategory || "").toLowerCase().trim() === "dine in" ||
+          (saleCategory || "").toLowerCase().trim() === "dine-in" ||
+          (saleCategory || "").toLowerCase().trim() === "dine"
+        );
         const branchForSC = branches.find(b => b.id === (finalSubStoreId || selectedBranch.id)) || selectedBranch;
         const branchRate = branchForSC?.service_charge_rate !== undefined && branchForSC?.service_charge_rate !== null
           ? branchForSC.service_charge_rate
           : (selectedBranch?.service_charge_rate !== undefined && selectedBranch?.service_charge_rate !== null ? selectedBranch.service_charge_rate : null);
-        const effectiveSCRate = Number(branchRate !== null ? branchRate : (tenant?.default_service_charge_rate || 0));
+        const effectiveSCRate = isDineInSale ? Number(branchRate !== null ? branchRate : (tenant?.default_service_charge_rate || 0)) : 0;
         const computedGrossTotal = discountedItems.reduce((acc, p) => acc + (p.price * p.quantity), 0);
         const effectiveSCAmount = effectiveSCRate > 0 ? Number((computedGrossTotal * (effectiveSCRate / 100)).toFixed(2)) : 0;
 
@@ -2120,11 +995,13 @@ export const POS: React.FC<POSProps> = ({
           reference_number: referenceNumber,
           service_charge_rate: effectiveSCRate,
           service_charge_amount: effectiveSCAmount,
+          notes: orderKitchenNote.trim() || undefined,
           items: discountedItems.map(p => ({
             menu_item_id: p.menu_item_id,
             quantity: p.quantity,
             price: p.price,
             name: p.name || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.name,
+            notes: p.notes || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.notes || undefined,
             discount_amount: p.discount_amount || 0,
             is_vat_exempt: p.is_vat_exempt || false,
             vatable_sales: p.vatable_sales || 0,
@@ -2151,6 +1028,7 @@ export const POS: React.FC<POSProps> = ({
           queue_number: queueNumber || null,
           service_charge_rate: effectiveSCRate,
           service_charge_amount: effectiveSCAmount,
+          notes: orderKitchenNote.trim() || null,
           items: offlineSale.items.map((item, idx) => ({
             id: String(idx),
             quantity: item.quantity,
@@ -2158,6 +1036,7 @@ export const POS: React.FC<POSProps> = ({
             subtotal: (item.price || 0) * item.quantity - (item.discount_amount || 0),
             item_name: item.name || 'Unknown Item',
             sku: '',
+            notes: item.notes || null,
             discount_amount: item.discount_amount || 0,
             vatable_sales: item.vatable_sales || 0,
             vat_amount: item.vat_amount || 0,
@@ -2217,32 +1096,120 @@ export const POS: React.FC<POSProps> = ({
   const renderCartContent = () => (
     <>
       {/* Header */}
-      <div className="p-4 md:p-6 border-b flex items-center space-x-3 bg-background shrink-0">
-        <ShoppingCart className="w-5 h-5 text-primary" />
-        <h3 className="font-bold text-sm uppercase tracking-wider flex-1">Order Cart</h3>
-        <Badge variant="default" className="text-[10px]">{cartCount} Items</Badge>
+      <div className="p-4 md:p-5 border-b flex items-center justify-between bg-background shrink-0 select-none">
+        <div className="flex items-center space-x-2.5">
+          <ShoppingCart className="w-5 h-5 text-primary" />
+          <h3 className="font-black text-sm uppercase tracking-wider">Order Cart</h3>
+          <Badge variant="default" className="text-[11px] px-2 py-0.5 font-bold">{cartCount} {cartCount === 1 ? 'Item' : 'Items'}</Badge>
+        </div>
+        {cart.length > 0 && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              if (window.confirm('Clear all items from current cart?')) {
+                setCart([]);
+                setOrderKitchenNote('');
+              }
+            }}
+            className="h-8 px-2.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 font-bold gap-1 rounded-lg active:scale-95"
+            title="Void / Clear entire cart"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Clear</span>
+          </Button>
+        )}
       </div>
 
       {/* Items */}
-      <ScrollArea className="flex-1 p-4">
-        <div className="space-y-3">
-          {cart.map(item => (
-            <Card key={item.menu_item_id} className="bg-background/60 backdrop-blur-sm shadow-sm">
-              <CardContent className="p-3 flex items-center justify-between text-xs">
-                <div className="flex-1 min-w-0 pr-2">
-                  <div className="flex items-center gap-1.5">
-                    <h5 className="font-bold truncate" title={item.name}>{item.name}</h5>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 min-h-0 w-full space-y-3">
+        {cart.map(item => (
+          <Card key={item.menu_item_id} className="bg-background/80 backdrop-blur-sm shadow-sm border border-border/80 rounded-xl overflow-hidden w-full">
+            <CardContent className="p-3 text-xs space-y-2.5">
+              {/* Row 1: Item Title + Alt Prep & Line Total */}
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <h5 className="font-bold text-sm text-foreground break-words" title={item.name}>{item.name}</h5>
                     {item.needsAdjustment && (
-                      <Badge variant="outline" className="text-[8px] px-1 py-0 h-4 border-amber-400 text-amber-700 dark:text-amber-300 bg-amber-500/10 font-semibold whitespace-nowrap">
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-amber-400 text-amber-700 dark:text-amber-300 bg-amber-500/10 font-bold whitespace-nowrap">
                         Alt Prep
                       </Badge>
                     )}
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">{formatPHP(item.price)} each</p>
                 </div>
-                <div className="flex items-center space-x-1">
-                  <Button variant="outline" size="icon" className="h-6 w-6 shrink-0" onClick={() => updateCartQty(item.menu_item_id, -1)}>
-                    <Minus className="h-3 w-3" />
+                <span className="font-black text-base text-primary whitespace-nowrap shrink-0 text-right">
+                  {formatPHP(item.price * item.quantity)}
+                </span>
+              </div>
+
+              {/* Row 2: Unit Price & Large Touch Stepper */}
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/30">
+                {priceChannel !== 'standard' ? (
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0 pr-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const catalog = item.original_price ?? getItemPrice(items.find(i => i.id === item.menu_item_id) || (item as any), priceChannel);
+                        setEditingPriceItem({
+                          menu_item_id: item.menu_item_id,
+                          name: item.name,
+                          currentPrice: item.price,
+                          catalogPrice: catalog,
+                        });
+                        setPriceAdjustmentInput(String(item.price));
+                        setPriceAdjustmentReason(item.price_adjustment_reason || 'Platform Campaign Promo');
+                      }}
+                      className={`text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1.5 transition-all active:scale-95 truncate ${
+                        item.original_price && Math.abs(item.original_price - item.price) > 0.01
+                          ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/40 shadow-sm'
+                          : 'text-muted-foreground hover:text-primary hover:bg-primary/10 border border-transparent'
+                      }`}
+                      title="Tap to match Grab / Foodpanda item price"
+                    >
+                      <span>{formatPHP(item.price)} each</span>
+                      {item.original_price && Math.abs(item.original_price - item.price) > 0.01 && (
+                        <span className="text-[10px] line-through opacity-70">
+                          {formatPHP(item.original_price)}
+                        </span>
+                      )}
+                      <Edit3 className="w-3 h-3 opacity-70 shrink-0" />
+                    </button>
+                    {item.original_price && Math.abs(item.original_price - item.price) > 0.01 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCart(prev =>
+                            prev.map(ci =>
+                              ci.menu_item_id === item.menu_item_id
+                                ? { ...ci, price: ci.original_price!, price_adjustment_reason: undefined }
+                                : ci
+                            )
+                          );
+                        }}
+                        className="text-[10px] text-muted-foreground hover:text-destructive font-semibold px-1 shrink-0"
+                        title="Reset to catalog price"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                    {formatPHP(item.price)} each
+                  </span>
+                )}
+
+                <div className="flex items-center space-x-1.5 select-none shrink-0">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 shrink-0 active:scale-90 transition-transform rounded-lg border-input hover:bg-muted"
+                    onClick={() => updateCartQty(item.menu_item_id, -1)}
+                    title="Decrease quantity"
+                  >
+                    <Minus className="h-4 w-4" />
                   </Button>
                   <input
                     type="number"
@@ -2265,42 +1232,174 @@ export const POS: React.FC<POSProps> = ({
                         updateCartQtyDirect(item.menu_item_id, 1);
                       }
                     }}
-                    className="w-10 h-6 text-center text-xs font-bold bg-background border border-input rounded-md [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none focus:outline-none focus:ring-1 focus:ring-primary shrink-0 font-mono"
+                    className="w-12 h-9 text-center text-sm font-black bg-background border border-input rounded-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none focus:outline-none focus:ring-2 focus:ring-primary shrink-0 font-mono shadow-inner"
                   />
-                  <Button variant="outline" size="icon" className="h-6 w-6 shrink-0" onClick={() => updateCartQty(item.menu_item_id, 1)}>
-                    <Plus className="h-3 w-3" />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 shrink-0 active:scale-90 transition-transform rounded-lg border-input hover:bg-muted"
+                    onClick={() => updateCartQty(item.menu_item_id, 1)}
+                    title="Increase quantity"
+                  >
+                    <Plus className="h-4 w-4" />
                   </Button>
                   <Button
-                    variant="ghost" size="icon"
-                    className="h-6 w-6 ml-1 text-muted-foreground hover:text-destructive"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 ml-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg active:scale-90 transition-transform"
                     onClick={() => removeFromCart(item.menu_item_id)}
+                    title="Remove item"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
-                <span className="font-black text-xs ml-2 text-primary min-w-[52px] text-right">
-                  {formatPHP(item.price * item.quantity)}
-                </span>
-              </CardContent>
-            </Card>
-          ))}
-
-          {cart.length === 0 && !lastSaleResult && (
-            <div className="flex flex-col items-center justify-center text-center text-muted-foreground p-8 mt-10">
-              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
-                <ShoppingCart className="w-5 h-5 opacity-50" />
               </div>
-              <p className="text-sm font-medium">Your cart is empty</p>
-              <p className="text-xs mt-1">Tap {vocab.itemUnitPlural} on the catalog to add them.</p>
-            </div>
-          )}
 
-          {/* Empty cart indicator or checkout success logic removed from here as we use a modal now */}
-        </div>
-      </ScrollArea>
+              {/* Item Kitchen Note Pill & Action */}
+              <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
+                {item.notes ? (
+                  <div className="flex items-center gap-2 flex-1 min-w-0 mr-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingNoteItemId(item.menu_item_id);
+                        setEditingNoteText(item.notes || '');
+                      }}
+                      className="text-xs font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1 truncate cursor-pointer hover:bg-amber-500/20 active:scale-98 transition-all flex items-center gap-1.5 min-h-[32px]"
+                      title="Click to edit kitchen note"
+                    >
+                      <span className="truncate">📝 {item.notes}</span>
+                      <Edit3 className="w-3 h-3 opacity-60 ml-0.5 shrink-0" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateCartItemNote(item.menu_item_id, '')}
+                      className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-90 transition-all shrink-0"
+                      title="Remove note"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingNoteItemId(item.menu_item_id);
+                      setEditingNoteText('');
+                    }}
+                    className="min-h-[32px] px-2 py-1 rounded-lg text-xs text-muted-foreground hover:text-primary hover:bg-primary/10 font-semibold flex items-center gap-1.5 active:scale-98 transition-all"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>+ Kitchen Note (e.g. no veggies)</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Inline Note Editor when this item is active */}
+              {editingNoteItemId === item.menu_item_id && (
+                <div className="p-3 bg-muted/60 border border-border/80 rounded-xl space-y-2.5 mt-1.5 select-none w-full max-w-full overflow-hidden">
+                  <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                    <span className="truncate pr-1">Kitchen Instructions for {item.name}:</span>
+                    <button
+                      type="button"
+                      onClick={() => setEditingNoteItemId(null)}
+                      className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted shrink-0"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  {/* Quick suggestion tags (Touch-friendly chips) */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {COMMON_ITEM_NOTES.map(chip => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => {
+                          const trimmed = editingNoteText.trim();
+                          if (!trimmed) {
+                            setEditingNoteText(chip);
+                          } else if (!trimmed.toLowerCase().includes(chip.toLowerCase())) {
+                            setEditingNoteText(`${trimmed}, ${chip}`);
+                          }
+                        }}
+                        className="text-xs bg-background hover:bg-primary/10 hover:text-primary border border-border rounded-lg px-2.5 py-1 font-semibold transition-all active:scale-95 shadow-sm"
+                      >
+                        +{chip}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="Type instruction (e.g. No veggies)..."
+                      value={editingNoteText}
+                      onChange={(e) => setEditingNoteText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          updateCartItemNote(item.menu_item_id, editingNoteText);
+                          setEditingNoteItemId(null);
+                        }
+                      }}
+                      className="h-9 text-xs bg-background flex-1 rounded-lg min-w-0"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-9 px-3.5 text-xs font-bold rounded-lg shrink-0"
+                      onClick={() => {
+                        updateCartItemNote(item.menu_item_id, editingNoteText);
+                        setEditingNoteItemId(null);
+                      }}
+                    >
+                      Apply
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+
+        {cart.length === 0 && !lastSaleResult && (
+          <div className="flex flex-col items-center justify-center text-center text-muted-foreground p-8 mt-10">
+            <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-3">
+              <ShoppingCart className="w-6 h-6 opacity-40" />
+            </div>
+            <p className="text-base font-bold text-foreground">Your cart is empty</p>
+            <p className="text-xs mt-1 text-muted-foreground">Tap {vocab.itemUnitPlural} on the catalog to add them.</p>
+          </div>
+        )}
+      </div>
 
       {/* Checkout Summary - Sticky Bottom & Pinned */}
-      <div className="p-4 md:p-5 border-t bg-background space-y-3 shrink-0 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] z-10">
+      <div className="p-4 md:p-5 border-t bg-background space-y-3 shrink-0 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] z-10 select-none">
+        {/* Order-level Kitchen Note */}
+        {cart.length > 0 && (
+          <div className="space-y-1.5 bg-muted/40 border border-border/70 rounded-xl p-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-foreground flex items-center gap-1.5">
+                <MessageSquare className="w-3.5 h-3.5 text-primary" />
+                <span>Overall Kitchen / Table Note:</span>
+              </span>
+              {orderKitchenNote && (
+                <button
+                  type="button"
+                  onClick={() => setOrderKitchenNote('')}
+                  className="text-xs text-muted-foreground hover:text-destructive font-semibold"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <Input
+              placeholder="e.g. Table 4 - Rush, Serve all together..."
+              value={orderKitchenNote}
+              onChange={(e) => setOrderKitchenNote(e.target.value)}
+              className="h-9 text-xs bg-background rounded-lg"
+            />
+          </div>
+        )}
+
         <div className="space-y-1.5">
           {serviceChargeAmount > 0 && (
             <div className="flex justify-between items-center text-xs">
@@ -2309,27 +1408,26 @@ export const POS: React.FC<POSProps> = ({
             </div>
           )}
           <div className="flex justify-between items-baseline">
-            <span className="text-xs uppercase tracking-wider text-muted-foreground font-bold">
+            <span className="text-xs uppercase tracking-wider text-muted-foreground font-black">
               Total Due ({cartCount} {cartCount === 1 ? 'item' : 'items'})
             </span>
-            <span className="text-primary text-2xl font-black">{formatPHP(cartTotalWithSC)}</span>
+            <span className="text-primary text-3xl font-black">{formatPHP(cartTotalWithSC)}</span>
           </div>
         </div>
 
         {!selectedBranch && (
-          <div className="text-[10px] text-amber-500 text-center font-medium bg-amber-500/10 p-2 rounded border border-amber-500/20">
+          <div className="text-xs text-amber-500 text-center font-bold bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20">
             ⚠️ No branch context — cannot checkout without an assigned branch.
           </div>
         )}
 
         {!isOnline && (
-          <div className={`flex items-center gap-2 text-[10px] font-medium p-2 rounded border ${
-            terminalConfig 
-              ? 'text-amber-500 bg-amber-500/10 border-amber-500/20' 
+          <div className={`flex items-center gap-2 text-xs font-semibold p-2.5 rounded-lg border ${terminalConfig
+              ? 'text-amber-500 bg-amber-500/10 border-amber-500/20'
               : 'text-destructive bg-destructive/10 border-destructive/20'
-          }`}>
-            <WifiOff className="w-3.5 h-3.5 flex-shrink-0" />
-            {terminalConfig 
+            }`}>
+            <WifiOff className="w-4 h-4 flex-shrink-0" />
+            {terminalConfig
               ? `Offline Mode Active — Sales will queue locally under ${terminalConfig.terminal_code} and sync automatically.`
               : 'Offline — Connection lost and device is not registered. Transactions are disabled.'}
           </div>
@@ -2337,7 +1435,7 @@ export const POS: React.FC<POSProps> = ({
 
         <Button
           size="lg"
-          className="w-full font-bold shadow-md h-12 text-base active:scale-[0.99] transition-transform"
+          className="w-full font-black shadow-lg h-14 text-base active:scale-[0.99] transition-transform rounded-xl"
           onClick={openPayment}
           disabled={checkingOut || cart.length === 0 || !selectedBranch || (!isOnline && !terminalConfig)}
         >
@@ -2371,33 +1469,30 @@ export const POS: React.FC<POSProps> = ({
                 <button
                   type="button"
                   onClick={() => setPriceChannel('standard')}
-                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${
-                    priceChannel === 'standard'
+                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${priceChannel === 'standard'
                       ? 'bg-background text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
-                  }`}
+                    }`}
                 >
                   Standard
                 </button>
                 <button
                   type="button"
                   onClick={() => setPriceChannel('foodpanda')}
-                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${
-                    priceChannel === 'foodpanda'
+                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${priceChannel === 'foodpanda'
                       ? 'bg-amber-500 text-white shadow-sm'
                       : 'text-amber-500 hover:bg-amber-500/10'
-                  }`}
+                    }`}
                 >
                   Foodpanda
                 </button>
                 <button
                   type="button"
                   onClick={() => setPriceChannel('grab')}
-                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${
-                    priceChannel === 'grab'
+                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${priceChannel === 'grab'
                       ? 'bg-emerald-600 text-white shadow-sm'
                       : 'text-emerald-500 hover:bg-emerald-500/10'
-                  }`}
+                    }`}
                 >
                   Grab
                 </button>
@@ -2409,13 +1504,12 @@ export const POS: React.FC<POSProps> = ({
               )}
 
               {/* Connection Status Badge */}
-              <Badge 
-                variant="outline" 
-                className={`px-3 py-1 text-xs font-bold flex items-center gap-1.5 ${
-                  isOnline 
-                    ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400' 
+              <Badge
+                variant="outline"
+                className={`px-3 py-1 text-xs font-bold flex items-center gap-1.5 ${isOnline
+                    ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400'
                     : 'bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400 animate-pulse'
-                }`}
+                  }`}
               >
                 <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                 {isOnline ? 'Online' : 'Offline Mode'}
@@ -2423,11 +1517,10 @@ export const POS: React.FC<POSProps> = ({
 
               {/* Offline Pending Sync Count Indicator */}
               {pendingSyncCount > 0 && (
-                <Badge 
-                  variant="default" 
-                  className={`px-3 py-1 text-xs font-bold flex items-center gap-1.5 ${
-                    isSyncing ? 'bg-indigo-600 animate-pulse text-white' : 'bg-amber-500 text-white'
-                  }`}
+                <Badge
+                  variant="default"
+                  className={`px-3 py-1 text-xs font-bold flex items-center gap-1.5 ${isSyncing ? 'bg-indigo-600 animate-pulse text-white' : 'bg-amber-500 text-white'
+                    }`}
                   title={isSyncing ? 'Syncing transactions to cloud...' : 'Pending offline sales to sync'}
                 >
                   {isSyncing ? (
@@ -2520,7 +1613,7 @@ export const POS: React.FC<POSProps> = ({
                 variant="outline"
                 size="sm"
                 onClick={openCustomerDisplay}
-                className="h-8 text-xs font-bold gap-1.5 border-primary/30 hover:bg-primary/10 text-primary"
+                className="h-9 text-xs font-bold gap-1.5 border-primary/30 hover:bg-primary/10 text-primary rounded-lg active:scale-95"
                 title="Open Customer-Facing Display"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -2534,7 +1627,7 @@ export const POS: React.FC<POSProps> = ({
                 variant="outline"
                 size="sm"
                 onClick={toggleFullscreen}
-                className={`h-8 text-xs font-bold gap-1.5 ${isFullscreen ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
+                className={`h-9 text-xs font-bold gap-1.5 rounded-lg active:scale-95 ${isFullscreen ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
                 title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
               >
                 {isFullscreen ? (
@@ -2556,26 +1649,38 @@ export const POS: React.FC<POSProps> = ({
             </div>
           </div>
 
-          {/* Filters */}
-          <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          {/* Filters - Touch-Optimized Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
+            <div className="relative w-full sm:w-72 lg:w-80 shrink-0">
+              <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-muted-foreground" />
               <Input
                 type="text"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 placeholder={`Search ${vocab.itemUnit} name or SKU…`}
-                className="pl-9"
+                className="pl-10 pr-10 h-11 text-sm rounded-xl font-medium"
               />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3 top-2.5 h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted active:scale-90 transition-transform"
+                  title="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-            <div className="flex space-x-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-hide">
+            <div className="flex-1 min-w-0 flex space-x-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-hide select-none">
               {categories.map(cat => (
                 <Button
                   key={cat}
                   variant={selectedCategory === cat ? 'default' : 'outline'}
-                  size="sm"
+                  size="default"
                   onClick={() => setSelectedCategory(cat)}
-                  className="whitespace-nowrap"
+                  className={`h-11 px-4 text-xs font-bold rounded-xl whitespace-nowrap active:scale-95 transition-transform shrink-0 ${
+                    selectedCategory === cat ? 'shadow-sm' : ''
+                  }`}
                 >
                   {cat}
                 </Button>
@@ -2590,10 +1695,13 @@ export const POS: React.FC<POSProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 flex-1 content-start">
-               {filteredItems.map(item => {
+              {filteredItems.map(item => {
                 const avail = availabilityMap[item.id];
                 const isOutOfStock = avail ? !avail.stockAvailable : false;
                 const needsAdjustment = avail ? (avail.stockAvailable && !avail.hasSufficientStock) : false;
+                const inCartItem = cart.find(ci => ci.menu_item_id === item.id);
+                const inCartQty = inCartItem?.quantity || 0;
+
                 return (
                   <Card
                     key={item.id}
@@ -2602,56 +1710,60 @@ export const POS: React.FC<POSProps> = ({
                         addToCart(item, 1);
                       }
                     }}
-                    className={`transition-all group flex flex-col justify-between min-h-[9.5rem] h-auto ${
-                      isOutOfStock 
-                        ? 'opacity-60 cursor-not-allowed bg-muted/40 border-muted-foreground/20' 
+                    className={`transition-all group flex flex-col justify-between min-h-[10rem] h-auto select-none rounded-2xl ${isOutOfStock
+                        ? 'opacity-60 cursor-not-allowed bg-muted/40 border-muted-foreground/20'
                         : needsAdjustment
-                          ? 'cursor-pointer border-amber-300 dark:border-amber-700/80 hover:border-amber-500 hover:shadow-md'
-                          : 'cursor-pointer hover:border-primary/50 hover:shadow-md'
-                    }`}
+                          ? 'cursor-pointer border-amber-300 dark:border-amber-700/80 hover:border-amber-500 hover:shadow-md active:scale-[0.98]'
+                          : 'cursor-pointer hover:border-primary/50 hover:shadow-md active:scale-[0.98]'
+                      }`}
                   >
                     <CardContent className="p-4 flex flex-col h-full justify-between">
                       <div>
-                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                          <Badge variant="secondary" className="text-[9px] uppercase">{item.category}</Badge>
+                        <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                          <Badge variant="secondary" className="text-[10px] font-bold uppercase">{item.category}</Badge>
+                          {inCartQty > 0 && (
+                            <Badge className="text-[10px] font-black px-2 py-0.5 bg-primary text-primary-foreground shadow-sm">
+                              {inCartQty} in cart
+                            </Badge>
+                          )}
                           {isOutOfStock && (
-                            <Badge variant="destructive" className="text-[9px] uppercase font-black px-1.5 py-0.5 whitespace-nowrap bg-rose-600 text-white border-none">
+                            <Badge variant="destructive" className="text-[10px] uppercase font-black px-2 py-0.5 whitespace-nowrap bg-rose-600 text-white border-none">
                               Out of Stock
                             </Badge>
                           )}
                           {needsAdjustment && (
-                            <Badge variant="outline" className="text-[9px] uppercase font-bold px-1.5 py-0.5 whitespace-nowrap bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-400">
+                            <Badge variant="outline" className="text-[10px] uppercase font-bold px-1.5 py-0.5 whitespace-nowrap bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-400">
                               Needs Adjustment
                             </Badge>
                           )}
                         </div>
-                        <h4 className={`text-sm font-bold transition-colors line-clamp-2 ${
-                          isOutOfStock ? 'text-muted-foreground' : 'group-hover:text-primary'
-                        }`}>{item.name}</h4>
-                        <span className="text-[10px] text-muted-foreground font-mono mt-0.5 block">{item.sku}</span>
+                        <h4 className={`text-sm font-bold transition-colors line-clamp-2 ${isOutOfStock ? 'text-muted-foreground' : 'group-hover:text-primary'
+                          }`}>{item.name}</h4>
+                        <span className="text-xs text-muted-foreground font-mono mt-0.5 block">{item.sku}</span>
                       </div>
-                      <div className="flex items-center justify-between mt-2">
+                      <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/40">
                         <div className="flex flex-col">
-                          <span className="text-sm font-bold">{formatPHP(getItemPrice(item))}</span>
+                          <span className="text-base font-black text-foreground">{formatPHP(getItemPrice(item))}</span>
                           {priceChannel !== 'standard' && (
-                            <span className={`text-[9px] font-semibold ${priceChannel === 'foodpanda' ? 'text-amber-500' : 'text-emerald-500'}`}>
+                            <span className={`text-[10px] font-bold ${priceChannel === 'foodpanda' ? 'text-amber-500' : 'text-emerald-500'}`}>
                               {priceChannel === 'foodpanda' ? 'Foodpanda' : 'Grab'} Price
                             </span>
                           )}
                         </div>
-                        <Button 
-                          variant={isOutOfStock ? 'outline' : needsAdjustment ? 'outline' : 'secondary'} 
-                          size="sm" 
+                        <Button
+                          variant={isOutOfStock ? 'outline' : inCartQty > 0 ? 'default' : needsAdjustment ? 'outline' : 'secondary'}
+                          size="sm"
                           disabled={isOutOfStock}
-                          className={`h-7 text-xs font-bold transition-all ${
-                            isOutOfStock
+                          className={`h-9 px-3.5 text-xs font-bold rounded-lg transition-all active:scale-95 ${isOutOfStock
                               ? ''
                               : needsAdjustment
                                 ? 'border-amber-400 text-amber-700 dark:text-amber-300 group-hover:bg-amber-500 group-hover:text-white group-hover:border-amber-500'
-                                : 'group-hover:bg-primary group-hover:text-primary-foreground'
-                          }`}
+                                : inCartQty > 0
+                                  ? 'bg-primary text-primary-foreground shadow-sm'
+                                  : 'group-hover:bg-primary group-hover:text-primary-foreground'
+                            }`}
                         >
-                          {isOutOfStock ? 'Sold Out' : 'Add'}
+                          {isOutOfStock ? 'Sold Out' : inCartQty > 0 ? `+ Add (${inCartQty})` : '+ Add'}
                         </Button>
                       </div>
                     </CardContent>
@@ -2669,7 +1781,7 @@ export const POS: React.FC<POSProps> = ({
         </div>
 
         {/* Desktop Cart Panel - Locked Viewport Height */}
-        <div className="hidden lg:flex w-96 border-l bg-muted/10 flex-col h-full shrink-0 overflow-hidden min-h-0">
+        <div className="hidden lg:flex w-[390px] xl:w-[420px] border-l bg-muted/10 flex-col h-full shrink-0 overflow-hidden min-h-0">
           {renderCartContent()}
         </div>
 
@@ -2690,7 +1802,7 @@ export const POS: React.FC<POSProps> = ({
                 )}
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-[90vw] sm:w-[400px] p-0 gap-0 flex flex-col bg-muted/10">
+            <SheetContent side="right" className="w-[90vw] sm:w-[420px] p-0 gap-0 flex flex-col bg-muted/10">
               <SheetTitle className="sr-only">Order Cart</SheetTitle>
               <SheetDescription className="sr-only">Review your items and collect payment</SheetDescription>
               {renderCartContent()}
@@ -2709,439 +1821,93 @@ export const POS: React.FC<POSProps> = ({
         processing={checkingOut}
         onStateChange={setPaymentState}
         saleCategories={vocab.saleCategories}
-        defaultSaleCategory={priceChannel === 'foodpanda' ? 'FoodPanda' : priceChannel === 'grab' ? 'GrabFood' : vocab.defaultSaleCategory}
+        defaultSaleCategory={priceChannel === "foodpanda" ? "Foodpanda" : priceChannel === "grab" ? "Grab" : vocab.defaultSaleCategory}
         subStores={subStores}
         initialSubStore={selectedSubStore}
         serviceChargeRate={serviceChargeRate}
+        priceChannel={priceChannel}
       />
 
-
-      {/* Sale Success / Print Invoice Modal */}
-      <Dialog open={!!lastSaleResult} onOpenChange={(open) => { if (!open) setLastSaleResult(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <div className="flex items-center space-x-2 text-emerald-600 dark:text-emerald-400">
-              <CheckCircle className="w-6 h-6" />
-              <DialogTitle className="text-xl font-bold">Sale Completed!</DialogTitle>
-            </div>
-            <DialogDescription className="text-xs">
-              Transaction has been recorded successfully.
-            </DialogDescription>
-          </DialogHeader>
-
-          {lastSaleResult && (
-            <div className="space-y-4 py-4">
-              <div className="bg-muted/50 p-4 rounded-lg space-y-2 border">
-                {lastSaleResult.control_number && (
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Invoice Serial</span>
-                    <span className="font-mono font-bold text-foreground">{lastSaleResult.control_number}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Transaction ID</span>
-                  <span className="font-mono">{lastSaleResult.id.length === 36 ? `${lastSaleResult.id.slice(0, 8)}...` : lastSaleResult.id}</span>
-                </div>
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Payment Method</span>
-                  <span className="font-bold text-foreground">{PAYMENT_LABELS[lastSaleResult.method as PaymentMethod]}</span>
-                </div>
-
-                {lastSaleResult.sale_category && (
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Sale Category</span>
-                    <span className="font-bold text-foreground">{lastSaleResult.sale_category}</span>
-                  </div>
-                )}
-
-                {lastSaleResult.reference_number && (
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Reference Number</span>
-                    <span className="font-mono text-foreground">{lastSaleResult.reference_number}</span>
-                  </div>
-                )}
-
-                {lastSaleResult.queue_number && (
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Queue / Order / Table #</span>
-                    <span className="font-bold text-foreground">{lastSaleResult.queue_number}</span>
-                  </div>
-                )}
-
-                {(Number(lastSaleResult.service_charge_amount) || 0) > 0 && (
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Service Charge</span>
-                    <span className="font-semibold text-foreground">{formatPHP(Number(lastSaleResult.service_charge_amount))}</span>
-                  </div>
-                )}
-                {lastSaleResult.total_amount != null && (
-                  <div className="flex justify-between text-xs text-muted-foreground font-bold">
-                    <span>Total Amount</span>
-                    <span className="font-bold text-foreground">{formatPHP(lastSaleResult.total_amount)}</span>
-                  </div>
-                )}
-                
-                {lastSaleResult.method === 'cash' && lastSaleResult.change > 0 && (
-                  <>
-                    <Separator className="my-2" />
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-bold text-muted-foreground">Change Due</span>
-                      <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                        {formatPHP(lastSaleResult.change)}
-                      </span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="flex flex-col sm:flex-col sm:space-x-0 gap-3 w-full">
-            {isRestaurant && (
-              <div className="grid grid-cols-2 gap-2 w-full">
-                <Button
-                  variant="secondary"
-                  className="w-full font-bold text-xs"
-                  disabled={isPrintingKitchenBluetooth}
-                  onClick={async () => {
-                    if (lastSaleResult) {
-                      await handlePrintKitchenBluetooth(lastSaleResult);
-                    }
-                  }}
-                >
-                  {isPrintingKitchenBluetooth ? (
-                    <Spinner className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Printer className="w-4 h-4 mr-2" />
-                  )}
-                  Print Kitchen (Bluetooth)
-                </Button>
-                <Button
-                  variant="secondary"
-                  className="w-full font-bold text-xs"
-                  onClick={async () => {
-                    if (lastSaleResult) {
-                      await handlePrintKitchenSystem(lastSaleResult);
-                    }
-                  }}
-                >
-                  <Printer className="w-4 h-4 mr-2" />
-                  Print Kitchen (System)
-                </Button>
-              </div>
-            )}
-            
-            <div className="grid grid-cols-2 gap-2 w-full">
-              <Button
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
-                disabled={isPrintingReceiptBluetooth}
-                onClick={async () => {
-                  if (lastSaleResult) {
-                    await handlePrintThermalBluetooth(lastSaleResult);
+      {/* ─── Match Delivery Price Dialog (Foodpanda / Grab) ─── */}
+      <MatchPriceDialog
+        editingPriceItem={editingPriceItem}
+        onClose={() => setEditingPriceItem(null)}
+        priceChannel={priceChannel}
+        priceAdjustmentInput={priceAdjustmentInput}
+        setPriceAdjustmentInput={setPriceAdjustmentInput}
+        priceAdjustmentReason={priceAdjustmentReason}
+        setPriceAdjustmentReason={setPriceAdjustmentReason}
+        onApply={(price, reason) => {
+          if (!editingPriceItem) return;
+          setCart(prev =>
+            prev.map(ci =>
+              ci.menu_item_id === editingPriceItem.menu_item_id
+                ? {
+                    ...ci,
+                    price,
+                    original_price: editingPriceItem.catalogPrice,
+                    price_adjustment_reason: reason,
                   }
-                }}
-              >
-                {isPrintingReceiptBluetooth ? (
-                  <Spinner className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Printer className="w-4 h-4 mr-2" />
-                )}
-                Print Receipt (Bluetooth)
-              </Button>
-              <Button
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs"
-                onClick={async () => {
-                  if (lastSaleResult) {
-                    await handlePrintThermalSystem(lastSaleResult);
-                  }
-                }}
-              >
-                <Printer className="w-4 h-4 mr-2" />
-                Print Receipt (System)
-              </Button>
-            </div>
-            {lastSaleResult?.queue_number && (
-              <Button
-                variant="outline"
-                className="w-full font-bold border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-900 dark:text-indigo-400 dark:hover:bg-indigo-950/20"
-                onClick={() => {
-                  if (lastSaleResult) {
-                    handlePrintQueue(lastSaleResult.id);
-                  }
-                }}
-              >
-                <Printer className="w-4 h-4 mr-2" />
-                Print Queue Ticket
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => setLastSaleResult(null)} className="w-full">
-              Close (New Sale)
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                : ci
+            )
+          );
+          setEditingPriceItem(null);
+          showSuccess(`Updated price for ${editingPriceItem.name} to ${formatPHP(price)}.`);
+        }}
+      />
+
+      {/* ─── Sale Success Dialog ─── */}
+      <SaleSuccessDialog
+        lastSaleResult={lastSaleResult}
+        onClose={() => setLastSaleResult(null)}
+        isRestaurant={isRestaurant}
+        isPrintingReceiptBluetooth={isPrintingReceiptBluetooth}
+        isPrintingKitchenBluetooth={isPrintingKitchenBluetooth}
+        onPrintThermalBluetooth={handlePrintThermalBluetooth}
+        onPrintThermalSystem={handlePrintThermalSystem}
+        onPrintKitchenBluetooth={handlePrintKitchenBluetooth}
+        onPrintKitchenSystem={handlePrintKitchenSystem}
+        onPrintQueue={handlePrintQueue}
+      />
 
       {/* ─── Open Session Dialog ─── */}
-      <Dialog open={openSessionOpen} onOpenChange={setOpenSessionOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold tracking-tight">Open Cash Drawer Shift</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Input the opening cash float balance for your register drawer before starting sales.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label className="text-xs uppercase font-semibold">Opening Cash Float (₱) *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                required
-                value={openingBalance}
-                onChange={(e) => setOpeningBalance(e.target.value)}
-                placeholder="e.g. 1000.00"
-                className="font-bold text-lg"
-              />
-              <p className="text-[10px] text-muted-foreground">
-                This is the initial cash float used for cashier change at the start of your shift.
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenSessionOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleOpenSession}
-              disabled={!openingBalance || Number(openingBalance) < 0}
-              className="font-bold"
-            >
-              Open Register Drawer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <OpenSessionDialog
+        open={openSessionOpen}
+        onClose={() => setOpenSessionOpen(false)}
+        openingBalance={openingBalance}
+        setOpeningBalance={setOpeningBalance}
+        onOpenSession={handleOpenSession}
+      />
 
       {/* ─── X-Read Report Dialog ─── */}
-      <Dialog open={xReadOpen} onOpenChange={setXReadOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold tracking-tight">X-Read Report (Mid-Shift Status)</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Non-resetting audit report summarizing current transactions in this shift session.
-            </DialogDescription>
-          </DialogHeader>
-
-          {sessionSummary && (
-            <div className="space-y-4 py-2">
-              <div className="border rounded-md p-4 bg-muted/30 font-mono text-xs space-y-1.5 max-h-[50vh] overflow-y-auto">
-                <div className="text-center font-bold uppercase">{selectedBranch?.name || 'TERMINAL'}</div>
-                <div className="text-center text-[10px] text-muted-foreground">X-READ SUMMARY</div>
-                <div className="border-t border-dashed my-2" />
-                <div className="flex justify-between"><span>Status:</span><span>{sessionSummary.status?.toUpperCase()}</span></div>
-                <div className="flex justify-between"><span>Z-Counter:</span><span>#{String(sessionSummary.zCounter || 0).padStart(5, '0')}</span></div>
-                <div className="flex justify-between"><span>Opened At:</span><span>{new Date(sessionSummary.openedAt).toLocaleString()}</span></div>
-                <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">LIFETIME GRAND TOTALS</div>
-                <div className="flex justify-between"><span>Start:</span><span>{formatPHP(sessionSummary.grandTotalStart)}</span></div>
-                <div className="flex justify-between"><span>Current:</span><span>{formatPHP(sessionSummary.grandTotalEnd)}</span></div>
-                <div className="border-t border-dashed my-2" />
-                <div className="flex justify-between"><span>Gross Sales:</span><span>{formatPHP(sessionSummary.grossSales)}</span></div>
-                <div className="flex justify-between"><span>Net Sales (Ex-VAT):</span><span>{formatPHP(sessionSummary.netSales)}</span></div>
-                <div className="flex justify-between"><span>VAT Amount (12%):</span><span>{formatPHP(sessionSummary.vatAmount)}</span></div>
-                <div className="flex justify-between"><span>VAT-Exempt Sales:</span><span>{formatPHP(sessionSummary.vatExemptSales || 0)}</span></div>
-                <div className="flex justify-between"><span>Discount Total:</span><span>{formatPHP(sessionSummary.discountAmount || 0)}</span></div>
-                <div className="flex justify-between"><span>Transaction Count:</span><span>{sessionSummary.transactionCount}</span></div>
-                <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">PAYMENT BREAKDOWN</div>
-                <div className="flex justify-between"><span>Cash:</span><span>{formatPHP(sessionSummary.cashSales)}</span></div>
-                <div className="flex justify-between"><span>GCash:</span><span>{formatPHP(sessionSummary.gcashSales)}</span></div>
-                <div className="flex justify-between"><span>Maya:</span><span>{formatPHP(sessionSummary.mayaSales)}</span></div>
-                <div className="flex justify-between"><span>Card:</span><span>{formatPHP(sessionSummary.cardSales)}</span></div>
-                <div className="flex justify-between"><span>Other:</span><span>{formatPHP(sessionSummary.otherSales)}</span></div>
-                <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">SALES CHANNEL BREAKDOWN</div>
-                <div className="flex justify-between"><span>Dine-in / Store:</span><span>{formatPHP(sessionSummary.dineInSales || 0)}</span></div>
-                <div className="flex justify-between"><span>Take-out:</span><span>{formatPHP(sessionSummary.takeOutSales || 0)}</span></div>
-                <div className="flex justify-between text-amber-500 font-bold"><span>FoodPanda:</span><span>{formatPHP(sessionSummary.foodpandaSales || 0)}</span></div>
-                <div className="flex justify-between text-emerald-500 font-bold"><span>GrabFood:</span><span>{formatPHP(sessionSummary.grabSales || 0)}</span></div>
-                {sessionSummary.otherChannelSales > 0 && (
-                  <div className="flex justify-between"><span>Other Channels:</span><span>{formatPHP(sessionSummary.otherChannelSales)}</span></div>
-                )}
-                <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">VOIDS & REFUNDS</div>
-                <div className="flex justify-between"><span>Void Count:</span><span>{sessionSummary.voidCount}</span></div>
-                <div className="flex justify-between"><span>Void Amount:</span><span>{formatPHP(sessionSummary.voidAmount)}</span></div>
-                <div className="border-t border-dashed my-2" />
-                <div className="font-bold text-center">DRAWER FLOW</div>
-                <div className="flex justify-between"><span>Opening Float:</span><span>{formatPHP(sessionSummary.openingBalance)}</span></div>
-                <div className="flex justify-between"><span>Expected Cash:</span><span>{formatPHP(sessionSummary.cashSales)}</span></div>
-                <div className="flex justify-between font-bold"><span>Expected Drawer:</span><span>{formatPHP(sessionSummary.openingBalance + sessionSummary.cashSales)}</span></div>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
-            <Button variant="outline" onClick={() => setXReadOpen(false)} className="sm:flex-1">
-              Close
-            </Button>
-            <Button
-              onClick={() => handlePrintXZBluetooth(sessionSummary, false)}
-              disabled={isPrintingXZBluetooth}
-              className="sm:flex-1 font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              {isPrintingXZBluetooth ? <Spinner className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-              Print Bluetooth
-            </Button>
-            <Button
-              onClick={() => printXZReport(sessionSummary, false, selectedBranch?.name || 'TERMINAL')}
-              className="sm:flex-1 font-bold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <Printer className="w-4 h-4" />
-              Print System
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <XReadDialog
+        open={xReadOpen}
+        onClose={() => setXReadOpen(false)}
+        sessionSummary={sessionSummary}
+        branchName={selectedBranch?.name || "TERMINAL"}
+        isPrintingXZBluetooth={isPrintingXZBluetooth}
+        onPrintXZBluetooth={handlePrintXZBluetooth}
+        onPrintXZSystem={printXZReport}
+      />
 
       {/* ─── Z-Read Close Shift Dialog ─── */}
-      <Dialog open={zReadOpen} onOpenChange={setZReadOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold tracking-tight">Close Drawer & Run Z-Read</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              End cashier session. This locks the terminal, runs a Z-Read report, and resets session counters.
-            </DialogDescription>
-          </DialogHeader>
+      <ZReadDialog
+        open={zReadOpen}
+        onClose={() => setZReadOpen(false)}
+        actualCashStr={actualCashStr}
+        setActualCashStr={setActualCashStr}
+        onCloseSession={handleCloseSession}
+      />
 
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label className="text-xs uppercase font-semibold">Actual Cash Counted (₱) *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                required
-                value={actualCashStr}
-                onChange={(e) => setActualCashStr(e.target.value)}
-                placeholder="Count all paper cash and coins in drawer..."
-                className="font-bold text-lg text-primary border-primary/30"
-              />
-              <p className="text-[10px] text-muted-foreground">
-                Enter the exact cash amount inside the physical drawer (including the initial cash float).
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setZReadOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleCloseSession}
-              disabled={!actualCashStr || Number(actualCashStr) < 0}
-              className="font-bold font-mono"
-            >
-              Confirm Z-Read & Close Shift
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ─── Closed Z-Report View Dialog ─── */}
-      <Dialog open={!!viewingClosedSummary} onOpenChange={(v) => { if (!v) setViewingClosedSummary(null); }}>
-        <DialogContent className="sm:max-w-2xl p-0 overflow-hidden">
-          <div className="flex flex-col max-h-[90vh] w-full">
-            {/* Header */}
-            <div className="px-6 pt-6 pb-4 pr-12 shrink-0">
-              <DialogTitle className="text-lg font-bold tracking-tight text-destructive">Z-Read Shift Closed Report</DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground mt-1.5">
-                Official shift summary. This terminal session is now locked.
-              </DialogDescription>
-            </div>
-
-            {/* Scrollable receipt body */}
-            {viewingClosedSummary && (
-              <div className="flex-1 overflow-y-auto px-6 py-3 min-h-0">
-                <div className="border border-destructive/20 rounded-md p-4 bg-muted/30 font-mono text-xs space-y-1.5">
-                  <div className="text-center font-bold uppercase">{selectedBranch?.name || 'TERMINAL'}</div>
-                  <div className="text-center text-[10px] text-destructive font-bold">Z-READ CLOSED REPORT</div>
-                  <div className="border-t border-dashed my-2" />
-                  <div className="flex justify-between"><span>Status:</span><span className="font-bold text-destructive">{viewingClosedSummary.status?.toUpperCase()}</span></div>
-                  <div className="flex justify-between"><span>Z-Counter:</span><span className="font-bold text-destructive">#{String(viewingClosedSummary.zCounter || 0).padStart(5, '0')}</span></div>
-                  <div className="flex justify-between"><span>Opened At:</span><span>{new Date(viewingClosedSummary.openedAt).toLocaleString()}</span></div>
-                  <div className="flex justify-between"><span>Closed At:</span><span>{new Date(viewingClosedSummary.closedAt).toLocaleString()}</span></div>
-                  <div className="border-t border-dashed my-2" />
-                  <div className="font-bold text-center">LIFETIME GRAND TOTALS</div>
-                  <div className="flex justify-between"><span>Start:</span><span>{formatPHP(viewingClosedSummary.grandTotalStart)}</span></div>
-                  <div className="flex justify-between"><span>End:</span><span>{formatPHP(viewingClosedSummary.grandTotalEnd)}</span></div>
-                  <div className="border-t border-dashed my-2" />
-                  <div className="flex justify-between"><span>Gross Sales:</span><span>{formatPHP(viewingClosedSummary.grossSales)}</span></div>
-                  <div className="flex justify-between"><span>Net Sales (Ex-VAT):</span><span>{formatPHP(viewingClosedSummary.netSales)}</span></div>
-                  <div className="flex justify-between"><span>VAT Amount (12%):</span><span>{formatPHP(viewingClosedSummary.vatAmount)}</span></div>
-                  <div className="flex justify-between"><span>VAT-Exempt Sales:</span><span>{formatPHP(viewingClosedSummary.vatExemptSales || 0)}</span></div>
-                  <div className="flex justify-between"><span>Discount Total:</span><span>{formatPHP(viewingClosedSummary.discountAmount || 0)}</span></div>
-                  <div className="flex justify-between"><span>Transaction Count:</span><span>{viewingClosedSummary.transactionCount}</span></div>
-                  <div className="border-t border-dashed my-2" />
-                  <div className="font-bold text-center">PAYMENT BREAKDOWN</div>
-                  <div className="flex justify-between"><span>Cash:</span><span>{formatPHP(viewingClosedSummary.cashSales)}</span></div>
-                  <div className="flex justify-between"><span>GCash:</span><span>{formatPHP(viewingClosedSummary.gcashSales)}</span></div>
-                  <div className="flex justify-between"><span>Maya:</span><span>{formatPHP(viewingClosedSummary.mayaSales)}</span></div>
-                  <div className="flex justify-between"><span>Card:</span><span>{formatPHP(viewingClosedSummary.cardSales)}</span></div>
-                  <div className="flex justify-between"><span>Other:</span><span>{formatPHP(viewingClosedSummary.otherSales)}</span></div>
-                  <div className="border-t border-dashed my-2" />
-                  <div className="font-bold text-center">SALES CHANNEL BREAKDOWN</div>
-                  <div className="flex justify-between"><span>Dine-in / Store:</span><span>{formatPHP(viewingClosedSummary.dineInSales || 0)}</span></div>
-                  <div className="flex justify-between"><span>Take-out:</span><span>{formatPHP(viewingClosedSummary.takeOutSales || 0)}</span></div>
-                  <div className="flex justify-between text-amber-500 font-bold"><span>FoodPanda:</span><span>{formatPHP(viewingClosedSummary.foodpandaSales || 0)}</span></div>
-                  <div className="flex justify-between text-emerald-500 font-bold"><span>GrabFood:</span><span>{formatPHP(viewingClosedSummary.grabSales || 0)}</span></div>
-                  {viewingClosedSummary.otherChannelSales > 0 && (
-                    <div className="flex justify-between"><span>Other Channels:</span><span>{formatPHP(viewingClosedSummary.otherChannelSales)}</span></div>
-                  )}
-                  <div className="border-t border-dashed my-2" />
-                  <div className="font-bold text-center">VOIDS &amp; REFUNDS</div>
-                  <div className="flex justify-between"><span>Void Count:</span><span>{viewingClosedSummary.voidCount}</span></div>
-                  <div className="flex justify-between"><span>Void Amount:</span><span>{formatPHP(viewingClosedSummary.voidAmount)}</span></div>
-                  <div className="border-t border-dashed my-2" />
-                  <div className="font-bold text-center">DRAWER FLOW &amp; BALANCING</div>
-                  <div className="flex justify-between"><span>Opening Float:</span><span>{formatPHP(viewingClosedSummary.openingBalance)}</span></div>
-                  <div className="flex justify-between"><span>Expected Cash:</span><span>{formatPHP(viewingClosedSummary.expectedCash)}</span></div>
-                  <div className="flex justify-between font-bold"><span>Expected Drawer:</span><span>{formatPHP(viewingClosedSummary.openingBalance + viewingClosedSummary.expectedCash)}</span></div>
-                  <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-bold"><span>Actual Drawer:</span><span>{formatPHP(viewingClosedSummary.actualCash)}</span></div>
-                  <div className={`flex justify-between font-bold ${viewingClosedSummary.discrepancy < 0 ? 'text-destructive' : 'text-emerald-500'}`}>
-                    <span>Discrepancy:</span>
-                    <span>{formatPHP(viewingClosedSummary.discrepancy)}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Footer — always anchored at bottom */}
-            <div className="flex flex-col sm:flex-row gap-2 px-6 py-4 shrink-0 border-t">
-              <Button variant="outline" onClick={() => setViewingClosedSummary(null)} className="sm:flex-1">
-                Close &amp; Lock POS
-              </Button>
-              <Button
-                onClick={() => handlePrintXZBluetooth(viewingClosedSummary, true)}
-                disabled={isPrintingXZBluetooth}
-                className="sm:flex-1 font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                {isPrintingXZBluetooth ? <Spinner className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-                Print Bluetooth
-              </Button>
-              <Button
-                onClick={() => printXZReport(viewingClosedSummary, true, selectedBranch?.name || 'TERMINAL')}
-                className="sm:flex-1 font-bold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                <Printer className="w-4 h-4" />
-                Print System
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* ─── Shift Closed Summary Dialog ─── */}
+      <ClosedZReportDialog
+        summary={viewingClosedSummary}
+        onClose={() => setViewingClosedSummary(null)}
+        branchName={selectedBranch?.name || "TERMINAL"}
+        isPrintingXZBluetooth={isPrintingXZBluetooth}
+        onPrintXZBluetooth={handlePrintXZBluetooth}
+        onPrintXZSystem={printXZReport}
+      />
     </>
   );
 };

@@ -93,9 +93,11 @@ export const KitchenReceipts: React.FC = () => {
             sale_category,
             cashier_id,
             created_at,
+            notes,
             sale_items(
               id,
               quantity,
+              notes,
               menu_items(
                 name,
                 sku
@@ -118,7 +120,7 @@ export const KitchenReceipts: React.FC = () => {
 
       const { data, error } = await query;
       if (error) throw error;
-      
+
       const mappedData = (data || []).map((row: any) => {
         const branchObj = Array.isArray(row.branches) ? row.branches[0] : row.branches;
         const saleObj = Array.isArray(row.sales) ? row.sales[0] : row.sales;
@@ -173,9 +175,11 @@ export const KitchenReceipts: React.FC = () => {
         control_number: receipt.sales?.control_number,
         created_at: receipt.sales?.created_at,
         sale_category: receipt.sales?.sale_category,
+        notes: (receipt.sales as any)?.notes,
         items: (receipt.sales?.sale_items || []).map((item: any) => ({
           quantity: item.quantity,
-          item_name: item.menu_items?.name || 'Unknown Item'
+          item_name: item.menu_items?.name || 'Unknown Item',
+          notes: item.notes
         }))
       };
 
@@ -190,7 +194,7 @@ export const KitchenReceipts: React.FC = () => {
   const filteredReceipts = useMemo(() => {
     if (!searchTerm.trim()) return receipts;
     const term = searchTerm.toLowerCase();
-    return receipts.filter(r => 
+    return receipts.filter(r =>
       r.control_number.toLowerCase().includes(term) ||
       (r.sales?.control_number && r.sales.control_number.toLowerCase().includes(term))
     );
@@ -310,9 +314,16 @@ export const KitchenReceipts: React.FC = () => {
                       <TableCell className="text-muted-foreground">{receipt.sales?.control_number || 'N/A'}</TableCell>
                       <TableCell>{receipt.branches?.name || 'Unknown'}</TableCell>
                       <TableCell>
-                        <Badge variant="secondary" className="text-[10px] uppercase font-bold">
-                          {receipt.sales?.sale_category || 'REGULAR'}
-                        </Badge>
+                        <div className="flex flex-col items-start gap-1">
+                          <Badge variant="secondary" className="text-[10px] uppercase font-bold">
+                            {receipt.sales?.sale_category || 'REGULAR'}
+                          </Badge>
+                          {((receipt.sales as any)?.notes || (receipt.sales?.sale_items || []).some((i: any) => i.notes)) && (
+                            <Badge variant="outline" className="text-[9px] border-amber-500/40 text-amber-400 bg-amber-500/10 font-semibold px-1.5 py-0">
+                              📝 Notes
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {new Date(receipt.created_at).toLocaleString()}
@@ -341,7 +352,7 @@ export const KitchenReceipts: React.FC = () => {
                           >
                             <Printer className="w-4 h-4 text-emerald-500" />
                           </Button>
-                          
+
                           <Select
                             value={receipt.status}
                             onValueChange={(val) => handleUpdateStatus(receipt.id, val)}
@@ -401,6 +412,13 @@ export const KitchenReceipts: React.FC = () => {
               </div>
             </div>
 
+            {Boolean((selectedReceipt?.sales as any)?.notes) && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 text-xs">
+                <span className="font-bold text-amber-400 uppercase tracking-wider block mb-1">Order Kitchen Note:</span>
+                <p className="text-foreground font-semibold">{(selectedReceipt?.sales as any).notes}</p>
+              </div>
+            )}
+
             <div className="border border-border/60 rounded-2xl overflow-hidden">
               <Table>
                 <TableHeader className="bg-muted/30">
@@ -414,7 +432,14 @@ export const KitchenReceipts: React.FC = () => {
                     selectedReceipt.sales.sale_items.map((item: any) => (
                       <TableRow key={item.id} className="hover:bg-transparent">
                         <TableCell className="font-bold text-[13px] py-3 text-primary">{item.quantity} x</TableCell>
-                        <TableCell className="font-bold text-[13px] py-3">{item.menu_items?.name}</TableCell>
+                        <TableCell className="font-bold text-[13px] py-3">
+                          <div>{item.menu_items?.name}</div>
+                          {item.notes && (
+                            <div className="text-[11px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-0.5 mt-1 inline-block">
+                              📝 Note: {item.notes}
+                            </div>
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))
                   ) : (
