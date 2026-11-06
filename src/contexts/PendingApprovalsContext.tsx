@@ -70,8 +70,13 @@ export const PendingApprovalsProvider: React.FC<{ children: React.ReactNode }> =
       const queryError = transfersRes.error || adjustmentsRes.error || portioningRes.error;
       if (queryError) throw queryError;
 
+      const canApproveAdjustments =
+        profile.role_name === 'super_admin' ||
+        profile.is_platform_admin ||
+        (profile.role_name === 'inventory_manager' && !profile.allowed_tabs?.includes('restrict_adjustment_edits'));
+
       const transfers = transfersRes.count ?? 0;
-      const adjustments = adjustmentsRes.count ?? 0;
+      const adjustments = canApproveAdjustments ? (adjustmentsRes.count ?? 0) : 0;
       const portioning = portioningRes.count ?? 0;
 
       setCounts({ transfers, adjustments, portioning, total: transfers + adjustments + portioning });

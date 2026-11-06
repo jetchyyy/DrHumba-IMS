@@ -72,6 +72,13 @@ const ACTION_PERMISSIONS: ActionPermission[] = [
     featureKey: 'adjustments',
   },
   {
+    id: 'restrict_adjustment_edits',
+    category: 'Inventory Operations',
+    name: 'Can not directly edit adjustments, and edits are subject for approval for admin',
+    description: 'Prevents direct stock balance or adjustment edits without administrator approval. All adjustment edits are queued as pending requests for admin review.',
+    featureKey: 'adjustments',
+  },
+  {
     id: 'portioning',
     category: 'Inventory Operations',
     name: 'Portioning & Yield Production',
@@ -136,7 +143,7 @@ export const UserManagement: React.FC = () => {
   const [role, setRole] = useState<string>('cashier');
   const [branchId, setBranchId] = useState('');
   const [allowedTabs, setAllowedTabs] = useState<string[]>([
-    'dashboard', 'pos', 'sales-history', 'z-read-history', 'inventory', 'global-inventory', 'settings'
+    'dashboard', 'pos', 'sales-history', 'z-read-history', 'inventory', 'global-inventory', 'settings', 'restrict_adjustment_edits'
   ]);
   const [customRole, setCustomRole] = useState('');
 
@@ -180,19 +187,20 @@ export const UserManagement: React.FC = () => {
     inventory_manager: [
       'dashboard', 'inventory', 'global-inventory', 'receiving', 'transfers', 'transfers_dispatch',
       'transfers_receive', 'adjustments', 'portioning', 'transactions', 'recipes', 'analytics', 'settings',
-      'action_buttons'
+      'action_buttons', 'restrict_adjustment_edits'
     ],
     branch_manager: [
       'dashboard', 'pos', 'sales-history', 'z-read-history', 'expenses', 'inventory', 'global-inventory',
       'transfers', 'transfers_receive', 'adjustments', 'recipes', 'analytics', 'settings',
-      'sales_void'
+      'sales_void', 'restrict_adjustment_edits'
     ],
     cashier: [
-      'dashboard', 'pos', 'sales-history', 'z-read-history', 'inventory', 'global-inventory', 'settings'
+      'dashboard', 'pos', 'sales-history', 'z-read-history', 'inventory', 'global-inventory', 'settings',
+      'restrict_adjustment_edits'
     ],
     auditor: [
       'dashboard', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'branches',
-      'analytics', 'audit-logs', 'expenses', 'transactions', 'settings'
+      'analytics', 'audit-logs', 'expenses', 'transactions', 'settings', 'restrict_adjustment_edits'
     ],
   };
 
@@ -263,9 +271,9 @@ export const UserManagement: React.FC = () => {
   const handleRoleChange = (v: string) => {
     setRole(v);
     if (v === 'custom') {
-      setAllowedTabs(['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings']);
+      setAllowedTabs(['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings', 'restrict_adjustment_edits']);
     } else {
-      const defaults = ROLE_DEFAULTS[v] || ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings'];
+      const defaults = ROLE_DEFAULTS[v] || ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings', 'restrict_adjustment_edits'];
       setAllowedTabs([...defaults]);
     }
   };
@@ -275,7 +283,7 @@ export const UserManagement: React.FC = () => {
     if (v === 'custom') {
       // Keep existing custom selections or give sensible defaults
     } else {
-      const defaults = ROLE_DEFAULTS[v] || ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings'];
+      const defaults = ROLE_DEFAULTS[v] || ['dashboard', 'pos', 'sales-history', 'inventory', 'global-inventory', 'settings', 'restrict_adjustment_edits'];
       setEditAllowedTabs([...defaults]);
     }
   };
@@ -754,9 +762,16 @@ export const UserManagement: React.FC = () => {
                           {member.role_name === 'super_admin' ? (
                             <span className="text-[9px] text-muted-foreground">All features allowed</span>
                           ) : member.allowed_tabs ? (
-                            <span className="text-[9px] text-primary font-semibold" title={member.allowed_tabs.join(', ')}>
-                              Custom: {member.allowed_tabs.length} features
-                            </span>
+                            <div className="flex flex-col space-y-0.5">
+                              <span className="text-[9px] text-primary font-semibold" title={member.allowed_tabs.join(', ')}>
+                                Custom: {member.allowed_tabs.length} features
+                              </span>
+                              {member.allowed_tabs.includes('restrict_adjustment_edits') && (
+                                <span className="text-[9px] text-amber-600 dark:text-amber-400 font-medium">
+                                  Adjustment edits require Admin approval
+                                </span>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-[9px] text-muted-foreground">Default permissions</span>
                           )}

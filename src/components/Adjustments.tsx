@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { settingsService } from '../lib/settingsService';
 import { printAdjustmentSlip } from '../lib/printService';
-import { PlusIcon as Plus, EyeOpenIcon as Eye, ReloadIcon as RefreshCw, TrashIcon as Trash2, FileTextIcon as Printer, ClipboardIcon as ClipboardList, CameraIcon, UploadIcon, ImageIcon, Cross2Icon as XIcon } from '@radix-ui/react-icons';
+import { PlusIcon as Plus, EyeOpenIcon as Eye, Pencil1Icon as Edit, ReloadIcon as RefreshCw, TrashIcon as Trash2, FileTextIcon as Printer, ClipboardIcon as ClipboardList, CameraIcon, UploadIcon, ImageIcon, Cross2Icon as XIcon } from '@radix-ui/react-icons';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -84,6 +84,7 @@ export const Adjustments: React.FC = () => {
   // Modals state
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
+  const [editingAdjustment, setEditingAdjustment] = useState<Adjustment | null>(null);
   const [selectedAdjustment, setSelectedAdjustment] = useState<Adjustment | null>(null);
   const [adjustmentItems, setAdjustmentItems] = useState<AdjustmentItem[]>([]);
   
@@ -299,6 +300,7 @@ export const Adjustments: React.FC = () => {
   }, [selectedBranch]);
 
   const handleOpenCreateModal = () => {
+    setEditingAdjustment(null);
     setReason('spoilage');
     setRemarks('');
     setPhotoUrl('');
@@ -316,7 +318,43 @@ export const Adjustments: React.FC = () => {
     setShowCreateModal(true);
   };
 
+  const handleOpenEditModal = async (adj: Adjustment) => {
+    try {
+      const { data, error } = await supabase
+        .from('stock_adjustment_items')
+        .select('id, item_id, quantity_base_unit')
+        .eq('adjustment_id', adj.id);
+
+      if (error) throw error;
+
+      setEditingAdjustment(adj);
+      setReason(adj.reason);
+      setRemarks(adj.remarks || '');
+      setPhotoUrl(adj.photo_url || '');
+      setAddedItems((data || []).map((item: any) => ({
+        item_id: item.item_id,
+        qty: Number(item.quantity_base_unit)
+      })));
+      setIsCameraActive(false);
+      setItemSearchTerm('');
+      setItemCategoryFilter('All');
+      stopCamera();
+      if (branchCatalog.items.length > 0) {
+        setCurrentSelectedItemId(branchCatalog.items[0].id);
+        setCurrentQty('');
+      } else {
+        setCurrentSelectedItemId('');
+      }
+      setShowViewModal(false);
+      setShowCreateModal(true);
+    } catch (err: any) {
+      console.error(err);
+      showError(err.message || 'Error loading adjustment for editing');
+    }
+  };
+
   const handleOpenReconcileModal = (negItem: NegativeBalanceItem) => {
+    setEditingAdjustment(null);
     setReason('recipe_substitution');
     setRemarks(`Reconciling kitchen substitute for ${negItem.item_name} (Sales deduction: ${negItem.quantity} ${negItem.base_unit})`);
     setPhotoUrl('');
@@ -366,16 +404,75 @@ export const Adjustments: React.FC = () => {
       return;
     }
 
-    if (!selectedBranch) {
+    if (!selectedBranch && !editingAdjustment) {
       showError("No branch context selected");
       return;
     }
 
     try {
+      if (editingAdjustment) {
+        const targetBranchId = editingAdjustment.branch_id || selectedBranch?.id;
+        const targetBranchName = editingAdjustment.branches?.name || selectedBranch?.name || 'Branch';
+
+        const { error: updateError } = await supabase
+          .from('stock_adjustments')
+          .update({
+            reason,
+            remarks: remarks.trim() || null,
+            photo_url: photoUrl.trim() || null,
+            status: 'pending',
+            approved_by: null
+          })
+          .eq('id', editingAdjustment.id);
+
+        if (updateError) throw updateError;
+
+        const { error: delItemsError } = await supabase
+          .from('stock_adjustment_items')
+          .delete()
+          .eq('adjustment_id', editingAdjustment.id);
+
+        if (delItemsError) throw delItemsError;
+
+        const itemsPayload = addedItems.map(item => ({
+          adjustment_id: editingAdjustment.id,
+          item_id: item.item_id,
+          quantity_base_unit: item.qty
+        }));
+
+        const { error: itemsError } = await supabase
+          .from('stock_adjustment_items')
+          .insert(itemsPayload);
+
+        if (itemsError) throw itemsError;
+
+        if (targetBranchId) {
+          await supabase
+            .from('notifications')
+            .insert({
+              branch_id: targetBranchId,
+              type: 'adjustment_pending',
+              message: `Edited adjustment ${editingAdjustment.control_number || ''} (${reason}) is pending Admin approval at ${targetBranchName}`
+            });
+        }
+
+        showSuccess(
+          isAdjustmentRestricted
+            ? "Adjustment edit saved and submitted for Admin approval!"
+            : "Adjustment updated and pending approval!"
+        );
+        setTimeout(() => {
+          setShowCreateModal(false);
+          setEditingAdjustment(null);
+          loadData();
+        }, 800);
+        return;
+      }
+
       const { data: adjData, error: adjError } = await supabase
         .from('stock_adjustments')
         .insert({
-          branch_id: selectedBranch.id,
+          branch_id: selectedBranch!.id,
           reason,
           remarks: remarks.trim() || null,
           photo_url: photoUrl.trim() || null,
@@ -402,9 +499,9 @@ export const Adjustments: React.FC = () => {
       await supabase
         .from('notifications')
         .insert({
-          branch_id: selectedBranch.id,
+          branch_id: selectedBranch!.id,
           type: 'adjustment_pending',
-          message: `New adjustment (${reason}) pending approval at ${selectedBranch.name}`
+          message: `New adjustment (${reason}) pending approval at ${selectedBranch!.name}`
         });
 
       showSuccess("Adjustment logged and pending approval!");
@@ -488,7 +585,27 @@ export const Adjustments: React.FC = () => {
     }
   };
 
-  const canApprove = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
+  const isAdjustmentRestricted = !!(
+    profile &&
+    profile.role_name !== 'super_admin' &&
+    profile.allowed_tabs?.includes('restrict_adjustment_edits')
+  );
+
+  const canApprove = !!(
+    profile &&
+    (
+      profile.role_name === 'super_admin' ||
+      (profile.role_name === 'inventory_manager' && !isAdjustmentRestricted)
+    )
+  );
+
+  const canEditAdjustment = !!(
+    profile &&
+    (
+      ['super_admin', 'inventory_manager', 'branch_manager'].includes(profile.role_name) ||
+      profile.allowed_tabs?.includes('adjustments')
+    )
+  );
 
   const handlePrintReceipt = async (adjustment: Adjustment, items: AdjustmentItem[]) => {
     try {
@@ -500,9 +617,12 @@ export const Adjustments: React.FC = () => {
     }
   };
 
-  const hasActionPermission = profile && (
-    profile.role_name === 'super_admin' || 
-    (profile.allowed_tabs && profile.allowed_tabs.includes('action_buttons'))
+  const hasActionPermission = !!(
+    profile &&
+    (
+      profile.role_name === 'super_admin' ||
+      (profile.allowed_tabs && profile.allowed_tabs.includes('action_buttons') && !isAdjustmentRestricted)
+    )
   );
 
   const handleDeleteAdjustment = async (adj: Adjustment) => {
@@ -740,6 +860,17 @@ export const Adjustments: React.FC = () => {
                         <Eye className="mr-2 h-4 w-4" />
                         View
                       </Button>
+                      {canEditAdjustment && adj.status !== 'approved' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenEditModal(adj)}
+                          title="Edit Adjustment Request (Subject to Admin Approval)"
+                        >
+                          <Edit className="mr-1.5 h-4 w-4" />
+                          Edit
+                        </Button>
+                      )}
                       {hasActionPermission && (
                         <Button
                           variant="ghost"
@@ -772,12 +903,13 @@ export const Adjustments: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* CREATE MODAL */}
+      {/* CREATE / EDIT MODAL */}
       <Dialog 
         open={showCreateModal} 
         onOpenChange={(open) => {
           setShowCreateModal(open);
           if (!open) {
+            setEditingAdjustment(null);
             stopCamera();
             setIsCameraActive(false);
           }
@@ -785,9 +917,11 @@ export const Adjustments: React.FC = () => {
       >
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
           <DialogHeader className="p-6 border-b shrink-0">
-            <DialogTitle>Log Stock Adjustment</DialogTitle>
+            <DialogTitle>{editingAdjustment ? `Edit Adjustment: ${editingAdjustment.control_number || 'Pending'}` : 'Log Stock Adjustment'}</DialogTitle>
             <DialogDescription>
-              Submit an inventory count correction. Requires manager approval.
+              {isAdjustmentRestricted
+                ? 'Edits and adjustments are subject to Admin approval before stock balances are modified.'
+                : 'Submit an inventory count correction. Requires manager/admin approval.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -1077,11 +1211,11 @@ export const Adjustments: React.FC = () => {
             </div>
 
             <DialogFooter className="p-6 border-t shrink-0">
-              <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
+              <Button type="button" variant="outline" onClick={() => { setShowCreateModal(false); setEditingAdjustment(null); }}>
                 Cancel
               </Button>
               <Button type="submit">
-                Submit for Approval
+                {editingAdjustment ? 'Save Edit & Submit for Admin Approval' : 'Submit for Approval'}
               </Button>
             </DialogFooter>
           </form>
@@ -1311,6 +1445,12 @@ export const Adjustments: React.FC = () => {
               </div>
 
               <DialogFooter className="p-6 border-t shrink-0 flex space-x-2 sm:space-x-0">
+                {canEditAdjustment && selectedAdjustment.status !== 'approved' && (
+                  <Button variant="outline" onClick={() => handleOpenEditModal(selectedAdjustment)}>
+                    <Edit className="mr-1.5 h-4 w-4" />
+                    Edit Request
+                  </Button>
+                )}
                 {selectedAdjustment.status === 'pending' && canApprove ? (
                   <>
                     <Button variant="destructive" onClick={() => handleRejectAdjustment(selectedAdjustment.id)}>

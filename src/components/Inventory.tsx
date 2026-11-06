@@ -391,6 +391,12 @@ export const Inventory: React.FC = () => {
     }
   };
 
+  const isAdjustmentRestricted = !!(
+    profile &&
+    profile.role_name !== 'super_admin' &&
+    profile.allowed_tabs?.includes('restrict_adjustment_edits')
+  );
+
   const handleOpenEditStock = (item: InventoryItem) => {
     setEditStockItem(item);
     const currentBal = balances.find(b => b.item_id === item.id)?.quantity || 0;
@@ -404,10 +410,59 @@ export const Inventory: React.FC = () => {
     setEditStockSubmitting(true);
     
     try {
+      const currentBal = Number(balances.find(b => b.item_id === editStockItem.id)?.quantity || 0);
+      const targetQty = Number(editStockQty);
+      const diff = targetQty - currentBal;
+
+      if (diff === 0) {
+        showError("New stock balance is identical to the current stock balance.");
+        setEditStockSubmitting(false);
+        return;
+      }
+
+      if (isAdjustmentRestricted) {
+        const { data: adjData, error: adjError } = await supabase
+          .from('stock_adjustments')
+          .insert({
+            branch_id: selectedBranch.id,
+            reason: 'manual_correction',
+            remarks: `Stock balance edit request for ${editStockItem.item_name}: ${currentBal} → ${targetQty} ${editStockItem.base_unit} (${diff > 0 ? `+${diff}` : diff} ${editStockItem.base_unit}) — Subject to Admin approval`,
+            created_by: profile.id,
+            status: 'pending'
+          })
+          .select()
+          .single();
+
+        if (adjError) throw adjError;
+
+        const { error: itemError } = await supabase
+          .from('stock_adjustment_items')
+          .insert({
+            adjustment_id: adjData.id,
+            item_id: editStockItem.id,
+            quantity_base_unit: diff
+          });
+
+        if (itemError) throw itemError;
+
+        await supabase
+          .from('notifications')
+          .insert({
+            branch_id: selectedBranch.id,
+            type: 'adjustment_pending',
+            message: `Stock balance edit (${editStockItem.item_name}: ${currentBal} → ${targetQty} ${editStockItem.base_unit}) pending Admin approval at ${selectedBranch.name}`
+          });
+
+        showSuccess("Stock balance edit submitted as a pending adjustment for Admin approval!");
+        await loadInventoryData();
+        setTimeout(() => setEditStockItem(null), 800);
+        return;
+      }
+
       const { error } = await supabase.rpc('fn_update_stock_balance', {
         p_branch_id: selectedBranch.id,
         p_item_id: editStockItem.id,
-        p_quantity: Number(editStockQty),
+        p_quantity: targetQty,
         p_created_by: profile.id
       });
       
@@ -425,6 +480,8 @@ export const Inventory: React.FC = () => {
   };
 
   const isEditor = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
+
+  const canDirectStockIn = !!(isEditor && !isAdjustmentRestricted);
 
   const hasActionPermission = profile && (
     profile.role_name === 'super_admin' || 
@@ -624,7 +681,7 @@ export const Inventory: React.FC = () => {
                         {(isEditor || hasActionPermission) && (
                           <TableCell className="text-right pr-6">
                             <div className="flex justify-end space-x-2">
-                              {isEditor && (
+                              {canDirectStockIn && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -634,14 +691,14 @@ export const Inventory: React.FC = () => {
                                   Stock In
                                 </Button>
                               )}
-                              {hasActionPermission && (
+                              {(hasActionPermission || isEditor) && (
                                 <Button
                                   variant="outline"
                                   size="sm"
                                   className="text-blue-500 border-blue-500 hover:bg-blue-500 hover:text-white transition-all h-7 text-xs"
                                   onClick={() => handleOpenEditStock(item)}
                                 >
-                                  Edit
+                                  {isAdjustmentRestricted ? 'Request Edit' : 'Edit'}
                                 </Button>
                               )}
                             </div>
@@ -1506,10 +1563,15 @@ export const Inventory: React.FC = () => {
       <Dialog open={!!editStockItem} onOpenChange={(open) => !open && setEditStockItem(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Edit Stock Balance</DialogTitle>
+            <DialogTitle>{isAdjustmentRestricted ? 'Request Stock Balance Edit' : 'Edit Stock Balance'}</DialogTitle>
           </DialogHeader>
           {editStockItem && (
             <form onSubmit={handleEditStockSubmit} className="space-y-4 pt-4">
+              {isAdjustmentRestricted && (
+                <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs leading-relaxed">
+                  <strong>Admin Approval Required:</strong> Direct stock edits are disabled for your account. Submitting this change will create a pending adjustment request for Admin review.
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Item Name</Label>
                 <div className="text-sm font-bold bg-muted border rounded-md px-3 py-2">
@@ -1561,7 +1623,11 @@ export const Inventory: React.FC = () => {
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setEditStockItem(null)}>Cancel</Button>
                 <Button type="submit" disabled={editStockSubmitting} className="bg-blue-600 hover:bg-blue-700 text-white">
-                  {editStockSubmitting ? 'Saving...' : 'Save Balance'}
+                  {editStockSubmitting
+                    ? 'Submitting...'
+                    : isAdjustmentRestricted
+                      ? 'Submit for Admin Approval'
+                      : 'Save Balance'}
                 </Button>
               </DialogFooter>
             </form>
