@@ -71,7 +71,7 @@ const PAYMENT_LABELS: Record<string, string> = {
 const formatPHP = (amount: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(amount);
 
-type EodSale = Pick<SaleRecord, 'id' | 'created_at' | 'branch_id' | 'cashier_id' | 'status' | 'total_amount' | 'payment_method'>;
+type EodSale = Pick<SaleRecord, 'id' | 'created_at' | 'branch_id' | 'cashier_id' | 'status' | 'total_amount' | 'payment_method' | 'sale_category'>;
 
 interface SalesStats {
   count: number;
@@ -273,7 +273,7 @@ export const SalesHistory: React.FC = () => {
 
     let query = supabase
       .from('sales')
-      .select('id, created_at, branch_id, cashier_id, status, total_amount, payment_method')
+      .select('id, created_at, branch_id, cashier_id, status, total_amount, payment_method, sale_category')
       .eq('branch_id', eodBranchId)
       .gte('created_at', startOfDay.toISOString())
       .lte('created_at', endOfDay.toISOString());
@@ -391,8 +391,14 @@ export const SalesHistory: React.FC = () => {
         stat.netAmt = stat.salesAmt - stat.refundsAmt;
       };
 
+      const isDeliveryPlatform = (s.sale_category || '').toLowerCase().includes('grab') ||
+                                 (s.sale_category || '').toLowerCase().includes('foodpanda') ||
+                                 (s.sale_category || '').toLowerCase().includes('food panda');
+
       const method = (s.payment_method || 'cash').toLowerCase();
-      if (method === 'cash') updateStat(cashSummary);
+      if (isDeliveryPlatform) {
+        updateStat(otherSummary);
+      } else if (method === 'cash') updateStat(cashSummary);
       else if (method === 'card') updateStat(cardSummary);
       else if (method === 'gcash') updateStat(gcashSummary);
       else if (method === 'maya') updateStat(mayaSummary);

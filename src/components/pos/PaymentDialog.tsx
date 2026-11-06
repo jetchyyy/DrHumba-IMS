@@ -78,8 +78,9 @@ export const PaymentDialog: React.FC<PaymentDialogProps> = ({
   // Reset when dialog opens
   useEffect(() => {
     if (open) {
+      const isDel = priceChannel === 'foodpanda' || priceChannel === 'grab' || defaultSaleCategory?.toLowerCase().includes('foodpanda') || defaultSaleCategory?.toLowerCase().includes('grab');
       setMethod('cash');
-      setTenderedStr('');
+      setTenderedStr(isDel ? String(payableTotal) : '');
       setSaleCategory(defaultSaleCategory);
       setCustomCategory('');
       setRefNumber('');
@@ -366,9 +367,8 @@ export const PaymentDialog: React.FC<PaymentDialogProps> = ({
   const hasRefNum = !isRefNumRequired || refNumber.trim().length > 0;
   const isCustomCatRequired = saleCategory === 'other';
   const hasCustomCat = !isCustomCatRequired || customCategory.trim().length > 0;
-  const isValidCash = method !== 'cash' || tendered >= (payableTotal - 0.009);
-
   const isDelivery = priceChannel === 'foodpanda' || priceChannel === 'grab' || saleCategory?.toLowerCase().includes('foodpanda') || saleCategory?.toLowerCase().includes('grab');
+  const isValidCash = isDelivery || method !== 'cash' || tendered >= (payableTotal - 0.009);
   const hasModifiedDeliveryPrices = cart.some(ci => ci.original_price && Math.abs(ci.original_price - ci.price) > 0.01);
   const isDeliveryOrderNumRequired = isDelivery && (hasModifiedDeliveryPrices || (applyDiscount && discountType === 'delivery_promo'));
   const hasValidDeliveryOrderNum = !isDeliveryOrderNumRequired || queueNumber.trim().length > 0;
@@ -550,6 +550,17 @@ export const PaymentDialog: React.FC<PaymentDialogProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-2">
             {/* Left Column: Payment Input */}
             <div className="space-y-4">
+              {/* Online Delivery Platform Order Indicator */}
+              {isDelivery && (
+                <div className="flex items-center gap-2.5 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
+                  <span className="text-lg">🛵</span>
+                  <div>
+                    <span className="font-bold">Online Platform Order ({saleCategory || 'Delivery'}):</span>
+                    <span className="ml-1 text-[11px] block sm:inline opacity-90">Paid via app. Automatically excluded from cash drawer in X-Read / Z-Read.</span>
+                  </div>
+                </div>
+              )}
+
               {/* Payment Method - Touch-First 1-Tap Tiles */}
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
@@ -1320,7 +1331,7 @@ export const PaymentDialog: React.FC<PaymentDialogProps> = ({
             disabled={processing || !canConfirm}
             className="h-12 px-8 font-black text-sm flex-1 sm:flex-initial shadow-md active:scale-98 transition-transform"
           >
-            {processing ? 'Processing…' : `Confirm & Pay ${PAYMENT_LABELS[method]} (${formatPHP(payableTotal)})`}
+            {processing ? 'Processing…' : isDelivery ? `Confirm & Complete ${saleCategory || 'Delivery'} (${formatPHP(payableTotal)})` : `Confirm & Pay ${PAYMENT_LABELS[method]} (${formatPHP(payableTotal)})`}
           </Button>
         </DialogFooter>
       </DialogContent>
