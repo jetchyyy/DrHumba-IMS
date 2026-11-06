@@ -11,6 +11,7 @@ export interface MenuItem {
   is_available: boolean;
   foodpanda_price?: number | null;
   grab_price?: number | null;
+  inventory_item_id?: string | null;
 }
 
 export interface CartItem {

@@ -89,16 +89,45 @@ export const POS: React.FC<POSProps> = ({
     if (selectedBranch?.id && branches) {
       const kids = branches.filter(b => b.parent_id === selectedBranch.id && b.status !== 'inactive');
       setSubStores(kids);
+
+      const storageKey = `pos_sub_store_${selectedBranch.id}`;
+      const savedSubId = localStorage.getItem(storageKey);
+      const savedSub = savedSubId && savedSubId !== 'parent' ? kids.find(s => s.id === savedSubId) : null;
+
       const profileBranch = branches.find(b => b.id === profile?.branch_id);
-      const defaultSubStore = (profileBranch && profileBranch.parent_id === selectedBranch.id)
-        ? profileBranch
-        : (kids.length > 0 ? kids[0] : null);
-      setSelectedSubStore(defaultSubStore);
+      const profileSub = (profileBranch && profileBranch.parent_id === selectedBranch.id) ? profileBranch : null;
+
+      let targetSubStore = null;
+      if (savedSubId === 'parent') {
+        targetSubStore = null;
+      } else if (savedSub) {
+        targetSubStore = savedSub;
+      } else if (profileSub) {
+        targetSubStore = profileSub;
+      } else if (kids.length > 0) {
+        targetSubStore = kids[0];
+      }
+      setSelectedSubStore(targetSubStore);
     } else {
       setSubStores([]);
       setSelectedSubStore(null);
     }
   }, [selectedBranch?.id, branches, profile?.branch_id]);
+
+  const handleSelectSubStore = (val: string) => {
+    if (val === 'parent') {
+      setSelectedSubStore(null);
+      if (selectedBranch?.id) {
+        localStorage.setItem(`pos_sub_store_${selectedBranch.id}`, 'parent');
+      }
+    } else {
+      const ss = subStores.find(s => s.id === val);
+      setSelectedSubStore(ss || null);
+      if (selectedBranch?.id && ss) {
+        localStorage.setItem(`pos_sub_store_${selectedBranch.id}`, ss.id);
+      }
+    }
+  };
 
   // Cart
   const [priceChannel, setPriceChannel] = useState<PriceChannel>('standard');
@@ -454,13 +483,9 @@ export const POS: React.FC<POSProps> = ({
           setAvailabilityMap({});
         }
 
-        const childSubStores = branches ? branches.filter(b => b.parent_id === selectedBranch.id && b.status !== 'inactive') : [];
-        const branchIdsToFetch = Array.from(new Set([selectedBranch.id, ...childSubStores.map(s => s.id)]));
-
         const { data: bpData } = await supabase
           .from('item_branch_prices')
-          .select('branch_id, menu_item_id, inventory_item_id, price, foodpanda_price, grab_price')
-          .in('branch_id', branchIdsToFetch);
+          .select('branch_id, menu_item_id, inventory_item_id, price, foodpanda_price, grab_price');
 
         if (bpData) {
           const bpMap: Record<string, Record<string, { price?: number; foodpanda_price?: number; grab_price?: number }>> = {};
@@ -496,7 +521,7 @@ export const POS: React.FC<POSProps> = ({
     }
   };
 
-  useEffect(() => { loadMenuItems(); }, [selectedBranch]);
+  useEffect(() => { loadMenuItems(); }, [selectedBranch?.id, branches?.length]);
 
   const getSaleForPrinting = async (saleId: string) => {
     if (!isOnline || saleId.startsWith('OFF-') || (saleId && saleId.length < 36)) {
@@ -723,8 +748,12 @@ export const POS: React.FC<POSProps> = ({
 
   const getItemPrice = (item: MenuItem, channel: PriceChannel = priceChannel): number => {
     const subId = selectedSubStore?.id;
-    const subBp = subId && branchPrices[subId] ? branchPrices[subId][item.id] : undefined;
-    const parentBp = selectedBranch?.id && branchPrices[selectedBranch.id] ? branchPrices[selectedBranch.id][item.id] : undefined;
+    const subBp = subId && branchPrices[subId]
+      ? (branchPrices[subId][item.id] || (item.inventory_item_id ? branchPrices[subId][item.inventory_item_id] : undefined))
+      : undefined;
+    const parentBp = selectedBranch?.id && branchPrices[selectedBranch.id]
+      ? (branchPrices[selectedBranch.id][item.id] || (item.inventory_item_id ? branchPrices[selectedBranch.id][item.inventory_item_id] : undefined))
+      : undefined;
 
     if (channel === 'foodpanda') {
       if (subBp?.foodpanda_price && subBp.foodpanda_price > 0) return subBp.foodpanda_price;
@@ -753,7 +782,7 @@ export const POS: React.FC<POSProps> = ({
         })
       );
     }
-  }, [priceChannel, selectedSubStore?.id]);
+  }, [priceChannel, selectedSubStore?.id, branchPrices]);
 
   const addToCart = (item: MenuItem, qty = 1) => {
     if (!activeSession || activeSession.status !== 'open') {
@@ -1497,10 +1526,39 @@ export const POS: React.FC<POSProps> = ({
                   Grab
                 </button>
               </div>
+              {/* Store & Sub-Store Selector */}
               {selectedBranch && (
-                <Badge variant="outline" className="px-3.5 py-1.5 text-xs font-semibold bg-primary/10 text-primary border-primary/20">
-                  Checkout: <span className="underline font-bold ml-1">{selectedBranch.name}</span>
-                </Badge>
+                <div className="flex items-center gap-1.5 bg-muted/60 p-1 rounded-lg border border-border/40">
+                  {subStores.length > 0 ? (
+                    <Select
+                      value={selectedSubStore?.id || 'parent'}
+                      onValueChange={handleSelectSubStore}
+                    >
+                      <SelectTrigger className="h-7 text-xs font-bold border-primary/30 bg-background min-w-[160px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="parent" className="text-xs font-bold">
+                          {selectedBranch.name} (Main Store)
+                        </SelectItem>
+                        {subStores.map((ss) => (
+                          <SelectItem key={ss.id} value={ss.id} className="text-xs font-medium">
+                            📍 {ss.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Badge variant="outline" className="px-3 py-1 text-xs font-bold bg-background text-primary border-primary/20">
+                      Checkout: <span className="underline font-bold ml-1">{selectedBranch.name}</span>
+                    </Badge>
+                  )}
+                  {selectedSubStore && (
+                    <Badge variant="outline" className="text-[10px] px-2 py-0.5 font-bold border-emerald-500/50 text-emerald-600 bg-emerald-500/10 whitespace-nowrap">
+                      Custom Pricing Active
+                    </Badge>
+                  )}
+                </div>
               )}
 
               {/* Connection Status Badge */}
@@ -1534,35 +1592,6 @@ export const POS: React.FC<POSProps> = ({
                     </>
                   )}
                 </Badge>
-              )}
-
-              {/* Sub-Store Selector */}
-              {selectedBranch && subStores.length > 0 && (
-                <Select
-                  value={selectedSubStore?.id || 'parent'}
-                  onValueChange={(val) => {
-                    if (val === 'parent') {
-                      setSelectedSubStore(null);
-                    } else {
-                      const ss = subStores.find(s => s.id === val);
-                      setSelectedSubStore(ss || null);
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-[180px] text-xs h-8 bg-background">
-                    <SelectValue placeholder="Attribution Store" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="parent" className="text-xs font-semibold">
-                      {selectedBranch.name} (Parent)
-                    </SelectItem>
-                    {subStores.map((ss) => (
-                      <SelectItem key={ss.id} value={ss.id} className="text-xs">
-                        {ss.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               )}
 
               {selectedBranch && (

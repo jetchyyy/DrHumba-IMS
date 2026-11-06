@@ -129,14 +129,14 @@ BEGIN
         IF p_sub_store_id IS NOT NULL THEN
             SELECT price, foodpanda_price, grab_price
             INTO v_bp_price, v_bp_foodpanda, v_bp_grab
-            FROM public.menu_item_branch_prices
+            FROM public.item_branch_prices
             WHERE menu_item_id = r_item.menu_item_id AND branch_id = p_sub_store_id;
         END IF;
 
         IF v_bp_price IS NULL THEN
             SELECT price, foodpanda_price, grab_price
             INTO v_bp_price, v_bp_foodpanda, v_bp_grab
-            FROM public.menu_item_branch_prices
+            FROM public.item_branch_prices
             WHERE menu_item_id = r_item.menu_item_id AND branch_id = p_branch_id;
         END IF;
 
@@ -466,14 +466,14 @@ BEGIN
         IF p_sub_store_id IS NOT NULL THEN
             SELECT price, foodpanda_price, grab_price
             INTO v_bp_price, v_bp_foodpanda, v_bp_grab
-            FROM public.menu_item_branch_prices
+            FROM public.item_branch_prices
             WHERE menu_item_id = r_item.menu_item_id AND branch_id = p_sub_store_id;
         END IF;
 
         IF v_bp_price IS NULL THEN
             SELECT price, foodpanda_price, grab_price
             INTO v_bp_price, v_bp_foodpanda, v_bp_grab
-            FROM public.menu_item_branch_prices
+            FROM public.item_branch_prices
             WHERE menu_item_id = r_item.menu_item_id AND branch_id = p_branch_id;
         END IF;
 
