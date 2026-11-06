@@ -45,12 +45,13 @@ DECLARE
     v_bp_grab          NUMERIC;
     v_cost_price       NUMERIC;
     v_subtotal         NUMERIC;
+    v_change           NUMERIC;
     v_initial_status   TEXT;
     v_type             TEXT;
     v_inventory_item_id UUID;
     v_has_recipe       BOOLEAN;
     v_item_policy      TEXT := 'strict';
-
+    
     -- Item discount calculations
     v_item_discount    NUMERIC;
     v_item_vatable     NUMERIC;
@@ -86,9 +87,7 @@ BEGIN
     )
     VALUES (
         p_branch_id, p_sub_store_id, auth.uid(), 0, 'completed', p_payment_method, 
-        p_sale_category, p_reference_number, p_queue_number, v_initial_status,
-        CASE WHEN v_initial_status IS NOT NULL THEN NOW() ELSE NULL END,
-        v_tenant_id,
+        p_sale_category, p_reference_number, p_queue_number, v_initial_status, now(), v_tenant_id,
         p_notes
     )
     RETURNING id INTO v_sale_id;
@@ -105,6 +104,7 @@ BEGIN
                (value->>'vat_exempt_sales')::NUMERIC AS item_vat_exempt
         FROM jsonb_array_elements(p_items)
     ) LOOP
+        -- Fetch base catalog prices & stock policy
         SELECT price, foodpanda_price, grab_price, name, type, inventory_item_id, COALESCE(stock_enforcement_mode, 'strict')
         INTO v_price, v_foodpanda_price, v_grab_price_num, v_menu_name, v_type, v_inventory_item_id, v_item_policy
         FROM public.menu_items
@@ -114,6 +114,7 @@ BEGIN
             RAISE EXCEPTION 'Menu item % not found.', r_item.menu_item_id;
         END IF;
 
+        -- If it's a direct retail item and menu item policy wasn't explicitly set, fallback to inventory item's policy
         IF v_inventory_item_id IS NOT NULL AND (v_item_policy IS NULL OR v_item_policy = 'strict') THEN
             SELECT COALESCE(stock_enforcement_mode, v_item_policy) INTO v_item_policy
             FROM public.inventory_items
@@ -124,155 +125,152 @@ BEGIN
             v_item_policy := 'strict';
         END IF;
 
+        -- Reset override variables
         v_bp_price := NULL;
         v_bp_foodpanda := NULL;
         v_bp_grab := NULL;
 
+        -- 1. Fetch sub-store price overrides if sub_store_id is present
         IF p_sub_store_id IS NOT NULL THEN
             SELECT price, foodpanda_price, grab_price
             INTO v_bp_price, v_bp_foodpanda, v_bp_grab
             FROM public.item_branch_prices
-            WHERE menu_item_id = r_item.menu_item_id AND branch_id = p_sub_store_id;
+            WHERE branch_id = p_sub_store_id
+              AND (menu_item_id = r_item.menu_item_id OR (v_inventory_item_id IS NOT NULL AND inventory_item_id = v_inventory_item_id))
+            LIMIT 1;
         END IF;
 
-        IF v_bp_price IS NULL THEN
-            SELECT price, foodpanda_price, grab_price
-            INTO v_bp_price, v_bp_foodpanda, v_bp_grab
-            FROM public.item_branch_prices
-            WHERE menu_item_id = r_item.menu_item_id AND branch_id = p_branch_id;
-        END IF;
+        -- 2. Fetch parent branch price overrides to fill in any missing values
+        SELECT 
+            COALESCE(v_bp_price, price),
+            COALESCE(v_bp_foodpanda, foodpanda_price),
+            COALESCE(v_bp_grab, grab_price)
+        INTO v_bp_price, v_bp_foodpanda, v_bp_grab
+        FROM public.item_branch_prices
+        WHERE branch_id = p_branch_id
+              AND (menu_item_id = r_item.menu_item_id OR (v_inventory_item_id IS NOT NULL AND inventory_item_id = v_inventory_item_id))
+        LIMIT 1;
 
+        IF v_bp_price IS NOT NULL AND v_bp_price > 0 THEN v_price := v_bp_price; END IF;
+        IF v_bp_foodpanda IS NOT NULL AND v_bp_foodpanda > 0 THEN v_foodpanda_price := v_bp_foodpanda; END IF;
+        IF v_bp_grab IS NOT NULL AND v_bp_grab > 0 THEN v_grab_price_num := v_bp_grab; END IF;
+
+        -- Resolve effective unit price
         IF r_item.custom_price IS NOT NULL AND r_item.custom_price > 0 THEN
             v_price := r_item.custom_price;
-        ELSIF p_sale_category ILIKE '%foodpanda%' THEN
-            v_price := COALESCE(v_bp_foodpanda, v_foodpanda_price, v_bp_price, v_price);
-        ELSIF p_sale_category ILIKE '%grab%' THEN
-            v_price := COALESCE(v_bp_grab, v_grab_price_num, v_bp_price, v_price);
-        ELSE
-            v_price := COALESCE(v_bp_price, v_price);
+        ELSIF (LOWER(COALESCE(p_sale_category, '')) LIKE '%foodpanda%' OR LOWER(COALESCE(p_sale_category, '')) LIKE '%food panda%') AND v_foodpanda_price IS NOT NULL AND v_foodpanda_price > 0 THEN
+            v_price := v_foodpanda_price;
+        ELSIF LOWER(COALESCE(p_sale_category, '')) LIKE '%grab%' AND v_grab_price_num IS NOT NULL AND v_grab_price_num > 0 THEN
+            v_price := v_grab_price_num;
         END IF;
 
-        v_subtotal := v_price * r_item.qty;
-        v_total_amount := v_total_amount + v_subtotal;
+        v_subtotal      := v_price * r_item.qty;
+        v_total_amount  := v_total_amount + v_subtotal;
 
-        SELECT EXISTS (
-            SELECT 1 FROM public.recipes WHERE menu_item_id = r_item.menu_item_id
-        ) INTO v_has_recipe;
-
-        IF v_type = 'service' OR v_item_policy = 'disabled' THEN
-            v_cost_price := 0.00;
-        ELSIF v_type = 'retail' OR (NOT v_has_recipe AND v_inventory_item_id IS NOT NULL) THEN
-            SELECT cost_price, current_stock, item_name INTO v_cost_price, v_current_qty, v_item_name
+        IF v_type = 'restaurant' THEN
+            SELECT COALESCE(SUM(ri.quantity_base_unit * ii.cost_per_base_unit), 0)
+            INTO v_cost_price
+            FROM public.recipe_ingredients ri
+            JOIN public.recipes r ON r.id = ri.recipe_id
+            JOIN public.inventory_items ii ON ii.id = ri.item_id
+            WHERE r.menu_item_id = r_item.menu_item_id;
+        ELSIF v_inventory_item_id IS NOT NULL THEN
+            SELECT COALESCE(cost_per_base_unit, 0)
+            INTO v_cost_price
             FROM public.inventory_items
-            WHERE id = v_inventory_item_id
-            FOR UPDATE;
-
-            IF v_cost_price IS NULL THEN
-                v_cost_price := 0.00;
-            END IF;
-
-            IF v_item_policy = 'strict' AND v_current_qty < r_item.qty THEN
-                RAISE EXCEPTION 'Insufficient stock for "%" (available: %, needed: %)',
-                    COALESCE(v_item_name, v_menu_name), v_current_qty, r_item.qty;
-            END IF;
-
-            UPDATE public.inventory_items
-            SET current_stock = current_stock - r_item.qty
             WHERE id = v_inventory_item_id;
-
-            INSERT INTO public.stock_movements (
-                inventory_item_id, movement_type, quantity, notes, created_by, tenant_id
-            ) VALUES (
-                v_inventory_item_id,
-                'out',
-                r_item.qty,
-                CASE 
-                    WHEN p_queue_number IS NOT NULL AND p_queue_number <> '' 
-                    THEN 'Direct POS Sale (Queue #' || p_queue_number || ')'
-                    ELSE 'Direct POS Sale'
-                END,
-                auth.uid(),
-                v_tenant_id
-            );
-        ELSIF v_has_recipe THEN
-            v_cost_price := 0.00;
-
-            FOR r_ing IN (
-                SELECT r.inventory_item_id,
-                       r.quantity AS recipe_qty,
-                       ii.current_stock,
-                       ii.cost_price,
-                       ii.item_name,
-                       COALESCE(ii.stock_enforcement_mode, v_item_policy) AS ing_policy
-                FROM public.recipes r
-                JOIN public.inventory_items ii ON ii.id = r.inventory_item_id
-                WHERE r.menu_item_id = r_item.menu_item_id
-                FOR UPDATE OF ii
-            ) LOOP
-                v_cost_price := v_cost_price + (COALESCE(r_ing.cost_price, 0.00) * r_ing.recipe_qty);
-                v_qty_needed := r_ing.recipe_qty * r_item.qty;
-
-                IF r_ing.ing_policy = 'strict' AND r_ing.current_stock < v_qty_needed THEN
-                    RAISE EXCEPTION 'Insufficient stock for ingredient "%" in menu item "%" (available: %, needed: %)',
-                        r_ing.item_name, v_menu_name, r_ing.current_stock, v_qty_needed;
-                END IF;
-
-                UPDATE public.inventory_items
-                SET current_stock = current_stock - v_qty_needed
-                WHERE id = r_ing.inventory_item_id;
-
-                INSERT INTO public.stock_movements (
-                    inventory_item_id, movement_type, quantity, notes, created_by, tenant_id
-                ) VALUES (
-                    r_ing.inventory_item_id,
-                    'out',
-                    v_qty_needed,
-                    CASE 
-                        WHEN p_queue_number IS NOT NULL AND p_queue_number <> '' 
-                        THEN 'POS Sale - Recipe Deduction for ' || v_menu_name || ' (Queue #' || p_queue_number || ')'
-                        ELSE 'POS Sale - Recipe Deduction for ' || v_menu_name
-                    END,
-                    auth.uid(),
-                    v_tenant_id
-                );
-            END LOOP;
         ELSE
-            v_cost_price := 0.00;
+            v_cost_price := 0;
         END IF;
 
-        v_item_discount  := COALESCE(r_item.item_discount, 0);
-        v_item_is_exempt := COALESCE(r_item.item_is_exempt, false);
-        v_item_vatable   := COALESCE(r_item.item_vatable, 0);
-        v_item_vat_amount := COALESCE(r_item.item_vat_amount, 0);
-        v_item_vat_exempt := COALESCE(r_item.item_vat_exempt, 0);
-
-        IF v_item_vatable = 0 AND v_item_vat_amount = 0 AND v_item_vat_exempt = 0 THEN
-            IF v_item_is_exempt THEN
-                v_item_vat_exempt := v_subtotal - v_item_discount;
-            ELSE
-                v_item_vatable := (v_subtotal - v_item_discount) / 1.12;
-                v_item_vat_amount := (v_subtotal - v_item_discount) - v_item_vatable;
-            END IF;
-        END IF;
+        v_item_discount   := COALESCE(r_item.item_discount, 0);
+        v_item_is_exempt  := COALESCE(r_item.item_is_exempt, FALSE);
+        v_item_vatable    := COALESCE(r_item.item_vatable, CASE WHEN NOT v_item_is_exempt THEN ((v_subtotal - v_item_discount) / 1.12) ELSE 0 END);
+        v_item_vat_amount := COALESCE(r_item.item_vat_amount, CASE WHEN NOT v_item_is_exempt THEN (v_item_vatable * 0.12) ELSE 0 END);
+        v_item_vat_exempt := COALESCE(r_item.item_vat_exempt, CASE WHEN v_item_is_exempt THEN ((v_subtotal - v_item_discount) / 1.12) ELSE 0 END);
 
         INSERT INTO public.sale_items (
-            sale_id, menu_item_id, quantity, unit_price, subtotal, cost_price, notes, tenant_id,
-            discount_amount, is_vat_exempt, vatable_sales, vat_amount, vat_exempt_sales
-        ) VALUES (
-            v_sale_id,
-            r_item.menu_item_id,
-            r_item.qty,
-            v_price,
-            v_subtotal,
-            v_cost_price,
-            r_item.notes,
-            v_tenant_id,
-            v_item_discount,
-            v_item_is_exempt,
-            v_item_vatable,
-            v_item_vat_amount,
-            v_item_vat_exempt
+            sale_id, menu_item_id, quantity, unit_price, subtotal, cost_price, tenant_id,
+            discount_amount, vatable_sales, vat_amount, vat_exempt_sales, is_vat_exempt,
+            notes
+        )
+        VALUES (
+            v_sale_id, r_item.menu_item_id, r_item.qty, v_price, v_subtotal, v_cost_price, v_tenant_id,
+            v_item_discount, v_item_vatable, v_item_vat_amount, v_item_vat_exempt, v_item_is_exempt,
+            r_item.notes
         );
+
+        SELECT EXISTS (
+            SELECT 1 FROM public.recipe_ingredients ri
+            JOIN public.recipes r ON r.id = ri.recipe_id
+            WHERE r.menu_item_id = r_item.menu_item_id
+        ) INTO v_has_recipe;
+
+        IF v_has_recipe THEN
+            FOR r_ing IN (
+                SELECT ri.item_id, ri.quantity_base_unit, i.item_name
+                FROM public.recipe_ingredients ri
+                JOIN public.recipes r         ON r.id  = ri.recipe_id
+                JOIN public.inventory_items i ON i.id  = ri.item_id
+                WHERE r.menu_item_id = r_item.menu_item_id
+            ) LOOP
+                v_qty_needed := r_ing.quantity_base_unit * r_item.qty;
+
+                SELECT COALESCE(quantity, 0) INTO v_current_qty
+                FROM public.inventory_balances
+                WHERE branch_id = p_branch_id AND item_id = r_ing.item_id;
+
+                IF v_current_qty IS NULL OR v_current_qty < v_qty_needed THEN
+                    IF v_item_policy = 'strict' THEN
+                        RAISE EXCEPTION 'Insufficient stock for ingredient "%": required %, current %',
+                            r_ing.item_name, v_qty_needed, COALESCE(v_current_qty, 0);
+                    END IF;
+                END IF;
+
+                INSERT INTO public.inventory_balances (branch_id, item_id, quantity, tenant_id, updated_at)
+                VALUES (p_branch_id, r_ing.item_id, -v_qty_needed, v_tenant_id, now())
+                ON CONFLICT (branch_id, item_id)
+                DO UPDATE SET quantity = public.inventory_balances.quantity - v_qty_needed, updated_at = now();
+
+                INSERT INTO public.inventory_movements
+                    (branch_id, item_id, quantity, movement_type, reference_id, reference_type, created_by, tenant_id)
+                VALUES
+                    (p_branch_id, r_ing.item_id, -v_qty_needed, 'sale_deduction', v_sale_id, 'sale', auth.uid(), v_tenant_id);
+
+                PERFORM public.fn_check_low_stock(p_branch_id, r_ing.item_id);
+            END LOOP;
+        ELSIF v_inventory_item_id IS NOT NULL THEN
+            v_qty_needed := r_item.qty;
+
+            SELECT COALESCE(quantity, 0), i.item_name INTO v_current_qty, v_item_name
+            FROM public.inventory_balances ib
+            JOIN public.inventory_items i ON i.id = ib.item_id
+            WHERE ib.branch_id = p_branch_id AND ib.item_id = v_inventory_item_id;
+
+            IF v_item_name IS NULL THEN
+                SELECT item_name INTO v_item_name FROM public.inventory_items WHERE id = v_inventory_item_id;
+            END IF;
+
+            IF v_current_qty IS NULL OR v_current_qty < v_qty_needed THEN
+                IF v_item_policy = 'strict' THEN
+                    RAISE EXCEPTION 'Insufficient stock for product "%": required %, current %',
+                        COALESCE(v_item_name, 'Direct POS Item'), v_qty_needed, COALESCE(v_current_qty, 0);
+                END IF;
+            END IF;
+
+            INSERT INTO public.inventory_balances (branch_id, item_id, quantity, tenant_id, updated_at)
+            VALUES (p_branch_id, v_inventory_item_id, -v_qty_needed, v_tenant_id, now())
+            ON CONFLICT (branch_id, item_id)
+            DO UPDATE SET quantity = public.inventory_balances.quantity - v_qty_needed, updated_at = now();
+
+            INSERT INTO public.inventory_movements
+                (branch_id, item_id, quantity, movement_type, reference_id, reference_type, created_by, tenant_id)
+                VALUES
+                (p_branch_id, v_inventory_item_id, -v_qty_needed, 'sale_deduction', v_sale_id, 'sale', auth.uid(), v_tenant_id);
+
+            PERFORM public.fn_check_low_stock(p_branch_id, v_inventory_item_id);
+        END IF;
+
     END LOOP;
 
     SELECT 
@@ -297,7 +295,8 @@ BEGIN
         END IF;
     END IF;
 
-    -- Calculate service charge ONLY for Dine In sales (never for Foodpanda, Grab, Take Out, etc.)
+    -- Calculate service charge: Branch override (if configured) -> Tenant general default -> 0%
+    -- ONLY applicable for Dine In sales (never for Foodpanda, Grab, Take Out, etc.)
     IF LOWER(TRIM(COALESCE(p_sale_category, ''))) IN ('dine in', 'dine-in', 'dine') THEN
         SELECT service_charge_rate
         INTO v_sc_rate
@@ -349,7 +348,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
--- 3. Redefine public.fn_process_offline_sale
+-- 3. Update fn_process_offline_sale to handle p_notes and per-item notes
 CREATE OR REPLACE FUNCTION public.fn_process_offline_sale(
     p_branch_id        UUID,
     p_items            JSONB,
@@ -442,6 +441,7 @@ BEGIN
                (value->>'vat_exempt_sales')::NUMERIC AS item_vat_exempt
         FROM jsonb_array_elements(p_items)
     ) LOOP
+        -- Fetch base catalog prices & stock policy
         SELECT price, foodpanda_price, grab_price, name, type, inventory_item_id, COALESCE(stock_enforcement_mode, 'strict')
         INTO v_price, v_foodpanda_price, v_grab_price_num, v_menu_name, v_type, v_inventory_item_id, v_item_policy
         FROM public.menu_items
@@ -461,151 +461,152 @@ BEGIN
             v_item_policy := 'strict';
         END IF;
 
+        -- Reset override variables
         v_bp_price := NULL;
         v_bp_foodpanda := NULL;
         v_bp_grab := NULL;
 
+        -- 1. Fetch sub-store price overrides if sub_store_id is present
         IF p_sub_store_id IS NOT NULL THEN
             SELECT price, foodpanda_price, grab_price
             INTO v_bp_price, v_bp_foodpanda, v_bp_grab
             FROM public.item_branch_prices
-            WHERE menu_item_id = r_item.menu_item_id AND branch_id = p_sub_store_id;
+            WHERE branch_id = p_sub_store_id
+              AND (menu_item_id = r_item.menu_item_id OR (v_inventory_item_id IS NOT NULL AND inventory_item_id = v_inventory_item_id))
+            LIMIT 1;
         END IF;
 
-        IF v_bp_price IS NULL THEN
-            SELECT price, foodpanda_price, grab_price
-            INTO v_bp_price, v_bp_foodpanda, v_bp_grab
-            FROM public.item_branch_prices
-            WHERE menu_item_id = r_item.menu_item_id AND branch_id = p_branch_id;
-        END IF;
+        -- 2. Fetch parent branch price overrides to fill in any missing values
+        SELECT 
+            COALESCE(v_bp_price, price),
+            COALESCE(v_bp_foodpanda, foodpanda_price),
+            COALESCE(v_bp_grab, grab_price)
+        INTO v_bp_price, v_bp_foodpanda, v_bp_grab
+        FROM public.item_branch_prices
+        WHERE branch_id = p_branch_id
+              AND (menu_item_id = r_item.menu_item_id OR (v_inventory_item_id IS NOT NULL AND inventory_item_id = v_inventory_item_id))
+        LIMIT 1;
 
+        IF v_bp_price IS NOT NULL AND v_bp_price > 0 THEN v_price := v_bp_price; END IF;
+        IF v_bp_foodpanda IS NOT NULL AND v_bp_foodpanda > 0 THEN v_foodpanda_price := v_bp_foodpanda; END IF;
+        IF v_bp_grab IS NOT NULL AND v_bp_grab > 0 THEN v_grab_price_num := v_bp_grab; END IF;
+
+        -- Resolve effective unit price
         IF r_item.custom_price IS NOT NULL AND r_item.custom_price > 0 THEN
             v_price := r_item.custom_price;
-        ELSE
-            v_price := COALESCE(v_bp_price, v_price);
+        ELSIF (LOWER(COALESCE(p_sale_category, '')) LIKE '%foodpanda%' OR LOWER(COALESCE(p_sale_category, '')) LIKE '%food panda%') AND v_foodpanda_price IS NOT NULL AND v_foodpanda_price > 0 THEN
+            v_price := v_foodpanda_price;
+        ELSIF LOWER(COALESCE(p_sale_category, '')) LIKE '%grab%' AND v_grab_price_num IS NOT NULL AND v_grab_price_num > 0 THEN
+            v_price := v_grab_price_num;
         END IF;
 
-        v_subtotal := v_price * r_item.qty;
-        v_total_amount := v_total_amount + v_subtotal;
+        v_subtotal      := v_price * r_item.qty;
+        v_total_amount  := v_total_amount + v_subtotal;
 
-        SELECT EXISTS (
-            SELECT 1 FROM public.recipes WHERE menu_item_id = r_item.menu_item_id
-        ) INTO v_has_recipe;
-
-        IF v_type = 'service' OR v_item_policy = 'disabled' THEN
-            v_cost_price := 0.00;
-        ELSIF v_type = 'retail' OR (NOT v_has_recipe AND v_inventory_item_id IS NOT NULL) THEN
-            SELECT cost_price, current_stock, item_name INTO v_cost_price, v_current_qty, v_item_name
+        IF v_type = 'restaurant' THEN
+            SELECT COALESCE(SUM(ri.quantity_base_unit * ii.cost_per_base_unit), 0)
+            INTO v_cost_price
+            FROM public.recipe_ingredients ri
+            JOIN public.recipes r ON r.id = ri.recipe_id
+            JOIN public.inventory_items ii ON ii.id = ri.item_id
+            WHERE r.menu_item_id = r_item.menu_item_id;
+        ELSIF v_inventory_item_id IS NOT NULL THEN
+            SELECT COALESCE(cost_per_base_unit, 0)
+            INTO v_cost_price
             FROM public.inventory_items
-            WHERE id = v_inventory_item_id
-            FOR UPDATE;
-
-            IF v_cost_price IS NULL THEN
-                v_cost_price := 0.00;
-            END IF;
-
-            IF v_item_policy = 'strict' AND v_current_qty < r_item.qty THEN
-                RAISE EXCEPTION 'Insufficient stock for "%" (available: %, needed: %)',
-                    COALESCE(v_item_name, v_menu_name), v_current_qty, r_item.qty;
-            END IF;
-
-            UPDATE public.inventory_items
-            SET current_stock = current_stock - r_item.qty
             WHERE id = v_inventory_item_id;
-
-            INSERT INTO public.stock_movements (
-                inventory_item_id, movement_type, quantity, notes, created_by, tenant_id
-            ) VALUES (
-                v_inventory_item_id,
-                'out',
-                r_item.qty,
-                CASE 
-                    WHEN p_queue_number IS NOT NULL AND p_queue_number <> '' 
-                    THEN 'Direct POS Sale (Queue #' || p_queue_number || ')'
-                    ELSE 'Direct POS Sale'
-                END,
-                p_cashier_id,
-                v_tenant_id
-            );
-        ELSIF v_has_recipe THEN
-            v_cost_price := 0.00;
-
-            FOR r_ing IN (
-                SELECT r.inventory_item_id,
-                       r.quantity AS recipe_qty,
-                       ii.current_stock,
-                       ii.cost_price,
-                       ii.item_name,
-                       COALESCE(ii.stock_enforcement_mode, v_item_policy) AS ing_policy
-                FROM public.recipes r
-                JOIN public.inventory_items ii ON ii.id = r.inventory_item_id
-                WHERE r.menu_item_id = r_item.menu_item_id
-                FOR UPDATE OF ii
-            ) LOOP
-                v_cost_price := v_cost_price + (COALESCE(r_ing.cost_price, 0.00) * r_ing.recipe_qty);
-                v_qty_needed := r_ing.recipe_qty * r_item.qty;
-
-                IF r_ing.ing_policy = 'strict' AND r_ing.current_stock < v_qty_needed THEN
-                    RAISE EXCEPTION 'Insufficient stock for ingredient "%" in menu item "%" (available: %, needed: %)',
-                        r_ing.item_name, v_menu_name, r_ing.current_stock, v_qty_needed;
-                END IF;
-
-                UPDATE public.inventory_items
-                SET current_stock = current_stock - v_qty_needed
-                WHERE id = r_ing.inventory_item_id;
-
-                INSERT INTO public.stock_movements (
-                    inventory_item_id, movement_type, quantity, notes, created_by, tenant_id
-                ) VALUES (
-                    r_ing.inventory_item_id,
-                    'out',
-                    v_qty_needed,
-                    CASE 
-                        WHEN p_queue_number IS NOT NULL AND p_queue_number <> '' 
-                        THEN 'POS Sale - Recipe Deduction for ' || v_menu_name || ' (Queue #' || p_queue_number || ')'
-                        ELSE 'POS Sale - Recipe Deduction for ' || v_menu_name
-                    END,
-                    p_cashier_id,
-                    v_tenant_id
-                );
-            END LOOP;
         ELSE
-            v_cost_price := 0.00;
+            v_cost_price := 0;
         END IF;
 
-        v_item_discount  := COALESCE(r_item.item_discount, 0);
-        v_item_is_exempt := COALESCE(r_item.item_is_exempt, false);
-        v_item_vatable   := COALESCE(r_item.item_vatable, 0);
-        v_item_vat_amount := COALESCE(r_item.item_vat_amount, 0);
-        v_item_vat_exempt := COALESCE(r_item.item_vat_exempt, 0);
-
-        IF v_item_vatable = 0 AND v_item_vat_amount = 0 AND v_item_vat_exempt = 0 THEN
-            IF v_item_is_exempt THEN
-                v_item_vat_exempt := v_subtotal - v_item_discount;
-            ELSE
-                v_item_vatable := (v_subtotal - v_item_discount) / 1.12;
-                v_item_vat_amount := (v_subtotal - v_item_discount) - v_item_vatable;
-            END IF;
-        END IF;
+        v_item_discount   := COALESCE(r_item.item_discount, 0);
+        v_item_is_exempt  := COALESCE(r_item.item_is_exempt, FALSE);
+        v_item_vatable    := COALESCE(r_item.item_vatable, CASE WHEN NOT v_item_is_exempt THEN ((v_subtotal - v_item_discount) / 1.12) ELSE 0 END);
+        v_item_vat_amount := COALESCE(r_item.item_vat_amount, CASE WHEN NOT v_item_is_exempt THEN (v_item_vatable * 0.12) ELSE 0 END);
+        v_item_vat_exempt := COALESCE(r_item.item_vat_exempt, CASE WHEN v_item_is_exempt THEN ((v_subtotal - v_item_discount) / 1.12) ELSE 0 END);
 
         INSERT INTO public.sale_items (
-            sale_id, menu_item_id, quantity, unit_price, subtotal, cost_price, notes, tenant_id,
-            discount_amount, is_vat_exempt, vatable_sales, vat_amount, vat_exempt_sales
-        ) VALUES (
-            v_sale_id,
-            r_item.menu_item_id,
-            r_item.qty,
-            v_price,
-            v_subtotal,
-            v_cost_price,
-            r_item.notes,
-            v_tenant_id,
-            v_item_discount,
-            v_item_is_exempt,
-            v_item_vatable,
-            v_item_vat_amount,
-            v_item_vat_exempt
+            sale_id, menu_item_id, quantity, unit_price, subtotal, cost_price, tenant_id,
+            discount_amount, vatable_sales, vat_amount, vat_exempt_sales, is_vat_exempt,
+            notes
+        )
+        VALUES (
+            v_sale_id, r_item.menu_item_id, r_item.qty, v_price, v_subtotal, v_cost_price, v_tenant_id,
+            v_item_discount, v_item_vatable, v_item_vat_amount, v_item_vat_exempt, v_item_is_exempt,
+            r_item.notes
         );
+
+        SELECT EXISTS (
+            SELECT 1 FROM public.recipe_ingredients ri
+            JOIN public.recipes r ON r.id = ri.recipe_id
+            WHERE r.menu_item_id = r_item.menu_item_id
+        ) INTO v_has_recipe;
+
+        IF v_has_recipe THEN
+            FOR r_ing IN (
+                SELECT ri.item_id, ri.quantity_base_unit, i.item_name
+                FROM public.recipe_ingredients ri
+                JOIN public.recipes r         ON r.id  = ri.recipe_id
+                JOIN public.inventory_items i ON i.id  = ri.item_id
+                WHERE r.menu_item_id = r_item.menu_item_id
+            ) LOOP
+                v_qty_needed := r_ing.quantity_base_unit * r_item.qty;
+
+                SELECT COALESCE(quantity, 0) INTO v_current_qty
+                FROM public.inventory_balances
+                WHERE branch_id = p_branch_id AND item_id = r_ing.item_id;
+
+                IF v_current_qty IS NULL OR v_current_qty < v_qty_needed THEN
+                    IF v_item_policy = 'strict' THEN
+                        RAISE EXCEPTION 'Insufficient stock for ingredient "%": required %, current %',
+                            r_ing.item_name, v_qty_needed, COALESCE(v_current_qty, 0);
+                    END IF;
+                END IF;
+
+                INSERT INTO public.inventory_balances (branch_id, item_id, quantity, tenant_id, updated_at)
+                VALUES (p_branch_id, r_ing.item_id, -v_qty_needed, v_tenant_id, now())
+                ON CONFLICT (branch_id, item_id)
+                DO UPDATE SET quantity = public.inventory_balances.quantity - v_qty_needed, updated_at = now();
+
+                INSERT INTO public.inventory_movements
+                    (branch_id, item_id, quantity, movement_type, reference_id, reference_type, created_by, tenant_id)
+                VALUES
+                    (p_branch_id, r_ing.item_id, -v_qty_needed, 'sale_deduction', v_sale_id, 'sale', p_cashier_id, v_tenant_id);
+
+                PERFORM public.fn_check_low_stock(p_branch_id, r_ing.item_id);
+            END LOOP;
+        ELSIF v_inventory_item_id IS NOT NULL THEN
+            v_qty_needed := r_item.qty;
+
+            SELECT COALESCE(quantity, 0), i.item_name INTO v_current_qty, v_item_name
+            FROM public.inventory_balances ib
+            JOIN public.inventory_items i ON i.id = ib.item_id
+            WHERE ib.branch_id = p_branch_id AND ib.item_id = v_inventory_item_id;
+
+            IF v_item_name IS NULL THEN
+                SELECT item_name INTO v_item_name FROM public.inventory_items WHERE id = v_inventory_item_id;
+            END IF;
+
+            IF v_current_qty IS NULL OR v_current_qty < v_qty_needed THEN
+                IF v_item_policy = 'strict' THEN
+                    RAISE EXCEPTION 'Insufficient stock for product "%": required %, current %',
+                        COALESCE(v_item_name, 'Direct POS Item'), v_qty_needed, COALESCE(v_current_qty, 0);
+                END IF;
+            END IF;
+
+            INSERT INTO public.inventory_balances (branch_id, item_id, quantity, tenant_id, updated_at)
+            VALUES (p_branch_id, v_inventory_item_id, -v_qty_needed, v_tenant_id, now())
+            ON CONFLICT (branch_id, item_id)
+            DO UPDATE SET quantity = public.inventory_balances.quantity - v_qty_needed, updated_at = now();
+
+            INSERT INTO public.inventory_movements
+                (branch_id, item_id, quantity, movement_type, reference_id, reference_type, created_by, tenant_id)
+            VALUES
+                (p_branch_id, v_inventory_item_id, -v_qty_needed, 'sale_deduction', v_sale_id, 'sale', p_cashier_id, v_tenant_id);
+
+            PERFORM public.fn_check_low_stock(p_branch_id, v_inventory_item_id);
+        END IF;
+
     END LOOP;
 
     SELECT 
@@ -630,9 +631,39 @@ BEGIN
         END IF;
     END IF;
 
-    -- Offline sales default to no service charge
-    v_sc_rate := 0.00;
-    v_service_charge := 0.00;
+    -- Calculate service charge: Branch override (if configured) -> Tenant general default -> 0%
+    -- ONLY applicable for Dine In sales (never for Foodpanda, Grab, Take Out, etc.)
+    IF LOWER(TRIM(COALESCE(p_sale_category, ''))) IN ('dine in', 'dine-in', 'dine') THEN
+        SELECT service_charge_rate
+        INTO v_sc_rate
+        FROM public.branches
+        WHERE id = COALESCE(p_sub_store_id, p_branch_id);
+
+        IF v_sc_rate IS NULL AND p_sub_store_id IS NOT NULL THEN
+            SELECT service_charge_rate
+            INTO v_sc_rate
+            FROM public.branches
+            WHERE id = p_branch_id;
+        END IF;
+
+        IF v_sc_rate IS NULL THEN
+            SELECT COALESCE(default_service_charge_rate, 0.00)
+            INTO v_sc_rate
+            FROM public.tenants
+            WHERE id = v_tenant_id;
+        END IF;
+
+        v_sc_rate := COALESCE(v_sc_rate, 0.00);
+
+        IF v_sc_rate > 0 THEN
+            v_service_charge := ROUND((v_total_amount * (v_sc_rate / 100.0)), 2);
+        ELSE
+            v_service_charge := 0;
+        END IF;
+    ELSE
+        v_sc_rate := 0.00;
+        v_service_charge := 0.00;
+    END IF;
 
     v_net_total := v_net_total + v_service_charge;
 
@@ -654,6 +685,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 GRANT EXECUTE ON FUNCTION public.fn_process_sale(UUID, JSONB, TEXT, NUMERIC, TEXT, TEXT, TEXT, UUID, TEXT, NUMERIC, JSONB, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_process_offline_sale(UUID, JSONB, TEXT, TIMESTAMPTZ, TEXT, UUID, TEXT, TEXT, UUID, TEXT, NUMERIC, JSONB, TEXT) TO authenticated;
+
+
 
 -- 3. Redefine public.fn_get_session_summary to exclude online delivery platforms (Grab / Foodpanda) from physical cash drawer
 CREATE OR REPLACE FUNCTION public.fn_get_session_summary(
