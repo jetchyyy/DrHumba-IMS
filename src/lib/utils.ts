@@ -5,6 +5,19 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export function cleanQuantity(val: number | null | undefined): number {
+  if (val === null || val === undefined || isNaN(val)) return 0;
+  if (Math.abs(val) < 0.0001) return 0;
+  return Number(val.toFixed(4));
+}
+
+export function formatCleanQuantity(val: number | null | undefined, maxDecimals = 3): string {
+  const clean = cleanQuantity(val);
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: maxDecimals,
+  }).format(clean);
+}
+
 export interface BranchInventoryCatalogItem {
   available_branches?: string[] | null;
   category?: string | null;

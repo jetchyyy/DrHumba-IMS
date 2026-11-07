@@ -19,6 +19,7 @@ import { CalendarIcon as Calendar } from '@radix-ui/react-icons';
 import { useModal } from '../contexts/ModalContext';
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { fetchPortionPackSizes, getPackSizeOptions, type PortionPackSizes } from '../lib/packSizes';
+import { cleanQuantity, formatCleanQuantity } from '../lib/utils';
 
 interface TransferRequest {
   id: string;
@@ -55,6 +56,7 @@ interface TransferItem {
     item_name: string;
     base_unit: string;
     conversion_factor?: number | null;
+    status?: 'active' | 'inactive';
   };
   is_rejected?: boolean;
   is_deleted?: boolean;
@@ -96,11 +98,10 @@ interface CatalogItem {
   min_transfer_qty?: number | null;
   available_branches?: string[] | null;
   category: string;
+  status: 'active' | 'inactive';
 }
 
-const formatQuantity = (quantity: number) => new Intl.NumberFormat(undefined, {
-  maximumFractionDigits: 3,
-}).format(quantity);
+const formatQuantity = (quantity: number | null | undefined) => formatCleanQuantity(quantity);
 
 const pluralizeUnit = (unit: string, quantity: number) => {
   if (Math.abs(quantity) === 1 || unit.endsWith('s')) return unit;
@@ -115,7 +116,7 @@ const pluralizeUnit = (unit: string, quantity: number) => {
  * without changing the quantity submitted to transfer RPCs.
  */
 const formatAvailableQuantity = (quantity: number, item?: CatalogItem, showPacks = true) => {
-  const baseQuantity = Number.isFinite(quantity) ? quantity : 0;
+  const baseQuantity = cleanQuantity(quantity);
   const baseUnit = item?.base_unit?.trim() || 'units';
   const packageUnit = item?.purchase_unit?.trim();
   const conversionFactor = Number(item?.conversion_factor);
@@ -130,7 +131,7 @@ const formatAvailableQuantity = (quantity: number, item?: CatalogItem, showPacks
     return baseDisplay;
   }
 
-  const packageQuantity = baseQuantity / conversionFactor;
+  const packageQuantity = cleanQuantity(baseQuantity / conversionFactor);
   return `${formatQuantity(packageQuantity)} ${pluralizeUnit(packageUnit, packageQuantity)} (${baseDisplay})`;
 };
 
@@ -255,7 +256,8 @@ export const Transfers: React.FC = () => {
   const [addModalDirectQty, setAddModalDirectQty] = useState<number | ''>(1);
   const [addModalEntryMode, setAddModalEntryMode] = useState<'pack' | 'base'>('pack');
   const [addModalSearch, setAddModalSearch] = useState('');
-  const [addModalCategory, setAddModalCategory] = useState('all');
+  const [addModalCategory, setAddModalCategory] = useState('All');
+  const [addModalPopoverOpen, setAddModalPopoverOpen] = useState(false);
 
   // Pack sizes each portioned item has been packed in (e.g. Calamares: 5 & 10 pcs)
   const [portionPackSizes, setPortionPackSizes] = useState<PortionPackSizes>({});
@@ -348,10 +350,10 @@ export const Transfers: React.FC = () => {
 
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
-        .select('id, item_name, base_unit, purchase_unit, conversion_factor, min_transfer_qty, available_branches, category')
+        .select('id, item_name, base_unit, purchase_unit, conversion_factor, min_transfer_qty, available_branches, category, status')
         .eq('status', 'active');
       if (catError) throw catError;
-      setCatalog(catData || []);
+      setCatalog((catData as CatalogItem[]) || []);
       setPortionPackSizes(await fetchPortionPackSizes());
     } catch (err) {
       console.error(err);
@@ -375,7 +377,7 @@ export const Transfers: React.FC = () => {
       const invMap: Record<string, number> = {};
       if (data) {
         data.forEach((row: any) => {
-          invMap[row.item_id] = Number(row.quantity);
+          invMap[row.item_id] = cleanQuantity(Number(row.quantity));
         });
       }
       setSourceInventory(invMap);
@@ -385,6 +387,17 @@ export const Transfers: React.FC = () => {
   };
 
   useEffect(() => {
+    if (showCreateModal) {
+      // Re-fetch latest active catalog whenever create modal opens to prevent requesting stale/inactive items
+      supabase
+        .from('inventory_items')
+        .select('id, item_name, base_unit, purchase_unit, conversion_factor, min_transfer_qty, available_branches, category, status')
+        .eq('status', 'active')
+        .then(({ data }) => {
+          if (data) setCatalog(data as CatalogItem[]);
+        });
+    }
+
     if (showCreateModal && sourceBranchId) {
       fetchSourceInventory(sourceBranchId);
       // Reset items when source branch changes to prevent invalid stock transfer levels,
@@ -422,6 +435,18 @@ export const Transfers: React.FC = () => {
     if (!currentSelectedItemId) return;
     
     const selectedCatalogItem = catalog.find(c => c.id === currentSelectedItemId);
+    if (!selectedCatalogItem || selectedCatalogItem.status !== 'active') {
+      showError("This item is inactive or unavailable and cannot be transferred.");
+      return;
+    }
+
+    if (targetBranchId && selectedCatalogItem.available_branches && selectedCatalogItem.available_branches.length > 0) {
+      if (!selectedCatalogItem.available_branches.includes(targetBranchId)) {
+        showError("This item is not available for the destination branch.");
+        return;
+      }
+    }
+
     let qtyToAdd = 0;
     let pkgUnit = 'pc';
     let pkgCount: number | undefined = undefined;
@@ -436,12 +461,12 @@ export const Transfers: React.FC = () => {
         showError("Please enter a valid package count.");
         return;
       }
-      qtyToAdd = pCount * pSize;
+      qtyToAdd = cleanQuantity(pCount * pSize);
       pkgUnit = selectedCatalogItem?.purchase_unit || 'pack';
       pkgCount = pCount;
       pcsPerPkg = pSize;
     } else {
-      qtyToAdd = Number(currentQty);
+      qtyToAdd = cleanQuantity(Number(currentQty));
       if (isNaN(qtyToAdd) || qtyToAdd <= 0) {
         showError("Please enter a valid quantity greater than zero.");
         return;
@@ -454,7 +479,7 @@ export const Transfers: React.FC = () => {
       return;
     }
 
-    const availableQty = sourceInventory[currentSelectedItemId] || 0;
+    const availableQty = cleanQuantity(sourceInventory[currentSelectedItemId]);
     const exists = addedItems.find(i => i.item_id === currentSelectedItemId);
     if (exists) {
       showError("Item already added. Please modify it or delete first.");
@@ -462,7 +487,7 @@ export const Transfers: React.FC = () => {
     }
 
     if (isProactive && qtyToAdd > availableQty) {
-      showError(`Cannot transfer exceeding available quantity of ${availableQty} in the source branch inventory.`);
+      showError(`Cannot transfer exceeding available quantity of ${formatQuantity(availableQty)} in the source branch inventory.`);
       return;
     }
 
@@ -554,17 +579,29 @@ export const Transfers: React.FC = () => {
       return;
     }
 
-    // Final validation of added items against minimum quantity and source inventory balances
+    // Final validation of added items against active status, branch availability, minimum quantity, and source inventory balances
     for (const item of addedItems) {
       const info = catalog.find(c => c.id === item.item_id);
-      const minQty = info?.min_transfer_qty && info.min_transfer_qty > 0 ? info.min_transfer_qty : null;
-      if (minQty !== null && item.qty < minQty) {
-        showError(`Quantity for ${info?.item_name || 'item'} must be at least ${minQty} ${info?.base_unit || ''}.`);
+      if (!info || info.status !== 'active') {
+        showError(`Item "${info?.item_name || 'selected item'}" is inactive or unavailable and cannot be requested.`);
         return;
       }
-      const availableQty = sourceInventory[item.item_id] || 0;
+
+      if (targetBranchId && info.available_branches && info.available_branches.length > 0) {
+        if (!info.available_branches.includes(targetBranchId)) {
+          showError(`Item "${info.item_name}" is not available for the destination branch.`);
+          return;
+        }
+      }
+
+      const minQty = info.min_transfer_qty && info.min_transfer_qty > 0 ? info.min_transfer_qty : null;
+      if (minQty !== null && item.qty < minQty) {
+        showError(`Quantity for ${info.item_name} must be at least ${minQty} ${info.base_unit || ''}.`);
+        return;
+      }
+      const availableQty = cleanQuantity(sourceInventory[item.item_id]);
       if (isProactive && item.qty > availableQty) {
-        showError(`Cannot transfer exceeding available quantity of ${availableQty} for ${info?.item_name || 'item'} in the source branch inventory.`);
+        showError(`Cannot transfer exceeding available quantity of ${formatQuantity(availableQty)} for ${info.item_name} in the source branch inventory.`);
         return;
       }
     }
@@ -601,13 +638,31 @@ export const Transfers: React.FC = () => {
   const handleOpenDraft = (draft: TransferDraft) => {
     setIsProactive(draft.draft_type === 'send');
     setEditingDraftId(draft.id);
-    pendingDraftItemsRef.current = (draft.items || []).map(item => ({
-      item_id: item.item_id,
-      qty: Number(item.quantity_base_unit),
-      packaging_unit: item.packaging_unit || 'pc',
-      package_count: item.package_count ?? undefined,
-      pieces_per_pack: item.pieces_per_pack ?? undefined
-    }));
+
+    // Validate that items in draft are still active in catalog
+    const validItems: AddedTransferItem[] = [];
+    const inactiveFound: string[] = [];
+
+    (draft.items || []).forEach(item => {
+      const cat = catalog.find(c => c.id === item.item_id && c.status === 'active');
+      if (!cat) {
+        inactiveFound.push(item.item_id);
+      } else {
+        validItems.push({
+          item_id: item.item_id,
+          qty: cleanQuantity(Number(item.quantity_base_unit)),
+          packaging_unit: item.packaging_unit || 'pc',
+          package_count: item.package_count ?? undefined,
+          pieces_per_pack: item.pieces_per_pack ?? undefined
+        });
+      }
+    });
+
+    if (inactiveFound.length > 0) {
+      showError("Some items previously saved in this draft are inactive or unavailable and were removed.");
+    }
+
+    pendingDraftItemsRef.current = validItems;
     setSourceBranchId(draft.source_branch_id);
     setTargetBranchId(draft.target_branch_id);
     setRemarks('');
@@ -623,6 +678,12 @@ export const Transfers: React.FC = () => {
   };
 
   const handleSubmitDraft = async (draft: TransferDraft) => {
+    const hasInactive = (draft.items || []).some(it => !catalog.some(c => c.id === it.item_id && c.status === 'active'));
+    if (hasInactive) {
+      showError("This draft contains inactive or unavailable items. Please edit the draft to remove them before submitting.");
+      return;
+    }
+
     const isSend = draft.draft_type === 'send';
     const route = `${draft.source_branch?.name || 'source'} → ${draft.target_branch?.name || 'target'}`;
     const confirmed = await confirm(
@@ -679,7 +740,8 @@ export const Transfers: React.FC = () => {
             inventory_items (
               item_name,
               base_unit,
-              conversion_factor
+              conversion_factor,
+              status
             )
           `)
           .eq('transfer_id', transfer.id);
@@ -699,7 +761,8 @@ export const Transfers: React.FC = () => {
             inventory_items (
               item_name,
               base_unit,
-              conversion_factor
+              conversion_factor,
+              status
             )
           `)
           .eq('transfer_id', transfer.id);
@@ -716,7 +779,7 @@ export const Transfers: React.FC = () => {
           .eq('branch_id', transfer.source_branch_id);
         if (bData) {
           const invMap: Record<string, number> = {};
-          bData.forEach((b: any) => { invMap[b.item_id] = Number(b.quantity) || 0; });
+          bData.forEach((b: any) => { invMap[b.item_id] = cleanQuantity(Number(b.quantity)); });
           setSourceInventory(invMap);
         }
       }
@@ -841,22 +904,24 @@ export const Transfers: React.FC = () => {
     setAddModalDirectQty(1);
     setAddModalEntryMode('pack');
     setAddModalSearch('');
-    setAddModalCategory('all');
+    setAddModalCategory('All');
+    setAddModalPopoverOpen(false);
     setShowAddItemModal(true);
   };
 
   const handleConfirmAddItem = () => {
     if (!selectedTransfer) return;
-    const item = catalog.find(c => c.id === addModalItemId);
+    const item = catalog.find(c => c.id === addModalItemId && c.status === 'active');
     if (!item) {
-      showError("Please select an item to add.");
+      showError("Please select a valid active item to add.");
       return;
     }
 
-    const avail = sourceInventory[item.id] || 0;
-    if (avail <= 0) {
-      showError("This item has no stock available at the source branch.");
-      return;
+    if (selectedTransfer.target_branch_id && item.available_branches && item.available_branches.length > 0) {
+      if (!item.available_branches.includes(selectedTransfer.target_branch_id)) {
+        showError("This item is not available for the destination branch.");
+        return;
+      }
     }
 
     const hasDefinedPackSize = getLockedPackSize(item) !== null;
@@ -865,15 +930,10 @@ export const Transfers: React.FC = () => {
     const pCount = Number(addModalPackCount) || 0;
     const dQty = Number(addModalDirectQty) || 0;
 
-    const effectiveQty = isPackMode ? (pCount * effectivePackSize) : dQty;
+    const effectiveQty = cleanQuantity(isPackMode ? (pCount * effectivePackSize) : dQty);
 
     if (isNaN(effectiveQty) || effectiveQty <= 0) {
       showError("Please enter a valid quantity greater than 0.");
-      return;
-    }
-
-    if (effectiveQty > avail) {
-      showError(`Quantity exceeds available stock at source branch (${avail} ${item.base_unit || 'units'} available).`);
       return;
     }
 
@@ -882,6 +942,8 @@ export const Transfers: React.FC = () => {
       showError(`Quantity for ${item.item_name} must be at least ${minQty} ${item.base_unit || ''}.`);
       return;
     }
+
+    const avail = cleanQuantity(sourceInventory[item.id]);
 
     // Add to local transfer items state (Draft in-memory, zero DB write until approve)
     const newItem: TransferItem = {
@@ -897,13 +959,18 @@ export const Transfers: React.FC = () => {
       inventory_items: {
         item_name: item.item_name,
         base_unit: item.base_unit,
-        conversion_factor: item.conversion_factor
+        conversion_factor: item.conversion_factor,
+        status: item.status
       }
     };
 
     setTransferItems(prev => [...prev, newItem]);
     setShowAddItemModal(false);
-    showSuccess(`Added ${item.item_name} to transfer shipment.`);
+    if (effectiveQty > avail) {
+      showSuccess(`Added ${item.item_name} to shipment (Note: exceeds available source stock of ${formatQuantity(avail)} ${item.base_unit || 'units'}).`);
+    } else {
+      showSuccess(`Added ${item.item_name} to transfer shipment.`);
+    }
   };
 
   const handleToggleDeleteItem = (index: number) => {
@@ -931,13 +998,17 @@ export const Transfers: React.FC = () => {
     }
 
     for (const item of activeItems) {
+      if (item.inventory_items?.status === 'inactive') {
+        showError(`Cannot approve transfer: "${item.inventory_items?.item_name || 'Item'}" is inactive. Please exclude or reject this item before approving.`);
+        return;
+      }
       if (isNaN(item.quantity_base_unit) || item.quantity_base_unit <= 0) {
         showError(`Please specify a valid quantity greater than 0 for ${item.inventory_items?.item_name || 'item'}.`);
         return;
       }
-      const availStock = sourceInventory[item.item_id] ?? 0;
-      if (item.quantity_base_unit > availStock) {
-        showError(`Source branch has insufficient stock for ${item.inventory_items?.item_name || 'item'}. Available: ${availStock}, Approved: ${item.quantity_base_unit}`);
+      const availStock = cleanQuantity(sourceInventory[item.item_id]);
+      if (cleanQuantity(item.quantity_base_unit) > availStock) {
+        showError(`Source branch has insufficient stock for ${item.inventory_items?.item_name || 'item'}. Available: ${formatQuantity(availStock)}, Approved: ${formatQuantity(item.quantity_base_unit)}`);
         return;
       }
     }
@@ -1627,7 +1698,7 @@ export const Transfers: React.FC = () => {
                         return (
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-muted-foreground">
-                              Available: <strong className="text-foreground">{formatAvailableQuantity(sourceInventory[currentSelectedItemId] || 0, item, !isPortionedPackItem(item))}</strong>
+                              Available: <strong className="text-foreground">{formatAvailableQuantity(cleanQuantity(sourceInventory[currentSelectedItemId]), item, !isPortionedPackItem(item))}</strong>
                             </span>
                             {minQty !== null && (
                               <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-bold">
@@ -1649,7 +1720,7 @@ export const Transfers: React.FC = () => {
                           {currentSelectedItemId ? (
                             (() => {
                               const item = catalog.find(c => c.id === currentSelectedItemId);
-                              const qty = sourceInventory[currentSelectedItemId] || 0;
+                              const qty = cleanQuantity(sourceInventory[currentSelectedItemId]);
                               return item ? (
                                 <div className="flex items-center justify-between w-full pr-2">
                                   <span className="font-medium text-foreground truncate">{item.item_name}</span>
@@ -1674,7 +1745,7 @@ export const Transfers: React.FC = () => {
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="All">All Categories</SelectItem>
-                                {Array.from(new Set(catalog.filter(c => !(branches.find(b => b.id === sourceBranchId)?.name?.toLowerCase().includes('main') && c.category?.toLowerCase().includes('portioned'))).map(c => c.category).filter(Boolean))).sort().map(cat => (
+                                {Array.from(new Set(catalog.filter(c => c.status === 'active' && !(branches.find(b => b.id === sourceBranchId)?.name?.toLowerCase().includes('main') && c.category?.toLowerCase().includes('portioned'))).map(c => c.category).filter(Boolean))).sort().map(cat => (
                                   <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                                 ))}
                               </SelectContent>
@@ -1702,15 +1773,17 @@ export const Transfers: React.FC = () => {
                               }
 
                               const filtered = catalog.filter(item => {
+                                if (item.status !== 'active') return false;
+
                                 if (branches.find(b => b.id === sourceBranchId)?.name?.toLowerCase().includes('main') && item.category?.toLowerCase().includes('portioned')) {
                                   return false;
                                 }
                                 
-                                const qty = sourceInventory[item.id] || 0;
+                                const qty = cleanQuantity(sourceInventory[item.id]);
                                 
                                 const isAvailableToTarget = !item.available_branches || 
                                   item.available_branches.length === 0 || 
-                                  (targetBranchId && item.available_branches.includes(targetBranchId));
+                                  Boolean(targetBranchId && item.available_branches.includes(targetBranchId));
                                   
                                 const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
                                 const hasStockOrIsRequest = qty > 0 || !isProactive;
@@ -1724,7 +1797,7 @@ export const Transfers: React.FC = () => {
                                 );
                               }
                               return filtered.map(item => {
-                                const qty = sourceInventory[item.id] || 0;
+                                const qty = cleanQuantity(sourceInventory[item.id]);
                                 const isSelected = currentSelectedItemId === item.id;
                                 return (
                                   <button
@@ -2227,10 +2300,10 @@ export const Transfers: React.FC = () => {
                                   const pkgUnit = item.packaging_unit || (item.inventory_items as any)?.purchase_unit || 'pack';
                                   const pcsPerPack = getItemPcsPerPack(item);
                                   const pCount = item.package_count || (pcsPerPack > 1 ? Math.floor(Number(item.quantity_base_unit) / pcsPerPack) : null);
-                                  const declared = item.received_quantity_base_unit ?? item.quantity_base_unit;
+                                  const declared = cleanQuantity(item.received_quantity_base_unit ?? item.quantity_base_unit);
                                   const isEditable = selectedTransfer.status === 'pending_receipt_approval' && canApproveReceipt;
-                                  const received = isEditable ? (receivedQuantities[item.item_id] ?? declared) : declared;
-                                  const difference = received - item.quantity_base_unit;
+                                  const received = cleanQuantity(isEditable ? (receivedQuantities[item.item_id] ?? declared) : declared);
+                                  const difference = cleanQuantity(received - item.quantity_base_unit);
                                   const isRejected = Boolean(item.is_rejected) || (Number(item.quantity_base_unit) === 0 && Number(item.original_quantity_base_unit) > 0);
 
                                   if (isRejected) {
@@ -2239,7 +2312,7 @@ export const Transfers: React.FC = () => {
                                         <TableCell className="font-medium">
                                           <div className="line-through text-muted-foreground">{name}</div>
                                           <Badge variant="outline" className="mt-1 text-[10px] text-destructive border-destructive/30 bg-destructive/10">
-                                            Not Approved / Excluded (Requested: {item.original_quantity_base_unit || 0} {unit})
+                                            Not Approved / Excluded (Requested: {formatQuantity(item.original_quantity_base_unit || 0)} {unit})
                                           </Badge>
                                         </TableCell>
                                         <TableCell className="text-right text-muted-foreground line-through">0 {unit}</TableCell>
@@ -2262,7 +2335,7 @@ export const Transfers: React.FC = () => {
                                           </div>
                                         ) : null}
                                       </TableCell>
-                                      <TableCell className="text-right font-semibold">{item.quantity_base_unit} {unit}</TableCell>
+                                      <TableCell className="text-right font-semibold">{formatQuantity(item.quantity_base_unit)} {unit}</TableCell>
                                       <TableCell className="text-right font-semibold text-green-600">
                                         {isEditable ? (
                                           <div className="flex flex-col items-end">
@@ -2272,23 +2345,23 @@ export const Transfers: React.FC = () => {
                                               step="any"
                                               value={received}
                                               onChange={(e) => {
-                                                const val = Number(e.target.value);
+                                                const val = cleanQuantity(Number(e.target.value));
                                                 setReceivedQuantities(prev => ({ ...prev, [item.item_id]: val }));
                                               }}
                                               className="w-20 text-right h-8"
                                             />
                                             {received !== declared && (
                                               <span className="text-[10px] text-muted-foreground font-normal mt-1">
-                                                Declared: {declared} {unit}
+                                                Declared: {formatQuantity(declared)} {unit}
                                               </span>
                                             )}
                                           </div>
                                         ) : (
-                                          <>{received} {unit}</>
+                                          <>{formatQuantity(received)} {unit}</>
                                         )}
                                       </TableCell>
                                       <TableCell className={`text-right font-semibold ${difference < 0 ? 'text-red-500' : difference > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
-                                        {difference < 0 ? `Short ${Math.abs(difference)} ${unit}` : difference > 0 ? `Over ${difference} ${unit}` : '0'}
+                                        {difference < 0 ? `Short ${formatQuantity(Math.abs(difference))} ${unit}` : difference > 0 ? `Over ${formatQuantity(difference)} ${unit}` : '0'}
                                       </TableCell>
                                       <TableCell className="text-xs italic text-muted-foreground">
                                         {declared !== Number(item.quantity_base_unit) ? (item.missing_reason || 'No reason provided') : '-'}
@@ -2314,9 +2387,10 @@ export const Transfers: React.FC = () => {
                               <TableBody>
                                 {transferItems.map((item, idx) => {
                                   const name = item.inventory_items?.item_name || 'Deleted Item';
+                                  const isInactive = item.inventory_items?.status === 'inactive';
                                   const unit = item.inventory_items?.base_unit || 'unit';
-                                  const reqQty = item.original_quantity_base_unit ?? item.quantity_base_unit;
-                                  const avail = sourceInventory[item.item_id] ?? 0;
+                                  const reqQty = cleanQuantity(item.original_quantity_base_unit ?? item.quantity_base_unit);
+                                  const avail = cleanQuantity(sourceInventory[item.item_id]);
                                   const pcsPerPack = getItemPcsPerPack(item);
                                   const pkgUnit = item.packaging_unit || (catalog.find(c => c.id === item.item_id)?.purchase_unit) || 'pack';
                                   const isPack = pcsPerPack > 1 || Boolean(item.package_count && Number(item.package_count) > 0);
@@ -2327,21 +2401,28 @@ export const Transfers: React.FC = () => {
                                   const availPacks = pcsPerPack > 1 ? Math.floor(avail / pcsPerPack) : null;
                                   const isAddedByApprover = Boolean(item.is_new) || (item.original_quantity_base_unit !== null && item.original_quantity_base_unit !== undefined && Number(item.original_quantity_base_unit) === 0);
                                   const isModified = !isAddedByApprover && !item.is_deleted && Number(item.quantity_base_unit) !== Number(reqQty);
-                                  const isOverStock = !item.is_deleted && item.quantity_base_unit > avail;
+                                  const isOverStock = !item.is_deleted && cleanQuantity(item.quantity_base_unit) > avail;
 
                                   if (item.is_deleted) {
                                     return (
                                       <TableRow key={idx} className="bg-destructive/10 opacity-75">
                                         <TableCell className="font-medium">
-                                          <span className="line-through text-muted-foreground">{name}</span>
-                                          <Badge variant="outline" className="ml-2 text-[10px] text-destructive border-destructive/30 bg-destructive/10">
-                                            Not Approved (Crashout)
-                                          </Badge>
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="line-through text-muted-foreground">{name}</span>
+                                            <Badge variant="outline" className="text-[10px] text-destructive border-destructive/30 bg-destructive/10">
+                                              Not Approved (Crashout)
+                                            </Badge>
+                                            {isInactive && (
+                                              <Badge variant="secondary" className="text-[10px] text-destructive bg-destructive/10 border-destructive/20 font-bold uppercase">
+                                                Inactive
+                                              </Badge>
+                                            )}
+                                          </div>
                                         </TableCell>
                                         <TableCell className="text-right text-muted-foreground line-through">
-                                          {isAddedByApprover ? `0 ${unit}` : `${reqQty} ${unit}`}
+                                          {isAddedByApprover ? `0 ${unit}` : `${formatQuantity(reqQty)} ${unit}`}
                                         </TableCell>
-                                        <TableCell className="text-right text-muted-foreground">{avail} {unit}</TableCell>
+                                        <TableCell className="text-right text-muted-foreground">{formatQuantity(avail)} {unit}</TableCell>
                                         <TableCell className="text-right text-muted-foreground">
                                           <span className="text-xs line-through text-destructive">0 {unit}</span>
                                         </TableCell>
@@ -2364,7 +2445,14 @@ export const Transfers: React.FC = () => {
                                   return (
                                     <TableRow key={idx} className={isOverStock ? 'bg-destructive/10' : ''}>
                                       <TableCell className="font-medium">
-                                        <div>{name}</div>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span>{name}</span>
+                                          {isInactive && (
+                                            <Badge variant="destructive" className="text-[10px] uppercase font-bold">
+                                              Inactive Item
+                                            </Badge>
+                                          )}
+                                        </div>
                                         {isPack ? (
                                           <div className="text-[11px] font-semibold text-primary font-mono">
                                             Standard: {pcsPerPack} {unit}/{pkgUnit}
@@ -2382,7 +2470,7 @@ export const Transfers: React.FC = () => {
                                         )}
                                         {isOverStock && (
                                           <div className="text-[10px] text-destructive font-semibold">
-                                            Exceeds source stock ({avail} {unit} available)!
+                                            Exceeds source stock ({formatQuantity(avail)} {unit} available)!
                                           </div>
                                         )}
                                       </TableCell>
@@ -2391,7 +2479,7 @@ export const Transfers: React.FC = () => {
                                           <span className="text-xs italic text-muted-foreground">0 {unit} (None)</span>
                                         ) : (
                                           <>
-                                            <div>{reqQty} {unit}</div>
+                                            <div>{formatQuantity(reqQty)} {unit}</div>
                                             {reqPacks !== null && (
                                               <span className="block text-[10px] text-muted-foreground font-normal font-mono">
                                                 ({reqPacks} {pkgUnit}{reqPacks === 1 ? '' : 's'} @ {pcsPerPack} {unit}/{pkgUnit})
@@ -2402,7 +2490,7 @@ export const Transfers: React.FC = () => {
                                       </TableCell>
                                       <TableCell className="text-right font-medium text-xs">
                                         <div className={avail < item.quantity_base_unit ? 'text-destructive font-bold' : 'text-muted-foreground'}>
-                                          {avail} {unit}
+                                          {formatQuantity(avail)} {unit}
                                         </div>
                                         {availPacks !== null && (
                                           <span className="block text-[10px] text-muted-foreground font-normal font-mono">
@@ -2724,305 +2812,329 @@ export const Transfers: React.FC = () => {
 
       {/* Compact Add Item to Transfer Modal */}
       <Dialog open={showAddItemModal} onOpenChange={setShowAddItemModal}>
-        <DialogContent className="max-w-md p-0 overflow-hidden">
+        <DialogContent className="max-w-xl p-0 overflow-hidden">
           <DialogHeader className="p-5 pb-3 border-b shrink-0">
             <DialogTitle className="text-base font-bold flex items-center gap-2">
               <Plus className="h-4 w-4 text-primary" />
               Add Item to Shipment
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Select an available item from {selectedTransfer?.source_branch?.name || 'source branch'} to include in this shipment before dispatching.
+              Select an item from {selectedTransfer?.source_branch?.name || 'source branch'} to include in this shipment before dispatching.
             </DialogDescription>
           </DialogHeader>
 
-          {(() => {
-            const availableSourceItems = (catalog || []).filter(item => {
-              // 1. Must not already be active in transferItems
-              const exists = transferItems.some(ti => !ti.is_deleted && ti.item_id === item.id);
-              if (exists) return false;
-              // 2. Must be strictly currently in stock at source branch (> 0)
-              const stock = sourceInventory[item.id] || 0;
-              if (stock <= 0) return false;
-              // 3. Category filter
-              if (addModalCategory !== 'all' && item.category !== addModalCategory) return false;
-              // 4. Search query
-              if (addModalSearch) {
-                const q = addModalSearch.toLowerCase();
-                const matchName = item.item_name?.toLowerCase().includes(q);
-                const matchCat = item.category?.toLowerCase().includes(q);
-                if (!matchName && !matchCat) return false;
-              }
-              return true;
-            });
-
-            const selectedAddCatalogItem = (catalog || []).find(c => c.id === addModalItemId);
-            const stock = selectedAddCatalogItem ? (sourceInventory[selectedAddCatalogItem.id] || 0) : 0;
-            const hasDefinedPackSize = getLockedPackSize(selectedAddCatalogItem) !== null;
-            const effectivePackSize = hasDefinedPackSize ? Number(selectedAddCatalogItem?.conversion_factor) : (Number(addModalPackSize) || 5);
-            const pieceUnit = (!selectedAddCatalogItem?.base_unit || selectedAddCatalogItem.base_unit.toLowerCase() === 'pack') ? 'pcs' : (selectedAddCatalogItem?.base_unit || 'units');
-            const addPkgUnit = selectedAddCatalogItem?.purchase_unit || 'pack';
-            const pCount = Number(addModalPackCount) || 0;
-            const dQty = Number(addModalDirectQty) || 0;
-            const isPackMode = addModalEntryMode === 'pack';
-            const effectiveQty = isPackMode ? (pCount * effectivePackSize) : dQty;
-            const isOverStock = Boolean(selectedAddCatalogItem && effectiveQty > stock);
-            const minQty = selectedAddCatalogItem?.min_transfer_qty && selectedAddCatalogItem.min_transfer_qty > 0 ? selectedAddCatalogItem.min_transfer_qty : null;
-            const isUnderMin = Boolean(minQty && effectiveQty > 0 && effectiveQty < minQty);
-            const canSubmit = Boolean(selectedAddCatalogItem && effectiveQty > 0 && !isOverStock && !isUnderMin);
-
-            return (
-              <>
-                <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
-                  {/* Category & Search Filter */}
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <Label className="text-[11px] font-medium text-muted-foreground mb-1 block">Category</Label>
-                        <Select value={addModalCategory} onValueChange={(val) => { setAddModalCategory(val); setAddModalItemId(''); }}>
-                          <SelectTrigger className="h-8 text-xs bg-background">
-                            <SelectValue placeholder="All Categories" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Categories</SelectItem>
-                            {Array.from(new Set(catalog.map(c => c.category).filter(Boolean))).sort().map(cat => (
-                              <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-[11px] font-medium text-muted-foreground mb-1 block">Search</Label>
-                        <div className="relative">
-                          <MagnifyingGlassIcon className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                          <Input
-                            type="text"
-                            placeholder="Filter items..."
-                            value={addModalSearch}
-                            onChange={(e) => setAddModalSearch(e.target.value)}
-                            className="h-8 pl-8 text-xs bg-background"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Item Selection Dropdown */}
-                    <div className="space-y-1.5 pt-1">
-                      <Label className="text-xs font-semibold">Select In-Stock Item *</Label>
-                      <Select
-                        value={addModalItemId}
-                        onValueChange={(val) => {
-                          setAddModalItemId(val);
-                          const item = catalog.find(c => c.id === val);
-                          if (item) {
-                            const defaultPackSize = getDefaultPackSize(item);
-                            const hasPack = defaultPackSize !== null || item.purchase_unit === 'pack';
-                            const packConv = defaultPackSize ?? 5;
-                            setAddModalEntryMode(hasPack ? 'pack' : 'base');
-                            setAddModalPackCount(1);
-                            setAddModalPackSize(packConv);
-                            setAddModalDirectQty(hasPack ? packConv : 1);
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="h-9 text-xs bg-background">
-                          <SelectValue placeholder="Choose an item..." />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-56">
-                          {availableSourceItems.length === 0 ? (
-                            <div className="p-3 text-center text-xs text-muted-foreground">
-                              No available in-stock items found
-                            </div>
-                          ) : (
-                            availableSourceItems.map(item => {
-                              const itStock = sourceInventory[item.id] || 0;
-                              const pcsPerPack = Number(item.conversion_factor) > 1 ? Number(item.conversion_factor) : 1;
-                              const packStock = pcsPerPack > 1 ? Math.floor(itStock / pcsPerPack) : null;
-                              return (
-                                <SelectItem key={item.id} value={item.id} className="text-xs">
-                                  <div className="flex items-center justify-between gap-3 w-full">
-                                    <span className="font-medium truncate max-w-[200px]">{item.item_name}</span>
-                                    <span className="text-[11px] font-mono text-muted-foreground shrink-0">
-                                      {packStock !== null ? `${packStock} ${item.purchase_unit || 'pk'} (${itStock} ${item.base_unit || 'units'})` : `${itStock} ${item.base_unit || 'units'}`}
-                                    </span>
-                                  </div>
-                                </SelectItem>
-                              );
-                            })
+          <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+            <Card className="bg-muted/30 border border-border/70 shadow-xs">
+              <CardContent className="p-4 space-y-4">
+                {/* Item Selector */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-foreground">Select Item</Label>
+                    {addModalItemId && (() => {
+                      const item = catalog.find(c => c.id === addModalItemId);
+                      const minQty = item?.min_transfer_qty && item.min_transfer_qty > 0 ? item.min_transfer_qty : null;
+                      return (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            Available: <strong className="text-foreground">{formatAvailableQuantity(cleanQuantity(sourceInventory[addModalItemId]), item, !isPortionedPackItem(item))}</strong>
+                          </span>
+                          {minQty !== null && (
+                            <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-bold">
+                              Min: {minQty} {item?.base_unit}
+                            </Badge>
                           )}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                        </div>
+                      );
+                    })()}
                   </div>
+                  <Popover open={addModalPopoverOpen} onOpenChange={setAddModalPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button 
+                        variant="outline" 
+                        role="combobox" 
+                        aria-expanded={addModalPopoverOpen} 
+                        className="w-full justify-between text-left font-normal bg-background h-10 border-input shadow-2xs"
+                      >
+                        {addModalItemId ? (
+                          (() => {
+                            const item = catalog.find(c => c.id === addModalItemId);
+                            const qty = cleanQuantity(sourceInventory[addModalItemId]);
+                            return item ? (
+                              <div className="flex items-center justify-between w-full pr-2">
+                                <span className="font-medium text-foreground truncate">{item.item_name}</span>
+                                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono shrink-0 ml-2">
+                                  {formatAvailableQuantity(qty, item, !isPortionedPackItem(item))}
+                                </span>
+                              </div>
+                            ) : "Select an item";
+                          })()
+                        ) : (
+                          <span className="text-muted-foreground">Search and select item to add...</span>
+                        )}
+                        <CaretSortIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 shadow-lg" align="start">
+                      <div className="flex flex-col h-[300px]">
+                        <div className="flex flex-col gap-2 border-b px-3 py-2 sticky top-0 bg-background z-10">
+                          <Select value={addModalCategory} onValueChange={setAddModalCategory}>
+                            <SelectTrigger className="h-8 w-full">
+                              <SelectValue placeholder="Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="All">All Categories</SelectItem>
+                              {Array.from(new Set(catalog.filter(c => c.status === 'active' && !(branches.find(b => b.id === selectedTransfer?.source_branch_id)?.name?.toLowerCase().includes('main') && c.category?.toLowerCase().includes('portioned'))).map(c => c.category).filter(Boolean))).sort().map(cat => (
+                                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <div className="flex items-center">
+                            <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                            <Input
+                              placeholder="Search catalog items..."
+                              value={addModalSearch}
+                              onChange={(e) => setAddModalSearch(e.target.value)}
+                              className="h-8 w-full bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0 py-0 text-sm outline-none"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-1">
+                          {(() => {
+                            const filtered = catalog.filter(item => {
+                              if (item.status !== 'active') return false;
 
-                  {/* If Item is selected, show Stock Details & Quantity Controls */}
-                  {selectedAddCatalogItem && (
-                    <div className="space-y-3 pt-2 border-t">
-                      {/* Available Stock Indicator */}
-                      <div className="flex items-center justify-between p-2.5 rounded-md bg-muted/50 border text-xs">
-                        <span className="text-muted-foreground font-medium">Source Stock:</span>
-                        <span className="font-bold text-foreground font-mono">
-                          {stock} {pieceUnit}
-                          {effectivePackSize > 1 && (
-                            <span className="text-muted-foreground font-normal ml-1">
-                              ({Math.floor(stock / effectivePackSize)} {pluralizeUnit(addPkgUnit, Math.floor(stock / effectivePackSize))} available)
-                            </span>
-                          )}
-                        </span>
-                      </div>
+                              // Must not already be active in transferItems
+                              const exists = transferItems.some(ti => !ti.is_deleted && ti.item_id === item.id);
+                              if (exists) return false;
 
-                      {/* Mode Selector (Pack vs Direct) */}
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs font-semibold">Quantity Mode</Label>
-                        <div className="flex items-center bg-muted/60 p-0.5 rounded-md border border-border/80">
-                          <button
-                            type="button"
-                            onClick={() => setAddModalEntryMode('base')}
-                            className={`px-2.5 py-1 text-xs rounded font-medium transition-all cursor-pointer ${
-                              addModalEntryMode === 'base'
-                                ? 'bg-background text-foreground shadow-xs font-semibold'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                          >
-                            Direct ({selectedAddCatalogItem.base_unit || 'Units'})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAddModalEntryMode('pack')}
-                            className={`px-2.5 py-1 text-xs rounded font-medium transition-all cursor-pointer ${
-                              addModalEntryMode === 'pack'
-                                ? 'bg-primary text-primary-foreground shadow-xs font-semibold'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                          >
-                            By {addPkgUnit.charAt(0).toUpperCase() + addPkgUnit.slice(1)}
-                          </button>
+                              if (branches.find(b => b.id === selectedTransfer?.source_branch_id)?.name?.toLowerCase().includes('main') && item.category?.toLowerCase().includes('portioned')) {
+                                return false;
+                              }
+                              
+                              const isAvailableToTarget = !item.available_branches || 
+                                item.available_branches.length === 0 || 
+                                Boolean(selectedTransfer?.target_branch_id && item.available_branches.includes(selectedTransfer.target_branch_id));
+                                
+                              const matchesCategory = addModalCategory === 'All' || item.category === addModalCategory;
+                              const matchesSearch = !addModalSearch.trim() || item.item_name.toLowerCase().includes(addModalSearch.toLowerCase());
+                              return isAvailableToTarget && matchesCategory && matchesSearch;
+                            });
+
+                            if (filtered.length === 0) {
+                              return (
+                                <div className="py-6 text-center text-sm text-muted-foreground">
+                                  No items found.
+                                </div>
+                              );
+                            }
+                            return filtered.map(item => {
+                              const qty = cleanQuantity(sourceInventory[item.id]);
+                              const isSelected = addModalItemId === item.id;
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setAddModalItemId(item.id);
+                                    setAddModalPopoverOpen(false);
+                                    setAddModalSearch('');
+                                    const defaultPackSize = getDefaultPackSize(item);
+                                    if (defaultPackSize !== null) {
+                                      setAddModalEntryMode('pack');
+                                      setAddModalPackSize(defaultPackSize);
+                                    } else {
+                                      setAddModalEntryMode('base');
+                                      setAddModalPackSize(5);
+                                    }
+                                  }}
+                                  className={`w-full text-left px-3 py-2 rounded-sm text-sm transition-colors hover:bg-accent hover:text-accent-foreground flex items-center justify-between ${isSelected ? 'bg-accent/50 font-medium' : ''}`}
+                                >
+                                  <span className="truncate">{item.item_name}</span>
+                                  <span className="text-xs text-muted-foreground shrink-0 pl-2">
+                                    {formatAvailableQuantity(qty, item, !isPortionedPackItem(item))}
+                                  </span>
+                                </button>
+                              );
+                            });
+                          })()}
                         </div>
                       </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
 
-                      {/* Inputs */}
-                      {isPackMode ? (
-                        <div className="space-y-3">
-                          <div className="grid grid-cols-2 gap-2.5">
-                            <div className="space-y-1">
-                              <Label className="text-[11px] text-muted-foreground">{addPkgUnit.charAt(0).toUpperCase() + addPkgUnit.slice(1)}s to Dispatch</Label>
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 w-8 p-0 text-xs font-bold"
-                                  onClick={() => setAddModalPackCount(Math.max(1, (Number(addModalPackCount) || 1) - 1))}
-                                  disabled={Number(addModalPackCount) <= 1}
-                                >
-                                  -1
-                                </Button>
+                {/* Quantity & Packaging Mode Sub-Panel */}
+                <div className="p-3.5 bg-background border border-border/80 rounded-xl space-y-3 shadow-2xs">
+                  {(() => {
+                    const selectedCatalogItem = catalog.find(c => c.id === addModalItemId);
+                    const baseU = selectedCatalogItem?.base_unit || 'units';
+                    const pkgU = selectedCatalogItem?.purchase_unit || 'pack';
+                    const hasDefinedPackSize = getLockedPackSize(selectedCatalogItem) !== null;
+                    const effectivePackSize = hasDefinedPackSize ? Number(selectedCatalogItem?.conversion_factor) : (Number(addModalPackSize) || 5);
+                    const pCount = Number(addModalPackCount) || 0;
+
+                    return (
+                      <>
+                        <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
+                          <Label className="text-xs font-semibold text-foreground">Packaging & Quantity Format</Label>
+                          <div className="inline-flex rounded-lg border bg-muted/60 p-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setAddModalEntryMode('base')}
+                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all cursor-pointer ${
+                                addModalEntryMode === 'base'
+                                  ? 'bg-background text-foreground shadow-xs font-semibold'
+                                  : 'text-muted-foreground hover:text-foreground'
+                              }`}
+                            >
+                              Direct ({baseU})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setAddModalEntryMode('pack')}
+                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                                addModalEntryMode === 'pack'
+                                  ? 'bg-primary text-primary-foreground shadow-xs font-semibold'
+                                  : 'text-muted-foreground hover:text-foreground'
+                              }`}
+                            >
+                              <span>By {pkgU.charAt(0).toUpperCase() + pkgU.slice(1)} ({pkgU} × {baseU})</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {addModalEntryMode === 'pack' ? (
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1.5">
+                                <Label className="text-xs font-medium text-muted-foreground">Number of {pkgU.charAt(0).toUpperCase() + pkgU.slice(1)}s</Label>
                                 <Input
                                   type="number"
                                   min="1"
                                   step="1"
                                   value={addModalPackCount}
                                   onChange={(e) => setAddModalPackCount(e.target.value === '' ? '' : Number(e.target.value))}
-                                  className="h-8 text-center text-xs font-bold bg-background"
+                                  placeholder="e.g. 5"
+                                  className="bg-background h-9"
                                 />
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 w-8 p-0 text-xs font-bold text-primary"
-                                  onClick={() => setAddModalPackCount((Number(addModalPackCount) || 0) + 1)}
-                                >
-                                  +1
-                                </Button>
                               </div>
-                            </div>
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between">
-                                <Label className="text-[11px] text-muted-foreground">{pieceUnit} / {addPkgUnit}</Label>
-                                {hasDefinedPackSize && (
-                                  <span className="text-[9px] text-primary font-medium">Standard</span>
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <Label className="text-xs font-medium text-muted-foreground">Base {baseU} per {pkgU}</Label>
+                                  {hasDefinedPackSize && (
+                                    <span className="text-[10px] text-primary flex items-center gap-1 font-medium bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">
+                                      <Lock className="h-3 w-3" /> Locked ({effectivePackSize} {baseU}/{pkgU})
+                                    </span>
+                                  )}
+                                </div>
+                                {isPortionedPackItem(selectedCatalogItem) ? (
+                                  <PackSizeSelect
+                                    key={selectedCatalogItem?.id}
+                                    options={getPackSizeOptions(selectedCatalogItem, portionPackSizes)}
+                                    value={addModalPackSize}
+                                    onChange={setAddModalPackSize}
+                                    unit={baseU}
+                                    className="h-9 bg-background"
+                                  />
+                                ) : (
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    step="any"
+                                    value={hasDefinedPackSize ? effectivePackSize : addModalPackSize}
+                                    readOnly={hasDefinedPackSize}
+                                    disabled={hasDefinedPackSize}
+                                    onChange={(e) => {
+                                      if (!hasDefinedPackSize) {
+                                        setAddModalPackSize(e.target.value === '' ? '' : Number(e.target.value));
+                                      }
+                                    }}
+                                    placeholder="e.g. 5 or 10"
+                                    className={`h-9 ${hasDefinedPackSize ? 'bg-muted/70 text-foreground font-semibold cursor-not-allowed border-muted-foreground/30' : 'bg-background'}`}
+                                  />
                                 )}
                               </div>
-                              {isPortionedPackItem(selectedAddCatalogItem) ? (
-                                <PackSizeSelect
-                                  key={selectedAddCatalogItem?.id}
-                                  options={getPackSizeOptions(selectedAddCatalogItem, portionPackSizes)}
-                                  value={addModalPackSize}
-                                  onChange={setAddModalPackSize}
-                                  unit={pieceUnit}
-                                  className="h-8 text-xs bg-background"
-                                />
-                              ) : (
-                              <Input
-                                type="number"
-                                min="1"
-                                step="any"
-                                value={hasDefinedPackSize ? effectivePackSize : addModalPackSize}
-                                readOnly={hasDefinedPackSize}
-                                disabled={hasDefinedPackSize}
-                                onChange={(e) => !hasDefinedPackSize && setAddModalPackSize(e.target.value === '' ? '' : Number(e.target.value))}
-                                className={`h-8 text-xs ${hasDefinedPackSize ? 'bg-muted/70 text-foreground font-semibold cursor-not-allowed' : 'bg-background'}`}
-                              />
-                              )}
+                            </div>
+
+                            {/* Live Conversion Banner */}
+                            <div className="flex items-center justify-between px-3.5 py-2.5 rounded-lg bg-primary/10 border border-primary/20 text-xs">
+                              <span className="text-foreground font-medium">
+                                <span>Total Computed Quantity:</span>
+                              </span>
+                              <span className="font-bold text-primary font-mono text-sm">
+                                {pCount > 0 && effectivePackSize > 0 
+                                  ? `${pCount} ${pkgU}${pCount === 1 ? '' : 's'} × ${effectivePackSize} ${baseU}/${pkgU} = ${pCount * effectivePackSize} ${baseU}`
+                                  : `0 ${baseU}`}
+                              </span>
                             </div>
                           </div>
-
-                          {/* Computed units summary */}
-                          <div className={`p-2.5 rounded-md border text-xs flex items-center justify-between ${
-                            isOverStock ? 'bg-destructive/10 border-destructive/30 text-destructive' : 'bg-primary/5 border-primary/20 text-foreground'
-                          }`}>
-                            <span className="font-medium">Total Quantity:</span>
-                            <span className="font-bold font-mono">
-                              {pCount} {pCount === 1 ? addPkgUnit : `${addPkgUnit}s`} × {effectivePackSize} {pieceUnit}/{addPkgUnit} = {effectiveQty} {pieceUnit}
-                            </span>
+                        ) : (
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-medium text-muted-foreground">
+                              Enter Quantity ({baseU})
+                            </Label>
+                            <Input
+                              type="number"
+                              min="0.01"
+                              step="any"
+                              value={addModalDirectQty}
+                              onChange={(e) => setAddModalDirectQty(e.target.value === '' ? '' : Number(e.target.value))}
+                              placeholder="0"
+                              className="bg-background h-9"
+                            />
                           </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-1.5">
-                          <Label className="text-[11px] text-muted-foreground">
-                            Direct Quantity ({selectedAddCatalogItem.base_unit || 'units'})
-                          </Label>
-                          <Input
-                            type="number"
-                            min="0.01"
-                            step="any"
-                            value={addModalDirectQty}
-                            onChange={(e) => setAddModalDirectQty(e.target.value === '' ? '' : Number(e.target.value))}
-                            className="h-8 text-xs font-semibold bg-background"
-                          />
-                        </div>
-                      )}
-
-                      {/* Alerts */}
-                      {isOverStock && (
-                        <div className="text-[11px] text-destructive font-medium bg-destructive/10 p-2 rounded border border-destructive/20">
-                          Cannot add: Quantity exceeds available source branch stock ({stock} {pieceUnit} available).
-                        </div>
-                      )}
-                      {isUnderMin && (
-                        <div className="text-[11px] text-amber-600 font-medium bg-amber-500/10 p-2 rounded border border-amber-500/20">
-                          Item requires a minimum transfer quantity of {minQty} {pieceUnit}.
-                        </div>
-                      )}
-                    </div>
-                  )}
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
-                <DialogFooter className="p-4 pt-3 border-t shrink-0 flex justify-end gap-2 bg-muted/20">
-                  <Button type="button" variant="outline" size="sm" onClick={() => setShowAddItemModal(false)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!canSubmit}
-                    onClick={handleConfirmAddItem}
-                  >
-                    Add to Shipment
-                  </Button>
-                </DialogFooter>
-              </>
-            );
-          })()}
+                {/* Validation warnings */}
+                {addModalItemId && (() => {
+                  const item = catalog.find(c => c.id === addModalItemId);
+                  const minQty = item?.min_transfer_qty && item.min_transfer_qty > 0 ? item.min_transfer_qty : null;
+                  const hasDefinedPackSize = getLockedPackSize(item) !== null;
+                  const effectivePackSize = hasDefinedPackSize ? Number(item?.conversion_factor) : (Number(addModalPackSize) || 5);
+                  const calculatedQty = addModalEntryMode === 'pack' 
+                    ? ((Number(addModalPackCount) || 0) * effectivePackSize)
+                    : (Number(addModalDirectQty) || 0);
+                  const isBelowMin = minQty !== null && calculatedQty > 0 && calculatedQty < minQty;
+                  const avail = cleanQuantity(sourceInventory[item?.id || '']);
+                  const isOverAvail = calculatedQty > avail;
+
+                  return (
+                    <div className="space-y-1.5">
+                      {isBelowMin && (
+                        <p className="text-xs text-destructive font-semibold">
+                          Quantity must be at least {minQty} {item?.base_unit}
+                        </p>
+                      )}
+                      {isOverAvail && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                          Note: Quantity exceeds current source inventory ({formatQuantity(avail)} {item?.base_unit || 'units'} available).
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </div>
+
+          <DialogFooter className="p-4 pt-3 border-t shrink-0 flex justify-end gap-2 bg-muted/20">
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowAddItemModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!addModalItemId || (addModalEntryMode === 'pack' ? (Number(addModalPackCount) <= 0) : (Number(addModalDirectQty) <= 0))}
+              onClick={handleConfirmAddItem}
+              className="cursor-pointer"
+            >
+              + Add Item
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
