@@ -1464,6 +1464,19 @@ WHERE email = 'your-email@example.com';`}</pre>
 
                             <div className="border-t border-slate-450 border-dashed my-1.5"></div>
 
+                            <div className="space-y-0.5 text-[8.5px] font-mono text-slate-700">
+                              <div className="flex justify-between">
+                                <span>Cash:</span>
+                                <span>₱400.00</span>
+                              </div>
+                              <div className="flex justify-between font-bold">
+                                <span>Change:</span>
+                                <span>₱40.00</span>
+                              </div>
+                            </div>
+
+                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+
                             <div className="text-center text-[7px] font-bold text-slate-800">
                               THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX
                             </div>

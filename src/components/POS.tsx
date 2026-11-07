@@ -56,6 +56,11 @@ import {
   ZReadDialog,
   ClosedZReportDialog,
 } from "./pos/POSModals";
+import {
+  resolveInitialPosSubStore,
+  buildPosBranchPriceMap,
+  resolvePosItemPrice,
+} from "../lib/utils";
 
 // ─── Main POS Component ───────────────────────────────────────────────────────
 
@@ -92,21 +97,14 @@ export const POS: React.FC<POSProps> = ({
 
       const storageKey = `pos_sub_store_${selectedBranch.id}`;
       const savedSubId = localStorage.getItem(storageKey);
-      const savedSub = savedSubId && savedSubId !== 'parent' ? kids.find(s => s.id === savedSubId) : null;
 
-      const profileBranch = branches.find(b => b.id === profile?.branch_id);
-      const profileSub = (profileBranch && profileBranch.parent_id === selectedBranch.id) ? profileBranch : null;
-
-      let targetSubStore = null;
-      if (savedSubId === 'parent') {
-        targetSubStore = null;
-      } else if (savedSub) {
-        targetSubStore = savedSub;
-      } else if (profileSub) {
-        targetSubStore = profileSub;
-      } else if (kids.length > 0) {
-        targetSubStore = kids[0];
-      }
+      const targetSubStore = resolveInitialPosSubStore(
+        kids,
+        branches,
+        savedSubId,
+        profile?.branch_id,
+        selectedBranch.id
+      );
       setSelectedSubStore(targetSubStore);
     } else {
       setSubStores([]);
@@ -452,19 +450,37 @@ export const POS: React.FC<POSProps> = ({
   const loadMenuItems = async () => {
     setLoading(true);
     try {
-      let query = supabase
-        .from('menu_items')
-        .select('*')
-        .eq('status', 'active')
-        .eq('is_available', true);
+      const buildMenuQuery = (selectCols: string) => {
+        let q = supabase
+          .from('menu_items')
+          .select(selectCols)
+          .eq('status', 'active')
+          .eq('is_available', true);
 
-      if (selectedBranch?.id) {
-        query = query.or(`available_branches.is.null,available_branches.cs.{"${selectedBranch.id}"}`);
+        if (selectedBranch?.id) {
+          q = q.or(`available_branches.is.null,available_branches.cs.{"${selectedBranch.id}"}`);
+        }
+        return q.order('name');
+      };
+
+      let { data, error } = await buildMenuQuery('*, inventory_items (selling_price, foodpanda_price, grab_price)');
+      if (error) {
+        const fallback = await buildMenuQuery('*');
+        data = fallback.data;
+        error = fallback.error;
       }
-
-      const { data, error } = await query.order('name');
       if (error) throw error;
-      setItems(data || []);
+
+      const mappedItems: MenuItem[] = (data || []).map((raw: any) => {
+        const linkedInv = Array.isArray(raw.inventory_items) ? raw.inventory_items[0] : raw.inventory_items;
+        return {
+          ...raw,
+          linked_selling_price: linkedInv?.selling_price !== null && linkedInv?.selling_price !== undefined ? Number(linkedInv.selling_price) : null,
+          linked_foodpanda_price: linkedInv?.foodpanda_price !== null && linkedInv?.foodpanda_price !== undefined ? Number(linkedInv.foodpanda_price) : null,
+          linked_grab_price: linkedInv?.grab_price !== null && linkedInv?.grab_price !== undefined ? Number(linkedInv.grab_price) : null,
+        };
+      });
+      setItems(mappedItems);
 
       if (selectedBranch?.id) {
         const { data: availData } = await supabase.rpc('fn_get_menu_items_availability', {
@@ -488,27 +504,7 @@ export const POS: React.FC<POSProps> = ({
           .select('branch_id, menu_item_id, inventory_item_id, price, foodpanda_price, grab_price');
 
         if (bpData) {
-          const bpMap: Record<string, Record<string, { price?: number; foodpanda_price?: number; grab_price?: number }>> = {};
-          bpData.forEach(bp => {
-            if (!bpMap[bp.branch_id]) bpMap[bp.branch_id] = {};
-            const overrideObj = {
-              price: bp.price !== null && bp.price !== undefined ? Number(bp.price) : undefined,
-              foodpanda_price: bp.foodpanda_price !== null && bp.foodpanda_price !== undefined ? Number(bp.foodpanda_price) : undefined,
-              grab_price: bp.grab_price !== null && bp.grab_price !== undefined ? Number(bp.grab_price) : undefined,
-            };
-
-            if (bp.menu_item_id) {
-              bpMap[bp.branch_id][bp.menu_item_id] = overrideObj;
-            }
-            if (bp.inventory_item_id) {
-              bpMap[bp.branch_id][bp.inventory_item_id] = overrideObj;
-              const targetMenuItem = (data || []).find(mi => mi.inventory_item_id === bp.inventory_item_id);
-              if (targetMenuItem) {
-                bpMap[bp.branch_id][targetMenuItem.id] = overrideObj;
-              }
-            }
-          });
-          setBranchPrices(bpMap);
+          setBranchPrices(buildPosBranchPriceMap(bpData, mappedItems));
         }
       } else {
         setBranchPrices({});
@@ -571,6 +567,17 @@ export const POS: React.FC<POSProps> = ({
         queue_number,
         queue_status,
         notes,
+        payment_method,
+        amount_tendered,
+        change_given,
+        service_charge_rate,
+        service_charge_amount,
+        discount_type,
+        discount_amount,
+        discount_metadata,
+        vatable_sales,
+        vat_amount,
+        vat_exempt_sales,
         branches (name),
         sale_items (
           id,
@@ -598,6 +605,10 @@ export const POS: React.FC<POSProps> = ({
           created_at: offlineSale.created_at,
           sale_category: offlineSale.sale_category,
           reference_number: offlineSale.reference_number,
+          payment_method: offlineSale.payment_method || 'cash',
+          amount_tendered: offlineSale.amount_tendered !== undefined && offlineSale.amount_tendered !== null ? Number(offlineSale.amount_tendered) : null,
+          change_given: offlineSale.change_given !== undefined && offlineSale.change_given !== null ? Number(offlineSale.change_given) : 0,
+          change: offlineSale.change_given !== undefined && offlineSale.change_given !== null ? Number(offlineSale.change_given) : 0,
           branch_name: selectedBranch?.name || 'Main Branch',
           cashier_email: offlineSale.cashier_email,
           queue_number: offlineSale.queue_number || null,
@@ -636,6 +647,18 @@ export const POS: React.FC<POSProps> = ({
       queue_number: saleData.queue_number || null,
       queue_status: saleData.queue_status || null,
       notes: saleData.notes || null,
+      payment_method: saleData.payment_method || 'cash',
+      amount_tendered: saleData.amount_tendered !== null && saleData.amount_tendered !== undefined ? Number(saleData.amount_tendered) : null,
+      change_given: saleData.change_given !== null && saleData.change_given !== undefined ? Number(saleData.change_given) : 0,
+      change: saleData.change_given !== null && saleData.change_given !== undefined ? Number(saleData.change_given) : 0,
+      service_charge_rate: saleData.service_charge_rate,
+      service_charge_amount: saleData.service_charge_amount,
+      discount_type: saleData.discount_type,
+      discount_amount: saleData.discount_amount,
+      discount_metadata: saleData.discount_metadata,
+      vatable_sales: saleData.vatable_sales,
+      vat_amount: saleData.vat_amount,
+      vat_exempt_sales: saleData.vat_exempt_sales,
       branch_name: (Array.isArray(saleData.branches) ? saleData.branches[0]?.name : (saleData.branches as any)?.name) || selectedBranch?.name || 'Main Branch',
       cashier_email: profileData?.email || profile?.email || 'System',
       items: (saleData.sale_items || []).map((si: any) => ({
@@ -650,28 +673,41 @@ export const POS: React.FC<POSProps> = ({
     };
   };
 
-  const getMappedSale = (saleResult: any) => ({
-    id: saleResult.id,
-    control_number: saleResult.control_number || saleResult.id.substring(0, 8),
-    branch_name: saleResult.branch_name,
-    cashier_email: saleResult.cashier_email,
-    total_amount: saleResult.total_amount,
-    created_at: saleResult.created_at,
-    sale_category: saleResult.sale_category || 'Dine in',
-    reference_number: saleResult.reference_number || '',
-    queue_number: saleResult.queue_number,
-    notes: saleResult.notes,
-    kitchen_notes: saleResult.notes,
-    items: saleResult.items,
-    service_charge_rate: saleResult.service_charge_rate,
-    service_charge_amount: saleResult.service_charge_amount,
-    discount_type: saleResult.discount_type,
-    discount_amount: saleResult.discount_amount,
-    discount_metadata: saleResult.discount_metadata,
-    vatable_sales: saleResult.vatable_sales,
-    vat_amount: saleResult.vat_amount,
-    vat_exempt_sales: saleResult.vat_exempt_sales,
-  });
+  const getMappedSale = (saleResult: any) => {
+    const pMethod = saleResult.payment_method || saleResult.method || 'cash';
+    const rawTendered = saleResult.amount_tendered !== undefined && saleResult.amount_tendered !== null
+      ? Number(saleResult.amount_tendered)
+      : (pMethod.toLowerCase() === 'cash' ? (Number(saleResult.total_amount || 0) + Number(saleResult.change || saleResult.change_given || 0)) : null);
+    const rawChange = Number(saleResult.change_given ?? saleResult.change ?? 0);
+
+    return {
+      id: saleResult.id,
+      control_number: saleResult.control_number || saleResult.id.substring(0, 8),
+      branch_name: saleResult.branch_name,
+      cashier_email: saleResult.cashier_email,
+      total_amount: saleResult.total_amount,
+      created_at: saleResult.created_at,
+      sale_category: saleResult.sale_category || 'Dine in',
+      reference_number: saleResult.reference_number || '',
+      queue_number: saleResult.queue_number,
+      notes: saleResult.notes,
+      kitchen_notes: saleResult.notes,
+      items: saleResult.items,
+      service_charge_rate: saleResult.service_charge_rate,
+      service_charge_amount: saleResult.service_charge_amount,
+      discount_type: saleResult.discount_type,
+      discount_amount: saleResult.discount_amount,
+      discount_metadata: saleResult.discount_metadata,
+      vatable_sales: saleResult.vatable_sales,
+      vat_amount: saleResult.vat_amount,
+      vat_exempt_sales: saleResult.vat_exempt_sales,
+      payment_method: pMethod,
+      method: pMethod,
+      amount_tendered: rawTendered,
+      change_given: rawChange,
+      change: rawChange,
+    };
+  };
 
   const handlePrintThermalBluetooth = async (saleResult: any) => {
     try {
@@ -747,28 +783,13 @@ export const POS: React.FC<POSProps> = ({
   // ─── Cart Helpers ──────────────────────────────────────────
 
   const getItemPrice = (item: MenuItem, channel: PriceChannel = priceChannel): number => {
-    const subId = selectedSubStore?.id;
-    const subBp = subId && branchPrices[subId]
-      ? (branchPrices[subId][item.id] || (item.inventory_item_id ? branchPrices[subId][item.inventory_item_id] : undefined))
-      : undefined;
-    const parentBp = selectedBranch?.id && branchPrices[selectedBranch.id]
-      ? (branchPrices[selectedBranch.id][item.id] || (item.inventory_item_id ? branchPrices[selectedBranch.id][item.inventory_item_id] : undefined))
-      : undefined;
-
-    if (channel === 'foodpanda') {
-      if (subBp?.foodpanda_price && subBp.foodpanda_price > 0) return subBp.foodpanda_price;
-      if (parentBp?.foodpanda_price && parentBp.foodpanda_price > 0) return parentBp.foodpanda_price;
-      if (item.foodpanda_price && Number(item.foodpanda_price) > 0) return Number(item.foodpanda_price);
-    }
-    if (channel === 'grab') {
-      if (subBp?.grab_price && subBp.grab_price > 0) return subBp.grab_price;
-      if (parentBp?.grab_price && parentBp.grab_price > 0) return parentBp.grab_price;
-      if (item.grab_price && Number(item.grab_price) > 0) return Number(item.grab_price);
-    }
-
-    if (subBp?.price && subBp.price > 0) return subBp.price;
-    if (parentBp?.price && parentBp.price > 0) return parentBp.price;
-    return Number(item.price);
+    return resolvePosItemPrice(
+      item,
+      channel,
+      branchPrices,
+      selectedBranch?.id,
+      selectedSubStore?.id
+    );
   };
 
   useEffect(() => {
@@ -952,7 +973,10 @@ export const POS: React.FC<POSProps> = ({
         setLastSaleResult({
           id: saleId as string,
           change,
+          change_given: change,
           method,
+          payment_method: method,
+          amount_tendered: method === 'cash' ? (tendered !== null && tendered !== undefined ? tendered : payableTotal) : tendered,
           sale_category: saleCategory,
           reference_number: referenceNumber,
           queue_number: queueNumber || null,
@@ -1050,7 +1074,10 @@ export const POS: React.FC<POSProps> = ({
         setLastSaleResult({
           id: offlineSale.id,
           change,
+          change_given: change,
           method,
+          payment_method: method,
+          amount_tendered: method === 'cash' ? (tendered !== null && tendered !== undefined ? tendered : payableTotal) : tendered,
           sale_category: saleCategory,
           reference_number: referenceNumber,
           control_number: offlineSale.control_number,

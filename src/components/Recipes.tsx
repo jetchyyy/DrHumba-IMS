@@ -129,7 +129,7 @@ export const Recipes: React.FC = () => {
   const [showOverridesOnly, setShowOverridesOnly] = useState(false);
   const [allBranches, setAllBranches] = useState(true);
   const [availableBranches, setAvailableBranches] = useState<string[]>([]);
-  const [price, setPrice] = useState(9.99);
+  const [price, setPrice] = useState<number | ''>(9.99);
   const [costPrice, setCostPrice] = useState(0);
   const [itemStatus, setItemStatus] = useState<'active' | 'inactive'>('active');
   const [isAvailable, setIsAvailable] = useState(true);
@@ -260,8 +260,9 @@ export const Recipes: React.FC = () => {
         })()
       : Number(costPrice);
 
-  const currentProfit = Number(price) - resolvedCost;
-  const currentMargin = Number(price) > 0 ? (currentProfit / Number(price)) * 100 : 0;
+  const numericFormPrice = price === '' ? 0 : Number(price);
+  const currentProfit = numericFormPrice - resolvedCost;
+  const currentMargin = numericFormPrice > 0 ? (currentProfit / numericFormPrice) * 100 : 0;
 
   useEffect(() => {
     loadData();
@@ -303,7 +304,16 @@ export const Recipes: React.FC = () => {
     setSku(item.sku);
     setCategory(item.category);
     setIsCustomCategory(false);
-    setPrice(item.price);
+    const linkedCatalogItem = item.inventory_item_id ? catalog.find(c => c.id === item.inventory_item_id) : undefined;
+    if (item.type === 'retail' && (!item.price || Number(item.price) <= 0) && linkedCatalogItem?.selling_price && Number(linkedCatalogItem.selling_price) > 0.01) {
+      setPrice(Number(linkedCatalogItem.selling_price));
+    } else if (item.price !== null && item.price !== undefined && Number(item.price) > 0) {
+      setPrice(Number(item.price));
+    } else if ((item.type || 'restaurant') === 'service' && item.price === 0) {
+      setPrice(0);
+    } else {
+      setPrice('');
+    }
     setCostPrice(item.cost_price || 0);
     setItemStatus(item.status);
     setIsAvailable(item.is_available);
@@ -400,15 +410,37 @@ export const Recipes: React.FC = () => {
       return;
     }
 
+    const numericPrice = price === '' ? 0 : Number(price);
+    const hasBranchPriceOverride = Object.values(branchPriceOverrides).some(
+      bp => bp.price !== '' && Number(bp.price) > 0
+    );
+    if (productType !== 'service' && numericPrice <= 0 && !hasBranchPriceOverride) {
+      showError("Please enter a selling price greater than ₱0.00.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const finalFoodpandaPrice = foodpandaPrice !== '' ? Number(foodpandaPrice) : null;
       const finalGrabPrice = grabPrice !== '' ? Number(grabPrice) : null;
+      const resolvedMenuPrice = numericPrice > 0 ? numericPrice : (productType !== 'service' && hasBranchPriceOverride ? 0.01 : 0);
+
+      if (productType === 'retail' && inventoryItemId && resolvedMenuPrice > 0) {
+        await supabase
+          .from('inventory_items')
+          .update({
+            selling_price: resolvedMenuPrice,
+            ...(finalFoodpandaPrice !== null ? { foodpanda_price: finalFoodpandaPrice } : {}),
+            ...(finalGrabPrice !== null ? { grab_price: finalGrabPrice } : {}),
+          })
+          .eq('id', inventoryItemId);
+      }
+
       const payload = {
         name: itemName.trim(),
         sku: sku.trim(),
         category: trimmedCategory,
-        price: Number(price),
+        price: resolvedMenuPrice,
         cost_price: productType === 'restaurant' ? 0 : Number(costPrice),
         status: itemStatus,
         is_available: isAvailable,
@@ -430,13 +462,34 @@ export const Recipes: React.FC = () => {
           .eq('id', selectedItem.id);
         if (error) throw error;
       } else {
-        const { data: newMenuItem, error } = await supabase
-          .from('menu_items')
-          .insert(payload)
-          .select()
-          .single();
-        if (error) throw error;
-        menuItemId = newMenuItem.id;
+        let existingLinkedId: string | null = null;
+        if (productType === 'retail' && inventoryItemId) {
+          const { data: existingLinked } = await supabase
+            .from('menu_items')
+            .select('id')
+            .eq('inventory_item_id', inventoryItemId)
+            .maybeSingle();
+          if (existingLinked?.id) {
+            existingLinkedId = existingLinked.id;
+          }
+        }
+
+        if (existingLinkedId) {
+          menuItemId = existingLinkedId;
+          const { error } = await supabase
+            .from('menu_items')
+            .update(payload)
+            .eq('id', existingLinkedId);
+          if (error) throw error;
+        } else {
+          const { data: newMenuItem, error } = await supabase
+            .from('menu_items')
+            .insert(payload)
+            .select()
+            .single();
+          if (error) throw error;
+          menuItemId = newMenuItem.id;
+        }
       }
 
       if (productType === 'restaurant') {
@@ -919,8 +972,10 @@ export const Recipes: React.FC = () => {
                           const catalogItem = catalog.find(c => c.id === val);
                           if (catalogItem) {
                             setCostPrice(Number(catalogItem.cost_per_base_unit) || 0);
-                            if (catalogItem.selling_price) {
+                            if (catalogItem.selling_price && Number(catalogItem.selling_price) > 0.01) {
                               setPrice(Number(catalogItem.selling_price));
+                            } else if (price === 9.99 || price === 0) {
+                              setPrice('');
                             }
                           }
                         }}
@@ -1005,10 +1060,11 @@ export const Recipes: React.FC = () => {
                       <Input 
                         type="number" 
                         step="0.01" 
+                        min={productType === 'service' ? "0" : "0.01"}
                         required={productType !== 'service'} 
                         value={price} 
-                        onChange={(e) => setPrice(e.target.value === '' ? 0 : Number(e.target.value))} 
-                        disabled={productType === 'retail' && !!inventoryItemId}
+                        onChange={(e) => setPrice(e.target.value === '' ? '' : Number(e.target.value))} 
+                        placeholder={productType === 'service' ? "0.00" : "e.g. 120.00"}
                       />
                     </div>
                     <div className="space-y-2">

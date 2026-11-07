@@ -991,6 +991,59 @@ export const Transactions: React.FC = () => {
 
                 <div className="border-t border-dashed border-black my-2" />
 
+                {(() => {
+                  const pMethod = String(previewSale.payment_method || previewSale.method || 'cash').toLowerCase();
+                  const isCash = pMethod === 'cash';
+                  const rawTendered = previewSale.amount_tendered !== null && previewSale.amount_tendered !== undefined
+                    ? Number(previewSale.amount_tendered)
+                    : (isCash ? Number(previewSale.total_amount || 0) : null);
+                  const changeGiven = Number(previewSale.change_given ?? previewSale.change ?? 0);
+
+                  return (
+                    <div className="space-y-0.5 text-[0.95em] my-1 font-mono">
+                      {isCash ? (
+                        <>
+                          {rawTendered !== null && !isNaN(rawTendered) && (
+                            <div className="flex justify-between">
+                              <span>Cash:</span>
+                              <span>₱{rawTendered.toFixed(2)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between font-bold">
+                            <span>Change:</span>
+                            <span>₱{changeGiven.toFixed(2)}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex justify-between">
+                            <span>Payment Method:</span>
+                            <span className="uppercase font-bold">{pMethod}</span>
+                          </div>
+                          {previewSale.reference_number && (
+                            <div className="flex justify-between">
+                              <span>Ref No:</span>
+                              <span>{previewSale.reference_number}</span>
+                            </div>
+                          )}
+                          {rawTendered !== null && !isNaN(rawTendered) && (
+                            <div className="flex justify-between">
+                              <span>Amount Paid:</span>
+                              <span>₱{rawTendered.toFixed(2)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between">
+                            <span>Change:</span>
+                            <span>₱{changeGiven.toFixed(2)}</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                <div className="border-t border-dashed border-black my-2" />
+
                 <div className="text-center text-[0.75em] font-bold">
                   THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX
                 </div>

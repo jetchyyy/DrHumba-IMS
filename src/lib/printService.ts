@@ -612,17 +612,53 @@ export const printThermalInvoice = (sale: any, template: SalesInvoiceTemplate) =
               <span>Zero-Rated Sales:</span>
               <span>₱0.00</span>
             </div>
-            ${sale.amount_tendered !== null && sale.amount_tendered !== undefined ? `
             <div class="separator" style="margin: 4px 0;"></div>
-            <div class="flex-between">
-              <span>Tendered:</span>
-              <span>₱${Number(sale.amount_tendered).toFixed(2)}</span>
-            </div>
-            <div class="flex-between">
-              <span>Change:</span>
-              <span>₱${(sale.change_given || sale.change || 0).toFixed(2)}</span>
-            </div>
-            ` : ''}
+            ${(() => {
+              const pMethod = String(sale.payment_method || sale.method || 'cash').toLowerCase();
+              const isCash = pMethod === 'cash';
+              const rawTendered = sale.amount_tendered !== null && sale.amount_tendered !== undefined
+                ? Number(sale.amount_tendered)
+                : (isCash ? Number(sale.total_amount || 0) : null);
+              const changeGiven = Number(sale.change_given ?? sale.change ?? 0);
+
+              if (isCash) {
+                return `
+                  ${rawTendered !== null && !isNaN(rawTendered) ? `
+                  <div class="flex-between">
+                    <span>Cash:</span>
+                    <span>₱${rawTendered.toFixed(2)}</span>
+                  </div>
+                  ` : ''}
+                  <div class="flex-between">
+                    <span>Change:</span>
+                    <span>₱${changeGiven.toFixed(2)}</span>
+                  </div>
+                `;
+              } else {
+                return `
+                  <div class="flex-between">
+                    <span>Payment Method:</span>
+                    <span style="font-weight: bold; text-transform: uppercase;">${pMethod}</span>
+                  </div>
+                  ${sale.reference_number ? `
+                  <div class="flex-between">
+                    <span>Ref No:</span>
+                    <span>${sale.reference_number}</span>
+                  </div>
+                  ` : ''}
+                  ${rawTendered !== null && !isNaN(rawTendered) ? `
+                  <div class="flex-between">
+                    <span>Amount Paid:</span>
+                    <span>₱${rawTendered.toFixed(2)}</span>
+                  </div>
+                  ` : ''}
+                  <div class="flex-between">
+                    <span>Change:</span>
+                    <span>₱${changeGiven.toFixed(2)}</span>
+                  </div>
+                `;
+              }
+            })()}
 
             ${sale.discount_metadata && sale.discount_metadata.length > 0 ? `
             <div class="separator" style="margin: 4px 0;"></div>

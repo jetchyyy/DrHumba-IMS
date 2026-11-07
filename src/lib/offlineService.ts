@@ -27,6 +27,8 @@ export interface OfflineSale {
   cashier_email: string;
   payment_method: string;
   amount_tendered: number | null;
+  change_given?: number | null;
+  change?: number | null;
   sale_category: string;
   reference_number: string;
   control_number: string; // OFF-T01-00001

@@ -283,13 +283,19 @@ export const SaleSuccessDialog: React.FC<SaleSuccessDialogProps> = ({
               </div>
             )}
 
-            {lastSaleResult.method === 'cash' && lastSaleResult.change > 0 && (
+            {lastSaleResult.method === 'cash' && (
               <>
                 <Separator className="my-2" />
+                {lastSaleResult.amount_tendered != null && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Cash Tendered</span>
+                    <span className="font-bold text-foreground">{formatPHP(lastSaleResult.amount_tendered)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-bold text-muted-foreground">Change Due</span>
                   <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                    {formatPHP(lastSaleResult.change)}
+                    {formatPHP(lastSaleResult.change || 0)}
                   </span>
                 </div>
               </>

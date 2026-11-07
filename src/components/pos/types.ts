@@ -12,6 +12,9 @@ export interface MenuItem {
   foodpanda_price?: number | null;
   grab_price?: number | null;
   inventory_item_id?: string | null;
+  linked_selling_price?: number | null;
+  linked_foodpanda_price?: number | null;
+  linked_grab_price?: number | null;
 }
 
 export interface CartItem {
@@ -73,7 +76,10 @@ export interface PaymentDialogProps {
 export interface LastSaleResult {
   id: string;
   change: number;
+  change_given?: number | null;
   method: string;
+  payment_method?: string;
+  amount_tendered?: number | null;
   sale_category?: string;
   reference_number?: string;
   control_number?: string;

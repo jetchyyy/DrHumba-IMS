@@ -382,10 +382,27 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
   payload.push(...encoder.encode(formatKeyValueLine('VAT-Exempt Sales:', `P${vatExemptSales.toFixed(2)}`, 32) + '\n'));
   payload.push(...encoder.encode(formatKeyValueLine('Zero-Rated Sales:', 'P0.00', 32) + '\n'));
 
-  if (sale.amount_tendered !== null && sale.amount_tendered !== undefined) {
-    payload.push(...encoder.encode('--------------------------------\n'));
-    payload.push(...encoder.encode(formatKeyValueLine('Tendered:', `P${Number(sale.amount_tendered).toFixed(2)}`, 32) + '\n'));
-    const changeGiven = Number(sale.change_given || sale.change || 0);
+  const pMethod = String(sale.payment_method || sale.method || 'cash').toLowerCase();
+  const isCash = pMethod === 'cash';
+  const rawTendered = sale.amount_tendered !== null && sale.amount_tendered !== undefined
+    ? Number(sale.amount_tendered)
+    : (isCash ? Number(sale.total_amount || 0) : null);
+  const changeGiven = Number(sale.change_given ?? sale.change ?? 0);
+
+  payload.push(...encoder.encode('--------------------------------\n'));
+  if (isCash) {
+    if (rawTendered !== null && !isNaN(rawTendered)) {
+      payload.push(...encoder.encode(formatKeyValueLine('Cash:', `P${rawTendered.toFixed(2)}`, 32) + '\n'));
+    }
+    payload.push(...encoder.encode(formatKeyValueLine('Change:', `P${changeGiven.toFixed(2)}`, 32) + '\n'));
+  } else {
+    payload.push(...encoder.encode(formatKeyValueLine('Payment Method:', pMethod.toUpperCase(), 32) + '\n'));
+    if (sale.reference_number) {
+      payload.push(...encoder.encode(formatKeyValueLine('Ref No:', String(sale.reference_number), 32) + '\n'));
+    }
+    if (rawTendered !== null && !isNaN(rawTendered)) {
+      payload.push(...encoder.encode(formatKeyValueLine('Amount Paid:', `P${rawTendered.toFixed(2)}`, 32) + '\n'));
+    }
     payload.push(...encoder.encode(formatKeyValueLine('Change:', `P${changeGiven.toFixed(2)}`, 32) + '\n'));
   }
 
