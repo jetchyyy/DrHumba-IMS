@@ -100,6 +100,7 @@ export const Adjustments: React.FC = () => {
   const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
   
   const [processing, setProcessing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const branchCatalog = getBranchInventoryCatalog(catalog, selectedBranch?.id);
   const categoryItems = getInventoryItemsForCategory(branchCatalog.items, itemCategoryFilter);
@@ -399,6 +400,8 @@ export const Adjustments: React.FC = () => {
   const handleSaveAdjustment = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (isSubmitting) return;
+
     if (addedItems.length === 0) {
       showError("Add at least one item to adjust");
       return;
@@ -409,7 +412,18 @@ export const Adjustments: React.FC = () => {
       return;
     }
 
+    setIsSubmitting(true);
     try {
+      // Deduplicate added items by item_id to guarantee no duplicate item entries
+      const itemMap = new Map<string, number>();
+      for (const item of addedItems) {
+        itemMap.set(item.item_id, (itemMap.get(item.item_id) || 0) + Number(item.qty || 0));
+      }
+      const deduplicatedItems = Array.from(itemMap.entries()).map(([item_id, qty]) => ({
+        item_id,
+        qty
+      }));
+
       if (editingAdjustment) {
         const targetBranchId = editingAdjustment.branch_id || selectedBranch?.id;
         const targetBranchName = editingAdjustment.branches?.name || selectedBranch?.name || 'Branch';
@@ -434,7 +448,7 @@ export const Adjustments: React.FC = () => {
 
         if (delItemsError) throw delItemsError;
 
-        const itemsPayload = addedItems.map(item => ({
+        const itemsPayload = deduplicatedItems.map(item => ({
           adjustment_id: editingAdjustment.id,
           item_id: item.item_id,
           quantity_base_unit: item.qty
@@ -484,7 +498,7 @@ export const Adjustments: React.FC = () => {
 
       if (adjError) throw adjError;
 
-      const itemsPayload = addedItems.map(item => ({
+      const itemsPayload = deduplicatedItems.map(item => ({
         adjustment_id: adjData.id,
         item_id: item.item_id,
         quantity_base_unit: item.qty
@@ -512,6 +526,8 @@ export const Adjustments: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       showError(err.message || 'Error logging adjustment');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -541,6 +557,8 @@ export const Adjustments: React.FC = () => {
   };
 
   const handleApproveAdjustment = async (adjustmentId: string) => {
+    if (processing) return;
+
     if (!await confirm(
       'Approve Stock Adjustment',
       'Are you sure you want to approve this stock adjustment? Balance corrections will be instantly applied and movement ledgers committed.'
@@ -1214,8 +1232,15 @@ export const Adjustments: React.FC = () => {
               <Button type="button" variant="outline" onClick={() => { setShowCreateModal(false); setEditingAdjustment(null); }}>
                 Cancel
               </Button>
-              <Button type="submit">
-                {editingAdjustment ? 'Save Edit & Submit for Admin Approval' : 'Submit for Approval'}
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  editingAdjustment ? 'Save Edit & Submit for Admin Approval' : 'Submit for Approval'
+                )}
               </Button>
             </DialogFooter>
           </form>
