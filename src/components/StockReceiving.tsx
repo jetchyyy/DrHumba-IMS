@@ -47,6 +47,7 @@ interface CatalogItem {
   item_name: string;
   purchase_unit: string;
   conversion_factor: number;
+  cost_per_base_unit?: number | null;
   available_branches?: string[] | null;
   category: string;
 }
@@ -83,8 +84,8 @@ export const StockReceiving: React.FC = () => {
   const [dateReceived, setDateReceived] = useState(new Date().toISOString().split('T')[0]);
   const [addedItems, setAddedItems] = useState<{ item_id: string; qty: number; cost: number }[]>([]);
   const [currentSelectedItemId, setCurrentSelectedItemId] = useState('');
-  const [currentQty, setCurrentQty] = useState<number | string>(1);
-  const [currentCost, setCurrentCost] = useState(10);
+  const [currentQty, setCurrentQty] = useState<number | string>('');
+  const [currentCost, setCurrentCost] = useState<number | string>('');
   const [itemPopoverOpen, setItemPopoverOpen] = useState(false);
   const [itemSearchTerm, setItemSearchTerm] = useState('');
   const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
@@ -121,7 +122,7 @@ export const StockReceiving: React.FC = () => {
 
       const { data: catData, error: catError } = await supabase
         .from('inventory_items')
-        .select('id, item_name, purchase_unit, conversion_factor, available_branches, category')
+        .select('id, item_name, purchase_unit, conversion_factor, cost_per_base_unit, available_branches, category')
         .eq('status', 'active');
       if (catError) throw catError;
       setCatalog(catData || []);
@@ -134,24 +135,50 @@ export const StockReceiving: React.FC = () => {
     loadData();
   }, [selectedBranch]);
 
+  const handleSelectItem = (itemId: string) => {
+    setCurrentSelectedItemId(itemId);
+    setItemPopoverOpen(false);
+    setItemSearchTerm('');
+
+    const item = catalog.find(c => c.id === itemId);
+    if (item) {
+      const baseCost = Number(item.cost_per_base_unit || 0);
+      const factor = Number(item.conversion_factor || 1);
+      const purchaseCost = baseCost * factor;
+      setCurrentCost(purchaseCost > 0 ? Number(purchaseCost.toFixed(2)) : '');
+    }
+  };
+
   const handleOpenCreateModal = () => {
     setSupplier('');
     setInvoiceNo('');
     setDateReceived(new Date().toISOString().split('T')[0]);
     setAddedItems([]);
     setCurrentSelectedItemId('');
+    setCurrentQty('');
+    setCurrentCost('');
     setItemSearchTerm('');
     setItemCategoryFilter('All');
-    if (catalog.length > 0) {
-      setCurrentSelectedItemId(catalog[0].id);
-      setCurrentQty('');
-      setCurrentCost(15);
-    }
     setShowCreateModal(true);
   };
 
   const handleAddItemToReceiptForm = () => {
-    if (!currentSelectedItemId) return;
+    if (!currentSelectedItemId) {
+      showError("Please select an item first.");
+      return;
+    }
+
+    const qtyVal = Number(currentQty);
+    if (isNaN(qtyVal) || qtyVal <= 0) {
+      showError("Please enter a valid quantity greater than 0.");
+      return;
+    }
+
+    const costVal = Number(currentCost);
+    if (isNaN(costVal) || costVal < 0) {
+      showError("Please enter a valid unit cost (₱0.00 or higher).");
+      return;
+    }
     
     const exists = addedItems.find(i => i.item_id === currentSelectedItemId);
     if (exists) {
@@ -163,11 +190,13 @@ export const StockReceiving: React.FC = () => {
       ...addedItems,
       {
         item_id: currentSelectedItemId,
-        qty: Number(currentQty),
-        cost: Number(currentCost)
+        qty: qtyVal,
+        cost: costVal
       }
     ]);
     setCurrentSelectedItemId('');
+    setCurrentQty('');
+    setCurrentCost('');
     setItemSearchTerm('');
   };
 
@@ -645,20 +674,17 @@ export const StockReceiving: React.FC = () => {
                                 }
                                 return filtered.map(item => {
                                   const isSelected = currentSelectedItemId === item.id;
+                                  const itemCostPerPurchase = Number(item.cost_per_base_unit || 0) * Number(item.conversion_factor || 1);
                                   return (
                                     <button
                                       key={item.id}
                                       type="button"
-                                      onClick={() => {
-                                        setCurrentSelectedItemId(item.id);
-                                        setItemPopoverOpen(false);
-                                        setItemSearchTerm('');
-                                      }}
+                                      onClick={() => handleSelectItem(item.id)}
                                       className={`w-full text-left px-3 py-2 rounded-sm text-sm transition-colors hover:bg-accent hover:text-accent-foreground flex items-center justify-between ${isSelected ? 'bg-accent/50 font-medium' : ''}`}
                                     >
                                       <span className="truncate">{item.item_name}</span>
                                       <span className="text-xs text-muted-foreground shrink-0 pl-2">
-                                        ({item.purchase_unit})
+                                        ₱{itemCostPerPurchase.toFixed(2)} / {item.purchase_unit}
                                       </span>
                                     </button>
                                   );
@@ -673,18 +699,27 @@ export const StockReceiving: React.FC = () => {
                       <Label>Qty</Label>
                       <Input
                         type="number"
+                        min="0.01"
+                        step="any"
                         value={currentQty}
                         onChange={(e) => setCurrentQty(e.target.value === '' ? '' : Number(e.target.value))}
                         placeholder="0"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Unit Cost (₱)</Label>
+                      <Label>
+                        Unit Cost (₱){(() => {
+                          const it = catalog.find(c => c.id === currentSelectedItemId);
+                          return it ? ` / ${it.purchase_unit}` : '';
+                        })()}
+                      </Label>
                       <Input
                         type="number"
                         step="0.01"
+                        min="0"
+                        placeholder="0.00"
                         value={currentCost}
-                        onChange={(e) => setCurrentCost(Number(e.target.value))}
+                        onChange={(e) => setCurrentCost(e.target.value === '' ? '' : Number(e.target.value))}
                       />
                     </div>
                   </div>
