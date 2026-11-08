@@ -20,7 +20,8 @@ import {
   Utensils,
   CheckCircle2,
   Sparkles,
-  Layers
+  Layers,
+  ArrowRightLeft
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -33,6 +34,7 @@ import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Textarea } from './ui/textarea';
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { ItemMovementHistoryModal, type ItemMovementHistoryTarget } from './ItemMovementHistoryModal';
 
 interface PortioningRequest {
   id: string;
@@ -186,6 +188,10 @@ export const Portioning: React.FC = () => {
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [guideLanguage, setGuideLanguage] = useState<'both' | 'bisaya' | 'english'>('both');
   const [selectedRequest, setSelectedRequest] = useState<PortioningRequest | null>(null);
+
+  // Item Movement & Transfer History Modal state
+  const [showItemHistoryModal, setShowItemHistoryModal] = useState(false);
+  const [historyItem, setHistoryItem] = useState<ItemMovementHistoryTarget | null>(null);
 
   // Create Request Form state
   const [formBranchId, setFormBranchId] = useState<string>('');
@@ -534,13 +540,27 @@ export const Portioning: React.FC = () => {
     }
   };
 
+  const handleOpenItemHistory = (itemId: string, itemName?: string, baseUnit?: string, category?: string) => {
+    if (!itemId) return;
+    const catalogItem = itemsCatalog.find(i => i.id === itemId);
+    setHistoryItem({
+      id: itemId,
+      item_name: itemName || catalogItem?.item_name || 'Item',
+      base_unit: baseUnit || catalogItem?.base_unit || 'pcs',
+      category: category || catalogItem?.category || 'General',
+      sku: catalogItem?.sku || '',
+    });
+    setShowItemHistoryModal(true);
+  };
+
   // Filtered requests list
   const filteredRequests = requests.filter(req => {
     const matchesSearch =
       (req.control_number || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (req.source_item?.item_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (req.target_item?.item_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      getStaffDisplayName(req.requested_user).toLowerCase().includes(searchQuery.toLowerCase());
+      getStaffDisplayName(req.requested_user).toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (req.approved_user ? getStaffDisplayName(req.approved_user).toLowerCase().includes(searchQuery.toLowerCase()) : false);
 
     const matchesStatus = statusFilter === 'all' || req.status === statusFilter;
     const matchesBranch = branchFilter === 'all' || req.branch_id === branchFilter;
@@ -703,6 +723,7 @@ export const Portioning: React.FC = () => {
                 <TableHead>Waste Loss</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Requested By</TableHead>
+                <TableHead>Approved By</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -710,14 +731,14 @@ export const Portioning: React.FC = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
                     Loading portioning records...
                   </TableCell>
                 </TableRow>
               ) : paginatedRequests.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                     No portioning records found matching filters.
                   </TableCell>
                 </TableRow>
@@ -730,7 +751,15 @@ export const Portioning: React.FC = () => {
                     <TableCell>{req.branches?.name || 'Main'}</TableCell>
                     <TableCell>
                       <div>
-                        <span className="font-medium text-foreground">{req.source_item?.item_name || 'Item'}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenItemHistory(req.source_item_id, req.source_item?.item_name, req.source_item?.base_unit, req.source_item?.category)}
+                          className="font-medium text-foreground hover:text-amber-500 hover:underline flex items-center gap-1.5 text-left group cursor-pointer transition-colors"
+                          title="Click to view transfer and stock movement history"
+                        >
+                          <span>{req.source_item?.item_name || 'Item'}</span>
+                          <ArrowRightLeft className="w-3 h-3 text-muted-foreground opacity-60 group-hover:opacity-100 group-hover:text-amber-500 shrink-0 transition-opacity" />
+                        </button>
                         <p className="text-xs text-muted-foreground">
                           {req.source_quantity} {req.source_item?.base_unit || ''}
                         </p>
@@ -751,7 +780,15 @@ export const Portioning: React.FC = () => {
                                 </Badge>
                               )}
                             </div>
-                            <p className="text-xs text-muted-foreground font-medium">{req.target_item?.item_name || 'Portion'}</p>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenItemHistory(req.target_item_id, req.target_item?.item_name, req.target_item?.base_unit, req.target_item?.category)}
+                              className="text-xs text-muted-foreground hover:text-emerald-400 hover:underline font-medium flex items-center gap-1.5 text-left group cursor-pointer transition-colors"
+                              title="Click to view transfer and stock movement history"
+                            >
+                              <span>{req.target_item?.item_name || 'Portion'}</span>
+                              <ArrowRightLeft className="w-3 h-3 text-muted-foreground opacity-60 group-hover:opacity-100 group-hover:text-emerald-400 shrink-0 transition-opacity" />
+                            </button>
                             {breakdown && breakdown.hasBreakdown && (
                               <p className="text-[11px] text-emerald-400/90 font-mono">
                                 Total: {breakdown.totalPcs} {breakdown.displayUnit}
@@ -777,6 +814,25 @@ export const Portioning: React.FC = () => {
                     </TableCell>
                     <TableCell className="text-xs">
                       {getStaffDisplayName(req.requested_user)}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {req.status === 'approved' ? (
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-emerald-500 flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            {getStaffDisplayName(req.approved_user)}
+                          </span>
+                          {req.approved_at && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {new Date(req.approved_at).toLocaleDateString()} {new Date(req.approved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          )}
+                        </div>
+                      ) : req.status === 'rejected' ? (
+                        <span className="text-xs text-rose-400 font-medium">Rejected</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground italic">Pending</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {new Date(req.created_at).toLocaleDateString()} {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -1373,19 +1429,54 @@ export const Portioning: React.FC = () => {
             </DialogHeader>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-2 p-3 bg-muted/40 rounded border">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3.5 bg-muted/40 rounded-lg border text-xs">
                 <div>
-                  <span className="text-xs text-muted-foreground block">Branch</span>
-                  <span className="font-semibold">{selectedRequest.branches?.name || 'Main'}</span>
+                  <span className="text-[11px] text-muted-foreground block">Branch</span>
+                  <span className="font-semibold text-foreground text-sm">{selectedRequest.branches?.name || 'Main'}</span>
                 </div>
                 <div>
-                  <span className="text-xs text-muted-foreground block">Requested By</span>
-                  <span className="font-semibold">{getStaffDisplayName(selectedRequest.requested_user)}</span>
+                  <span className="text-[11px] text-muted-foreground block">Requested By</span>
+                  <span className="font-semibold text-foreground text-sm">{getStaffDisplayName(selectedRequest.requested_user)}</span>
+                  <span className="text-[10px] text-muted-foreground block">
+                    {new Date(selectedRequest.created_at).toLocaleDateString()} {new Date(selectedRequest.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-muted-foreground block">Approved By</span>
+                  {selectedRequest.status === 'approved' ? (
+                    <>
+                      <span className="font-semibold text-emerald-500 text-sm flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        {getStaffDisplayName(selectedRequest.approved_user)}
+                      </span>
+                      {selectedRequest.approved_at && (
+                        <span className="text-[10px] text-muted-foreground block">
+                          {new Date(selectedRequest.approved_at).toLocaleDateString()} {new Date(selectedRequest.approved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </>
+                  ) : selectedRequest.status === 'rejected' ? (
+                    <span className="font-semibold text-rose-400 text-sm">Rejected</span>
+                  ) : (
+                    <span className="font-medium text-amber-500 italic text-sm">Pending Approval</span>
+                  )}
                 </div>
               </div>
 
               <div className="p-3 bg-amber-500/5 rounded border border-amber-500/20 space-y-2">
-                <p className="text-xs font-semibold text-amber-500 uppercase tracking-wider">Source Raw Item Consumed</p>
+                <div className="flex justify-between items-center">
+                  <p className="text-xs font-semibold text-amber-500 uppercase tracking-wider">Source Raw Item Consumed</p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleOpenItemHistory(selectedRequest.source_item_id, selectedRequest.source_item?.item_name, selectedRequest.source_item?.base_unit, selectedRequest.source_item?.category)}
+                    className="h-6 text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 gap-1 px-2 cursor-pointer"
+                  >
+                    <ArrowRightLeft className="w-3 h-3" />
+                    Movement History
+                  </Button>
+                </div>
                 <div className="flex justify-between items-center">
                   <div>
                     <span className="font-medium text-foreground block">{selectedRequest.source_item?.item_name}</span>
@@ -1405,11 +1496,23 @@ export const Portioning: React.FC = () => {
                       <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
                         Target Portion Item Yielded
                       </p>
-                      {breakdown && breakdown.hasBreakdown && (
-                        <Badge variant="outline" className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px] font-semibold">
-                          Packaging Transparency
-                        </Badge>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        {breakdown && breakdown.hasBreakdown && (
+                          <Badge variant="outline" className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px] font-semibold">
+                            Packaging Transparency
+                          </Badge>
+                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenItemHistory(selectedRequest.target_item_id, selectedRequest.target_item?.item_name, selectedRequest.target_item?.base_unit, selectedRequest.target_item?.category)}
+                          className="h-6 text-[11px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 gap-1 px-2 cursor-pointer"
+                        >
+                          <ArrowRightLeft className="w-3 h-3" />
+                          Movement History
+                        </Button>
+                      </div>
                     </div>
                     <div className="flex justify-between items-center">
                       <div>
@@ -1474,6 +1577,13 @@ export const Portioning: React.FC = () => {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* MODAL: Item Movement & Transfer History */}
+      <ItemMovementHistoryModal
+        open={showItemHistoryModal}
+        onOpenChange={setShowItemHistoryModal}
+        item={historyItem}
+      />
 
       {/* MODAL: How Portioning, Packaging & Transfers Work (Bilingual Guide) */}
       <Dialog open={showGuideModal} onOpenChange={setShowGuideModal}>

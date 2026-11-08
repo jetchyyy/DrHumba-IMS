@@ -17,6 +17,8 @@ import { useModal } from '../contexts/ModalContext';
 import { Checkbox } from './ui/checkbox';
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { fetchPortionPackSizes, formatPackSizes, type PortionPackSizes } from '../lib/packSizes';
+import { History, ArrowRightLeft } from 'lucide-react';
+import { ItemMovementHistoryModal, type ItemMovementHistoryTarget } from './ItemMovementHistoryModal';
 
 interface InventoryItem {
   id: string;
@@ -124,6 +126,21 @@ export const Inventory: React.FC = () => {
   const [editStockItem, setEditStockItem] = useState<InventoryItem | null>(null);
   const [editStockQty, setEditStockQty] = useState<number>(0);
   const [editStockSubmitting, setEditStockSubmitting] = useState(false);
+
+  // Movement & Transfer History state
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyTargetItem, setHistoryTargetItem] = useState<ItemMovementHistoryTarget | null>(null);
+
+  const handleOpenItemHistory = (item: InventoryItem) => {
+    setHistoryTargetItem({
+      id: item.id,
+      item_name: item.item_name,
+      base_unit: item.base_unit,
+      sku: item.sku,
+      category: item.category
+    });
+    setShowHistoryModal(true);
+  };
 
   const loadInventoryData = async () => {
     try {
@@ -598,8 +615,8 @@ export const Inventory: React.FC = () => {
                     <TableHead>Reorder Level</TableHead>
                     <TableHead className="text-right">Stock Quantity</TableHead>
                     <TableHead className="text-right">Unit Value</TableHead>
-                    <TableHead className="text-right pr-6">Total Value</TableHead>
-                    {(isEditor || hasActionPermission) && <TableHead className="text-right pr-6">Actions</TableHead>}
+                    <TableHead className="text-right">Total Value</TableHead>
+                    <TableHead className="text-right pr-6">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -613,7 +630,15 @@ export const Inventory: React.FC = () => {
                       <TableRow key={item.id}>
                         <TableCell className="pl-6 font-semibold flex items-center space-x-2">
                           <div className="flex flex-col">
-                            <span className="font-semibold">{item.item_name}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenItemHistory(item)}
+                              className="font-semibold text-foreground hover:text-amber-500 hover:underline flex items-center gap-1.5 text-left group cursor-pointer transition-colors"
+                              title="Click to view transfer and stock movement history"
+                            >
+                              <span>{item.item_name}</span>
+                              <ArrowRightLeft className="w-3 h-3 text-muted-foreground opacity-50 group-hover:opacity-100 group-hover:text-amber-500 shrink-0 transition-opacity" />
+                            </button>
                             {packFactor(item) > 1 && (
                               <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold w-fit mt-0.5">
                                 1 {item.purchase_unit || (item.base_unit === 'pack' ? 'pack' : 'pkg')} = {item.conversion_factor} {item.base_unit === 'pack' ? 'pcs' : item.base_unit}
@@ -675,41 +700,49 @@ export const Inventory: React.FC = () => {
                         <TableCell className="text-right text-muted-foreground">
                           ₱{item.cost_per_base_unit.toFixed(2)}
                         </TableCell>
-                        <TableCell className={`text-right font-semibold ${!(isEditor || hasActionPermission) ? 'pr-6' : ''}`}>
+                        <TableCell className="text-right font-semibold">
                           ₱{value.toFixed(2)}
                         </TableCell>
-                        {(isEditor || hasActionPermission) && (
-                          <TableCell className="text-right pr-6">
-                            <div className="flex justify-end space-x-2">
-                              {canDirectStockIn && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="text-emerald-500 border-emerald-500 hover:bg-emerald-500 hover:text-white transition-all h-7 text-xs"
-                                  onClick={() => handleOpenStockIn(item)}
-                                >
-                                  Stock In
-                                </Button>
-                              )}
-                              {(hasActionPermission || isEditor) && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="text-blue-500 border-blue-500 hover:bg-blue-500 hover:text-white transition-all h-7 text-xs"
-                                  onClick={() => handleOpenEditStock(item)}
-                                >
-                                  {isAdjustmentRestricted ? 'Request Edit' : 'Edit'}
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        )}
+                        <TableCell className="text-right pr-6">
+                          <div className="flex justify-end space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-amber-500 border-amber-500/40 hover:bg-amber-500 hover:text-white transition-all h-7 text-xs gap-1"
+                              onClick={() => handleOpenItemHistory(item)}
+                              title="View Transfer & Stock Movement History"
+                            >
+                              <History className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">History</span>
+                            </Button>
+                            {canDirectStockIn && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-emerald-500 border-emerald-500 hover:bg-emerald-500 hover:text-white transition-all h-7 text-xs"
+                                onClick={() => handleOpenStockIn(item)}
+                              >
+                                Stock In
+                              </Button>
+                            )}
+                            {(hasActionPermission || isEditor) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-blue-500 border-blue-500 hover:bg-blue-500 hover:text-white transition-all h-7 text-xs"
+                                onClick={() => handleOpenEditStock(item)}
+                              >
+                                {isAdjustmentRestricted ? 'Request Edit' : 'Edit'}
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
                   {filteredItems.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={isEditor ? 8 : 7} className="h-24 text-center text-muted-foreground">
+                      <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                         No items matched your search criteria.
                       </TableCell>
                     </TableRow>
@@ -748,7 +781,7 @@ export const Inventory: React.FC = () => {
                     <TableHead>Min Transfer Qty</TableHead>
                     <TableHead>Cost / Base</TableHead>
                     <TableHead>Status</TableHead>
-                    {isEditor && <TableHead className="text-right pr-6">Actions</TableHead>}
+                    <TableHead className="text-right pr-6">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -757,7 +790,15 @@ export const Inventory: React.FC = () => {
                       <TableCell className="pl-6 font-mono text-primary font-medium">{item.sku}</TableCell>
                       <TableCell className="font-bold">
                         <div className="flex flex-col">
-                          <span>{item.item_name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenItemHistory(item)}
+                            className="font-bold text-foreground hover:text-amber-500 hover:underline flex items-center gap-1.5 text-left group cursor-pointer transition-colors"
+                            title="Click to view transfer and stock movement history"
+                          >
+                            <span>{item.item_name}</span>
+                            <ArrowRightLeft className="w-3 h-3 text-muted-foreground opacity-50 group-hover:opacity-100 group-hover:text-amber-500 shrink-0 transition-opacity" />
+                          </button>
                           {packFactor(item) > 1 && (
                             <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold w-fit mt-0.5 font-mono">
                               1 {item.purchase_unit || (item.base_unit === 'pack' ? 'pack' : 'pkg')} = {item.conversion_factor} {item.base_unit === 'pack' ? 'pcs' : item.base_unit}
@@ -820,23 +861,34 @@ export const Inventory: React.FC = () => {
                           )}
                         </div>
                       </TableCell>
-                      {isEditor && (
-                        <TableCell className="text-right pr-6">
-                          <div className="flex justify-end space-x-1">
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpenEditForm(item)}>
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteItem(item)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      )}
+                      <TableCell className="text-right pr-6">
+                        <div className="flex justify-end space-x-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-amber-500 hover:text-amber-400 hover:bg-amber-500/10"
+                            onClick={() => handleOpenItemHistory(item)}
+                            title="View Transfer & Movement History"
+                          >
+                            <History className="h-4 w-4" />
+                          </Button>
+                          {isEditor && (
+                            <>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpenEditForm(item)}>
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteItem(item)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                   {filteredItems.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={isEditor ? 10 : 9} className="h-24 text-center text-muted-foreground">
+                      <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
                         No items matched your search criteria.
                       </TableCell>
                     </TableRow>
@@ -1634,6 +1686,13 @@ export const Inventory: React.FC = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Item Movement & Transfer History Dialog */}
+      <ItemMovementHistoryModal
+        open={showHistoryModal}
+        onOpenChange={setShowHistoryModal}
+        item={historyTargetItem}
+      />
     </div>
   );
 };
