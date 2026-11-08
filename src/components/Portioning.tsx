@@ -1415,7 +1415,7 @@ export const Portioning: React.FC = () => {
       {/* MODAL: Request Details */}
       {selectedRequest && (
         <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
-          <DialogContent className="max-w-md max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          <DialogContent className="max-w-lg sm:max-w-xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
             <DialogHeader className="p-6 pb-4 border-b shrink-0">
               <DialogTitle className="font-mono text-amber-500 flex items-center justify-between">
                 <span>{selectedRequest.control_number || 'PRT-DETAILS'}</span>
@@ -1428,50 +1428,73 @@ export const Portioning: React.FC = () => {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-3 text-sm">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3.5 bg-muted/40 rounded-lg border text-xs">
-                <div>
-                  <span className="text-[11px] text-muted-foreground block">Branch</span>
-                  <span className="font-semibold text-foreground text-sm">{selectedRequest.branches?.name || 'Main'}</span>
-                </div>
-                <div>
-                  <span className="text-[11px] text-muted-foreground block">Requested By</span>
-                  <span className="font-semibold text-foreground text-sm">{getStaffDisplayName(selectedRequest.requested_user)}</span>
-                  <span className="text-[10px] text-muted-foreground block">
-                    {new Date(selectedRequest.created_at).toLocaleDateString()} {new Date(selectedRequest.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            <div className="flex-1 overflow-y-auto p-6 space-y-3.5 text-sm">
+              <div className="p-3.5 bg-muted/40 rounded-xl border border-border/60 space-y-2.5">
+                <div className="flex items-center justify-between text-xs pb-2 border-b border-border/40">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground font-medium">Branch:</span>
+                    <Badge variant="outline" className="font-semibold text-foreground bg-background">
+                      {selectedRequest.branches?.name || 'Main'}
+                    </Badge>
+                  </div>
+                  <span className="text-[11px] text-muted-foreground font-mono">
+                    Created: {new Date(selectedRequest.created_at).toLocaleDateString()} {new Date(selectedRequest.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
-                <div>
-                  <span className="text-[11px] text-muted-foreground block">Approved By</span>
-                  {selectedRequest.status === 'approved' ? (
-                    <>
-                      <span className="font-semibold text-emerald-500 text-sm flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                        {getStaffDisplayName(selectedRequest.approved_user)}
-                      </span>
-                      {selectedRequest.approved_at && (
-                        <span className="text-[10px] text-muted-foreground block">
-                          {new Date(selectedRequest.approved_at).toLocaleDateString()} {new Date(selectedRequest.approved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                  <div className="p-2.5 rounded-lg bg-background/70 border border-border/40 min-w-0 space-y-1 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                      Requested By
+                    </span>
+                    <span
+                      className="font-semibold text-foreground text-sm truncate block"
+                      title={getStaffDisplayName(selectedRequest.requested_user)}
+                    >
+                      {getStaffDisplayName(selectedRequest.requested_user)}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground block font-mono">
+                      {new Date(selectedRequest.created_at).toLocaleDateString()} {new Date(selectedRequest.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-background/70 border border-border/40 min-w-0 space-y-1 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                      Approval Status
+                    </span>
+                    {selectedRequest.status === 'approved' ? (
+                      <>
+                        <span
+                          className="font-semibold text-emerald-500 text-sm flex items-center gap-1.5 min-w-0"
+                          title={getStaffDisplayName(selectedRequest.approved_user)}
+                        >
+                          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+                          <span className="truncate">{getStaffDisplayName(selectedRequest.approved_user)}</span>
                         </span>
-                      )}
-                    </>
-                  ) : selectedRequest.status === 'rejected' ? (
-                    <span className="font-semibold text-rose-400 text-sm">Rejected</span>
-                  ) : (
-                    <span className="font-medium text-amber-500 italic text-sm">Pending Approval</span>
-                  )}
+                        {selectedRequest.approved_at && (
+                          <span className="text-[10px] text-muted-foreground block font-mono">
+                            {new Date(selectedRequest.approved_at).toLocaleDateString()} {new Date(selectedRequest.approved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </>
+                    ) : selectedRequest.status === 'rejected' ? (
+                      <span className="font-semibold text-rose-400 text-sm block">Rejected</span>
+                    ) : (
+                      <span className="font-medium text-amber-500 italic text-sm block">Pending Approval</span>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="p-3 bg-amber-500/5 rounded border border-amber-500/20 space-y-2">
+              <div className="p-3 bg-amber-500/5 rounded-xl border border-amber-500/20 space-y-2">
                 <div className="flex justify-between items-center">
                   <p className="text-xs font-semibold text-amber-500 uppercase tracking-wider">Source Raw Item Consumed</p>
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     onClick={() => handleOpenItemHistory(selectedRequest.source_item_id, selectedRequest.source_item?.item_name, selectedRequest.source_item?.base_unit, selectedRequest.source_item?.category)}
-                    className="h-6 text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 gap-1 px-2 cursor-pointer"
+                    className="h-6 text-[11px] font-medium border-amber-500/30 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 gap-1.5 px-2.5 rounded-full cursor-pointer transition-colors shadow-2xs"
                   >
                     <ArrowRightLeft className="w-3 h-3" />
                     Movement History
@@ -1504,10 +1527,10 @@ export const Portioning: React.FC = () => {
                         )}
                         <Button
                           type="button"
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
                           onClick={() => handleOpenItemHistory(selectedRequest.target_item_id, selectedRequest.target_item?.item_name, selectedRequest.target_item?.base_unit, selectedRequest.target_item?.category)}
-                          className="h-6 text-[11px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 gap-1 px-2 cursor-pointer"
+                          className="h-6 text-[11px] font-medium border-emerald-500/30 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 gap-1.5 px-2.5 rounded-full cursor-pointer transition-colors shadow-2xs"
                         >
                           <ArrowRightLeft className="w-3 h-3" />
                           Movement History
