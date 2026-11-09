@@ -755,7 +755,7 @@ WHERE email = 'your-email@example.com';`}</pre>
                     <li>Click <strong className="text-foreground">+ Add Item</strong>. Fill in the item name, base unit (e.g. <em>kg</em>, <em>pcs</em>), purchase unit, and conversion factor.</li>
                     <li>The <strong className="text-foreground">conversion factor</strong> converts between purchase and base units (e.g. 1 sack = 50 kg → factor: 50).</li>
                     <li>Set a <strong className="text-foreground">reorder point</strong> to receive low-stock alerts automatically.</li>
-                    <li>Use <strong className="text-foreground">Stock In</strong> directly from an inventory item to receive initial stock into a branch.</li>
+                    <li>Use <strong className="text-foreground">Stock Receiving</strong> to receive initial stock and vendor deliveries with a tracked transaction control number.</li>
                   </ol>
                 </CardContent>
               </Card>

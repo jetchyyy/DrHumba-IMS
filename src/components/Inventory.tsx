@@ -117,11 +117,6 @@ export const Inventory: React.FC = () => {
   // Portioned items come in several pack sizes, so no single catalog pack factor applies
   const packFactor = (item: InventoryItem) => (portionPackSizes[item.id]?.length ? 1 : Number(item.conversion_factor) || 1);
 
-  // Stock In state
-  const [stockInItem, setStockInItem] = useState<InventoryItem | null>(null);
-  const [stockInQty, setStockInQty] = useState<number>(0);
-  const [stockInSubmitting, setStockInSubmitting] = useState(false);
-
   // Edit Stock Balance state
   const [editStockItem, setEditStockItem] = useState<InventoryItem | null>(null);
   const [editStockQty, setEditStockQty] = useState<number>(0);
@@ -376,38 +371,6 @@ export const Inventory: React.FC = () => {
     }
   };
 
-  const handleOpenStockIn = (item: InventoryItem) => {
-    setStockInItem(item);
-    setStockInQty(0);
-  };
-
-  const handleStockInSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stockInItem || !selectedBranch || !profile) return;
-    
-    setStockInSubmitting(true);
-    
-    try {
-      const { error } = await supabase.rpc('fn_stock_in_item', {
-        p_branch_id: selectedBranch.id,
-        p_item_id: stockInItem.id,
-        p_quantity: Number(stockInQty),
-        p_created_by: profile.id
-      });
-      
-      if (error) throw error;
-      
-      showSuccess("Stock added successfully!");
-      await loadInventoryData();
-      setTimeout(() => setStockInItem(null), 800);
-    } catch (err: any) {
-      console.error('Error in stock in:', err);
-      showError(err.message || 'Error adding stock');
-    } finally {
-      setStockInSubmitting(false);
-    }
-  };
-
   const isAdjustmentRestricted = !!(
     profile &&
     profile.role_name !== 'super_admin' &&
@@ -497,8 +460,6 @@ export const Inventory: React.FC = () => {
   };
 
   const isEditor = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
-
-  const canDirectStockIn = !!(isEditor && !isAdjustmentRestricted);
 
   const hasActionPermission = profile && (
     profile.role_name === 'super_admin' || 
@@ -715,16 +676,6 @@ export const Inventory: React.FC = () => {
                               <History className="h-3.5 w-3.5" />
                               <span className="hidden sm:inline">History</span>
                             </Button>
-                            {canDirectStockIn && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-emerald-500 border-emerald-500 hover:bg-emerald-500 hover:text-white transition-all h-7 text-xs"
-                                onClick={() => handleOpenStockIn(item)}
-                              >
-                                Stock In
-                              </Button>
-                            )}
                             {(hasActionPermission || isEditor) && (
                               <Button
                                 variant="outline"
@@ -1541,73 +1492,6 @@ export const Inventory: React.FC = () => {
               <Button type="submit">Save Item</Button>
             </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Stock In Modal */}
-      <Dialog open={!!stockInItem} onOpenChange={(open) => !open && setStockInItem(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Stock In Item</DialogTitle>
-          </DialogHeader>
-          {stockInItem && (
-            <form onSubmit={handleStockInSubmit} className="space-y-4 pt-4">
-              <div className="space-y-2">
-                <Label>Item Name</Label>
-                <div className="text-sm font-bold bg-muted border rounded-md px-3 py-2">
-                  {stockInItem.item_name}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>SKU</Label>
-                  <div className="text-xs font-mono text-muted-foreground bg-muted border rounded-md px-3 py-2">
-                    {stockInItem.sku}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Current Stock</Label>
-                  <div className="text-xs bg-muted border rounded-md px-3 py-2">
-                    {(balances.find(b => b.item_id === stockInItem.id)?.quantity || 0).toLocaleString()} {stockInItem.base_unit}
-                  </div>
-                </div>
-              </div>
-
-              {packFactor(stockInItem) > 1 && (
-                <div className="p-2 bg-primary/10 border border-primary/20 rounded text-[11px] text-primary font-mono">
-                  Packaging: 1 {stockInItem.purchase_unit || 'pack'} = {stockInItem.conversion_factor} {stockInItem.base_unit === 'pack' ? 'pcs' : stockInItem.base_unit}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label>Quantity to Add ({stockInItem.base_unit}) *</Label>
-                <Input
-                  type="number"
-                  required
-                  min="0.0001"
-                  step="any"
-                  value={stockInQty || ''}
-                  onChange={(e) => setStockInQty(Number(e.target.value))}
-                  placeholder="Enter quantity"
-                />
-                {packFactor(stockInItem) > 1 && stockInQty > 0 && (
-                  <p className="text-[11px] text-muted-foreground font-mono">
-                    {stockInItem.base_unit === 'pack'
-                      ? `Total: ${(stockInQty * Number(stockInItem.conversion_factor)).toLocaleString()} pcs`
-                      : `Equivalent: ≈ ${(stockInQty / Number(stockInItem.conversion_factor)).toFixed(1)} packs`}
-                  </p>
-                )}
-              </div>
-
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setStockInItem(null)}>Cancel</Button>
-                <Button type="submit" disabled={stockInSubmitting} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                  {stockInSubmitting ? 'Stocking In...' : 'Stock In'}
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
         </DialogContent>
       </Dialog>
 
