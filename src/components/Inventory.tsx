@@ -925,6 +925,11 @@ export const Inventory: React.FC = () => {
                         </SelectContent>
                       </Select>
                     )}
+                    {category?.trim().toLowerCase() === 'packaging' && (
+                      <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                        <span>📦 When used in recipes, this packaging will deduct for Grab/Foodpanda/Takeout and be spared during Dine-In.</span>
+                      </p>
+                    )}
                   </div>
                 </div>
 

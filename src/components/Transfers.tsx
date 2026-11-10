@@ -440,6 +440,13 @@ export const Transfers: React.FC = () => {
       return;
     }
 
+    if (sourceBranchId && selectedCatalogItem.available_branches && selectedCatalogItem.available_branches.length > 0) {
+      if (!selectedCatalogItem.available_branches.includes(sourceBranchId)) {
+        showError("This item is not available in the source branch.");
+        return;
+      }
+    }
+
     if (targetBranchId && selectedCatalogItem.available_branches && selectedCatalogItem.available_branches.length > 0) {
       if (!selectedCatalogItem.available_branches.includes(targetBranchId)) {
         showError("This item is not available for the destination branch.");
@@ -585,6 +592,13 @@ export const Transfers: React.FC = () => {
       if (!info || info.status !== 'active') {
         showError(`Item "${info?.item_name || 'selected item'}" is inactive or unavailable and cannot be requested.`);
         return;
+      }
+
+      if (sourceBranchId && info.available_branches && info.available_branches.length > 0) {
+        if (!info.available_branches.includes(sourceBranchId)) {
+          showError(`Item "${info.item_name}" is not available in the source branch.`);
+          return;
+        }
       }
 
       if (targetBranchId && info.available_branches && info.available_branches.length > 0) {
@@ -915,6 +929,13 @@ export const Transfers: React.FC = () => {
     if (!item) {
       showError("Please select a valid active item to add.");
       return;
+    }
+
+    if (selectedTransfer.source_branch_id && item.available_branches && item.available_branches.length > 0) {
+      if (!item.available_branches.includes(selectedTransfer.source_branch_id)) {
+        showError("This item is not available in the source branch.");
+        return;
+      }
     }
 
     if (selectedTransfer.target_branch_id && item.available_branches && item.available_branches.length > 0) {
@@ -1781,13 +1802,17 @@ export const Transfers: React.FC = () => {
                                 
                                 const qty = cleanQuantity(sourceInventory[item.id]);
                                 
+                                const isAvailableToSource = !item.available_branches || 
+                                  item.available_branches.length === 0 || 
+                                  Boolean(sourceBranchId && item.available_branches.includes(sourceBranchId));
+
                                 const isAvailableToTarget = !item.available_branches || 
                                   item.available_branches.length === 0 || 
                                   Boolean(targetBranchId && item.available_branches.includes(targetBranchId));
                                   
                                 const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
                                 const hasStockOrIsRequest = qty > 0 || !isProactive;
-                                return hasStockOrIsRequest && isAvailableToTarget && matchesCategory && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
+                                return hasStockOrIsRequest && isAvailableToSource && isAvailableToTarget && matchesCategory && item.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase());
                               });
                               if (filtered.length === 0) {
                                 return (
@@ -2911,13 +2936,17 @@ export const Transfers: React.FC = () => {
                                 return false;
                               }
                               
+                              const isAvailableToSource = !item.available_branches || 
+                                item.available_branches.length === 0 || 
+                                Boolean(selectedTransfer?.source_branch_id && item.available_branches.includes(selectedTransfer.source_branch_id));
+
                               const isAvailableToTarget = !item.available_branches || 
                                 item.available_branches.length === 0 || 
                                 Boolean(selectedTransfer?.target_branch_id && item.available_branches.includes(selectedTransfer.target_branch_id));
                                 
                               const matchesCategory = addModalCategory === 'All' || item.category === addModalCategory;
                               const matchesSearch = !addModalSearch.trim() || item.item_name.toLowerCase().includes(addModalSearch.toLowerCase());
-                              return isAvailableToTarget && matchesCategory && matchesSearch;
+                              return isAvailableToSource && isAvailableToTarget && matchesCategory && matchesSearch;
                             });
 
                             if (filtered.length === 0) {

@@ -95,6 +95,7 @@ interface InventoryCatalogItem {
   base_unit: string;
   cost_per_base_unit: number;
   selling_price?: number | null;
+  category?: string;
 }
 
 export const Recipes: React.FC = () => {
@@ -214,7 +215,7 @@ export const Recipes: React.FC = () => {
 
       let catQuery = supabase
         .from('inventory_items')
-        .select('id, item_name, base_unit, cost_per_base_unit, selling_price, available_branches, foodpanda_price, grab_price')
+        .select('id, item_name, base_unit, cost_per_base_unit, selling_price, available_branches, foodpanda_price, grab_price, category')
         .eq('status', 'active');
 
       if (selectedBranch?.id) {
@@ -1599,9 +1600,19 @@ export const Recipes: React.FC = () => {
                           <TableBody>
                             {recipeIngredients.map((ing, idx) => {
                               const info = catalog.find(c => c.id === ing.item_id);
+                              const isPackaging = info?.category?.trim().toLowerCase() === 'packaging';
                               return (
                                 <TableRow key={idx}>
-                                  <TableCell className="pl-4 font-semibold text-xs py-2">{info?.item_name || 'Unknown'}</TableCell>
+                                  <TableCell className="pl-4 font-semibold text-xs py-2">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span>{info?.item_name || 'Unknown'}</span>
+                                      {isPackaging && (
+                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800 font-medium">
+                                          Takeout/Delivery only
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </TableCell>
                                   <TableCell className="text-right font-bold text-xs py-2">
                                     {formatRecipeQty(ing.qty, info?.base_unit || '')}
                                   </TableCell>
@@ -1623,6 +1634,12 @@ export const Recipes: React.FC = () => {
                           </TableBody>
                         </Table>
                       </div>
+                      <p className="text-[11px] text-muted-foreground mt-2 px-1 flex items-start sm:items-center gap-1.5">
+                        <span className="font-semibold text-amber-600 dark:text-amber-400 shrink-0">💡 Note:</span>
+                        <span>
+                          Ingredients categorized under <strong>Packaging</strong> are automatically deducted for Grab, Foodpanda, and Takeout sales, but automatically spared for Dine-In orders.
+                        </span>
+                      </p>
                     </>
                   )}
 
