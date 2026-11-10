@@ -2105,6 +2105,24 @@ export const printXZReport = (report: any, isZRead: boolean, merchantName: strin
               <span>VAT Amount (12%):</span>
               <span>₱${Number(report.vatAmount || 0).toFixed(2)}</span>
             </div>
+            ${Number(report.vatExemptSales || 0) > 0 ? `
+            <div class="flex-between">
+              <span>VAT-Exempt Sales:</span>
+              <span>₱${Number(report.vatExemptSales || 0).toFixed(2)}</span>
+            </div>
+            ` : ''}
+            ${Number(report.discountAmount || 0) > 0 ? `
+            <div class="flex-between">
+              <span>Discount Total:</span>
+              <span>₱${Number(report.discountAmount || 0).toFixed(2)}</span>
+            </div>
+            ` : ''}
+            ${Number(report.serviceChargeTotal || 0) > 0 ? `
+            <div class="flex-between">
+              <span>Service Charge:</span>
+              <span>₱${Number(report.serviceChargeTotal || 0).toFixed(2)}</span>
+            </div>
+            ` : ''}
             <div class="flex-between">
               <span>Transaction Count:</span>
               <span>${report.transactionCount || 0}</span>

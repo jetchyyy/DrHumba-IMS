@@ -545,6 +545,15 @@ export async function printBluetoothXZReport(summary: any, isZRead: boolean, ter
   payload.push(...encoder.encode(formatKeyValueLine('Gross Sales:', formatPHP(summary.grossSales), 32) + '\n'));
   payload.push(...encoder.encode(formatKeyValueLine('Net Sales:', formatPHP(summary.netSales), 32) + '\n'));
   payload.push(...encoder.encode(formatKeyValueLine('VAT (12%):', formatPHP(summary.vatAmount), 32) + '\n'));
+  if (Number(summary.vatExemptSales || 0) > 0) {
+    payload.push(...encoder.encode(formatKeyValueLine('VAT-Exempt:', formatPHP(summary.vatExemptSales), 32) + '\n'));
+  }
+  if (Number(summary.discountAmount || 0) > 0) {
+    payload.push(...encoder.encode(formatKeyValueLine('Discounts:', formatPHP(summary.discountAmount), 32) + '\n'));
+  }
+  if (Number(summary.serviceChargeTotal || 0) > 0) {
+    payload.push(...encoder.encode(formatKeyValueLine('Service Chg:', formatPHP(summary.serviceChargeTotal), 32) + '\n'));
+  }
   payload.push(...encoder.encode(formatKeyValueLine('Tx Count:', String(summary.transactionCount), 32) + '\n'));
 
   payload.push(...encoder.encode('--------------------------------\n'));
