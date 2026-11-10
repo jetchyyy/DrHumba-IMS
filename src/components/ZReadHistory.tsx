@@ -99,6 +99,7 @@ export const ZReadHistory: React.FC = () => {
 
   useEffect(() => {
     loadSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterBranchId]);
 
   // Filters logic
@@ -134,7 +135,7 @@ export const ZReadHistory: React.FC = () => {
   const paginatedSessions = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     return filteredSessions.slice(start, start + itemsPerPage);
-  }, [filteredSessions, currentPage]);
+  }, [filteredSessions, currentPage, itemsPerPage]);
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -147,9 +148,9 @@ export const ZReadHistory: React.FC = () => {
       setIsPrintingXZBluetooth(true);
       await ensureBluetoothPrinter();
       await printBluetoothXZReport(summary, isZRead, branchName);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to print Z-Read via Bluetooth:', err);
-      showError('Failed to print report via Bluetooth.');
+      showError(err?.message || 'Failed to print report via Bluetooth.');
     } finally {
       setIsPrintingXZBluetooth(false);
     }
@@ -161,7 +162,7 @@ export const ZReadHistory: React.FC = () => {
     if (typeof session.sales_summary === 'string') {
       try {
         return JSON.parse(session.sales_summary);
-      } catch (e) {
+      } catch {
         return null;
       }
     }

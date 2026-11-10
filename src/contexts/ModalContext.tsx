@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useRef } from 'react';
+import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../components/ui/dialog';
 import { Button } from '../components/ui/button';
 
@@ -100,6 +101,12 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       {/* GLOBAL STATUS ALERT DIALOG */}
       <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
         <DialogContent className="max-w-md text-center py-8">
+          {/* VisuallyHidden title/description satisfy Radix accessibility requirements
+              without altering the visual design of the status toast. */}
+          <VisuallyHidden.Root>
+            <DialogTitle>{statusType === 'success' ? 'Success' : 'Error'}</DialogTitle>
+            <DialogDescription>{statusMessage}</DialogDescription>
+          </VisuallyHidden.Root>
           <div className="flex flex-col items-center justify-center space-y-4">
             {statusType === 'success' ? (
               <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center text-3xl font-extrabold animate-bounce">

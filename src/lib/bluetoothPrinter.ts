@@ -15,11 +15,30 @@ const COMMON_PRINTER_SERVICES = [
 ];
 
 /**
+ * Check if the current browser environment supports the Web Bluetooth API.
+ * Requires Chromium (Chrome, Edge, Opera) and a secure context (HTTPS or localhost).
+ */
+export const isBluetoothSupported = (): boolean => {
+  return typeof navigator !== 'undefined' && typeof (navigator as any)?.bluetooth !== 'undefined';
+};
+
+/**
  * Core Global Controller. Call this single function inside EVERY print button
  * event handler throughout the application.
  */
 export const ensureBluetoothPrinter = async () => {
-  const nav = navigator as any;
+  const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
+
+  if (!nav?.bluetooth) {
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      throw new Error(
+        "Bluetooth printing is unavailable because this page is not running in a Secure Context (HTTPS or localhost). If you are accessing via a local network IP (e.g. http://192.168.x.x), browsers disable Web Bluetooth for security. Please use localhost, an HTTPS URL, or use System Print."
+      );
+    }
+    throw new Error(
+      "Web Bluetooth is not supported on this browser (Safari and Firefox do not support Web Bluetooth). Please use Google Chrome, Microsoft Edge, or Opera on Windows, Mac, Linux, ChromeOS, or Android, or use the 'Print Receipt (System)' button."
+    );
+  }
 
   // 1. If we already have it in current page memory, return it
   if (globalConnectedPrinter) {
@@ -27,7 +46,7 @@ export const ensureBluetoothPrinter = async () => {
   }
 
   // 2. Try to retrieve previously permitted devices (bypasses popup across page reloads in modern Chrome)
-  if (nav.bluetooth.getDevices) {
+  if (typeof nav.bluetooth.getDevices === 'function') {
     try {
       const devices = await nav.bluetooth.getDevices();
       if (devices && devices.length > 0) {
@@ -126,7 +145,9 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array, isR
           for (const char of characteristics) {
             console.log(`  -> Char: ${char.uuid} [write:${char.properties.write}, writeWoRes:${char.properties.writeWithoutResponse}]`);
           }
-        } catch (e) { }
+        } catch {
+          // Characteristics discovery not supported or failed for this service
+        }
       }
       console.log("----------------------------------------------");
 
@@ -141,7 +162,9 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array, isR
               break;
             }
           }
-        } catch (e) { }
+        } catch {
+          // Service characteristics inspection failed; try next service
+        }
         if (writePipe) break;
       }
 
@@ -157,7 +180,9 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array, isR
                 break;
               }
             }
-          } catch (e) { }
+          } catch {
+            // Service characteristics inspection failed; try next service
+          }
           if (writePipe) break;
         }
       }
@@ -199,7 +224,11 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array, isR
 
     // Clean up the dead/flaky connection
     if (globalConnectedPrinter && globalConnectedPrinter.gatt && globalConnectedPrinter.gatt.connected) {
-      try { globalConnectedPrinter.gatt.disconnect(); } catch (e) { }
+      try {
+        globalConnectedPrinter.gatt.disconnect();
+      } catch {
+        // Ignore disconnect errors during cleanup
+      }
     }
     globalWritePipe = null;
 
