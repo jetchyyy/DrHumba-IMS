@@ -117,21 +117,30 @@ BEGIN
                (value->>'notes')::TEXT               AS notes
         FROM jsonb_array_elements(p_items)
     ) LOOP
-        -- Fetch base catalog prices and inventory policy
-        SELECT m.price, m.foodpanda_price, m.grab_price, m.name, m.type, m.inventory_item_id, m.pos_inventory_policy,
-               i.selling_price, i.foodpanda_price, i.grab_price
-        INTO v_price, v_foodpanda_price, v_grab_price_num, v_menu_name, v_type, v_inventory_item_id, v_item_policy,
-             v_inv_selling_price, v_inv_fp_price, v_inv_grab_price
-        FROM public.menu_items m
-        LEFT JOIN public.inventory_items i ON i.id = m.inventory_item_id
-        WHERE m.id = r_item.menu_item_id;
+        -- Fetch base catalog prices & stock policy
+        SELECT price, foodpanda_price, grab_price, name, type, inventory_item_id, COALESCE(stock_enforcement_mode, 'strict')
+        INTO v_price, v_foodpanda_price, v_grab_price_num, v_menu_name, v_type, v_inventory_item_id, v_item_policy
+        FROM public.menu_items
+        WHERE id = r_item.menu_item_id;
 
         IF v_price IS NULL THEN
             RAISE EXCEPTION 'Menu item % not found.', r_item.menu_item_id;
         END IF;
 
+        -- If linked to an inventory catalog item, check policy and fallback prices
         IF v_inventory_item_id IS NOT NULL THEN
-            IF (v_price IS NULL OR v_price <= 0) AND v_inv_selling_price IS NOT NULL AND v_inv_selling_price > 0 THEN
+            SELECT
+                CASE WHEN v_item_policy IS NULL OR v_item_policy = 'strict'
+                     THEN COALESCE(stock_enforcement_mode, v_item_policy)
+                     ELSE v_item_policy END,
+                selling_price,
+                foodpanda_price,
+                grab_price
+            INTO v_item_policy, v_inv_selling_price, v_inv_fp_price, v_inv_grab_price
+            FROM public.inventory_items
+            WHERE id = v_inventory_item_id;
+
+            IF COALESCE(v_price, 0) <= 0 AND v_inv_selling_price IS NOT NULL AND v_inv_selling_price > 0.01 THEN
                 v_price := v_inv_selling_price;
             END IF;
             IF COALESCE(v_foodpanda_price, 0) <= 0 AND v_inv_fp_price IS NOT NULL AND v_inv_fp_price > 0 THEN
@@ -521,21 +530,30 @@ BEGIN
                (value->>'notes')::TEXT               AS notes
         FROM jsonb_array_elements(p_items)
     ) LOOP
-        -- Fetch base catalog prices and inventory policy
-        SELECT m.price, m.foodpanda_price, m.grab_price, m.name, m.type, m.inventory_item_id, m.pos_inventory_policy,
-               i.selling_price, i.foodpanda_price, i.grab_price
-        INTO v_price, v_foodpanda_price, v_grab_price_num, v_menu_name, v_type, v_inventory_item_id, v_item_policy,
-             v_inv_selling_price, v_inv_fp_price, v_inv_grab_price
-        FROM public.menu_items m
-        LEFT JOIN public.inventory_items i ON i.id = m.inventory_item_id
-        WHERE m.id = r_item.menu_item_id;
+        -- Fetch base catalog prices & stock policy
+        SELECT price, foodpanda_price, grab_price, name, type, inventory_item_id, COALESCE(stock_enforcement_mode, 'strict')
+        INTO v_price, v_foodpanda_price, v_grab_price_num, v_menu_name, v_type, v_inventory_item_id, v_item_policy
+        FROM public.menu_items
+        WHERE id = r_item.menu_item_id;
 
         IF v_price IS NULL THEN
             RAISE EXCEPTION 'Menu item % not found.', r_item.menu_item_id;
         END IF;
 
+        -- If linked to an inventory catalog item, check policy and fallback prices
         IF v_inventory_item_id IS NOT NULL THEN
-            IF (v_price IS NULL OR v_price <= 0) AND v_inv_selling_price IS NOT NULL AND v_inv_selling_price > 0 THEN
+            SELECT
+                CASE WHEN v_item_policy IS NULL OR v_item_policy = 'strict'
+                     THEN COALESCE(stock_enforcement_mode, v_item_policy)
+                     ELSE v_item_policy END,
+                selling_price,
+                foodpanda_price,
+                grab_price
+            INTO v_item_policy, v_inv_selling_price, v_inv_fp_price, v_inv_grab_price
+            FROM public.inventory_items
+            WHERE id = v_inventory_item_id;
+
+            IF COALESCE(v_price, 0) <= 0 AND v_inv_selling_price IS NOT NULL AND v_inv_selling_price > 0.01 THEN
                 v_price := v_inv_selling_price;
             END IF;
             IF COALESCE(v_foodpanda_price, 0) <= 0 AND v_inv_fp_price IS NOT NULL AND v_inv_fp_price > 0 THEN
