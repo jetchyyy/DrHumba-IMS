@@ -200,6 +200,7 @@ export const Transfers: React.FC = () => {
   // Filter state
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | TransferRequest['status']>('all');
+  const [branchFilter, setBranchFilter] = useState<string>('all');
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
   
@@ -209,7 +210,7 @@ export const Transfers: React.FC = () => {
   
   useEffect(() => {
     setCurrentPage(1);
-  }, [dateFilter, startDate, endDate, statusFilter]);
+  }, [dateFilter, startDate, endDate, statusFilter, branchFilter]);
   
   // Modals state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -415,9 +416,10 @@ export const Transfers: React.FC = () => {
     setIsProactive(proactive);
     setEditingDraftId(null);
     pendingDraftItemsRef.current = null;
-    const warehouse = branches.find(b => b.is_warehouse);
-    setSourceBranchId(warehouse?.id || selectedBranch?.id || '');
-    setTargetBranchId(proactive ? '' : selectedBranch?.id || '');
+    const warehouse = (branches || []).filter(b => !b.parent_id).find(b => b.is_warehouse);
+    const activeParentBranchId = selectedBranch?.parent_id || selectedBranch?.id || '';
+    setSourceBranchId(warehouse?.id || activeParentBranchId);
+    setTargetBranchId(proactive ? '' : activeParentBranchId);
     setRemarks('');
     setAddedItems([]);
     setCurrentSelectedItemId('');
@@ -1391,9 +1393,20 @@ export const Transfers: React.FC = () => {
     }
 
     const matchesStatus = statusFilter === 'all' || transfer.status === statusFilter;
+    const matchesBranch =
+      branchFilter === 'all' ||
+      transfer.source_branch_id === branchFilter ||
+      transfer.target_branch_id === branchFilter;
 
-    return matchesDate && matchesStatus;
+    return matchesDate && matchesStatus && matchesBranch;
   });
+
+  const filteredDrafts = drafts.filter(
+    d =>
+      branchFilter === 'all' ||
+      d.source_branch_id === branchFilter ||
+      d.target_branch_id === branchFilter
+  );
 
   const totalPages = Math.ceil(filteredTransfers.length / itemsPerPage);
   const paginatedTransfers = filteredTransfers.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -1428,7 +1441,7 @@ export const Transfers: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
+      <div className="flex flex-col md:flex-row flex-wrap md:items-center gap-4 mb-6">
         <div className="flex items-center space-x-2">
           <span className="text-sm text-muted-foreground font-medium">Filter by Date:</span>
           <Select value={dateFilter} onValueChange={(v: any) => setDateFilter(v)}>
@@ -1461,6 +1474,40 @@ export const Transfers: React.FC = () => {
             </SelectContent>
           </Select>
         </div>
+
+        <div className="flex items-center space-x-2">
+          <span className="text-sm text-muted-foreground font-medium">Filter by Branch:</span>
+          <Select value={branchFilter} onValueChange={(v: string) => setBranchFilter(v)}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="All Branches" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Branches</SelectItem>
+              {(branches || []).filter(b => !b.parent_id).map(b => (
+                <SelectItem key={b.id} value={b.id}>
+                  {b.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {(branchFilter !== 'all' || statusFilter !== 'all' || dateFilter !== 'all') && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setBranchFilter('all');
+              setStatusFilter('all');
+              setDateFilter('all');
+              setStartDate(undefined);
+              setEndDate(undefined);
+            }}
+            className="text-xs text-muted-foreground hover:text-foreground h-9"
+          >
+            Reset Filters
+          </Button>
+        )}
       </div>
 
       {dateFilter === 'custom' && (
@@ -1511,7 +1558,7 @@ export const Transfers: React.FC = () => {
         </Card>
       )}
 
-      {drafts.length > 0 && (
+      {filteredDrafts.length > 0 && (
         <Card className="mb-6">
           <CardHeader className="px-6 py-4">
             <CardTitle>Drafts</CardTitle>
@@ -1529,7 +1576,7 @@ export const Transfers: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {drafts.map(d => (
+                {filteredDrafts.map(d => (
                   <TableRow key={d.id}>
                     <TableCell className="pl-6">
                       <div className="font-bold">{d.draft_type === 'send' ? 'Shipment' : 'Request'}</div>
@@ -1672,7 +1719,7 @@ export const Transfers: React.FC = () => {
                       <SelectValue placeholder="-- Select Source --" />
                     </SelectTrigger>
                     <SelectContent>
-                      {branches.map(b => (
+                      {(branches || []).filter(b => !b.parent_id).map(b => (
                         <SelectItem key={b.id} value={b.id}>
                           {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
                         </SelectItem>
@@ -1687,7 +1734,7 @@ export const Transfers: React.FC = () => {
                       <SelectValue placeholder="-- Select Target --" />
                     </SelectTrigger>
                     <SelectContent>
-                      {branches.map(b => (
+                      {(branches || []).filter(b => !b.parent_id).map(b => (
                         <SelectItem key={b.id} value={b.id}>
                           {b.name} {b.is_warehouse ? '(Warehouse)' : ''}
                         </SelectItem>

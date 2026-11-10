@@ -140,12 +140,42 @@ export const AuditLogs: React.FC = () => {
   const loadLogs = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // PostgREST caps each response at 1,000 rows, so fetch the first page with
+      // a total count, then request the remaining pages in parallel.
+      const PAGE_SIZE = 1000;
+      const first = await supabase
         .from('audit_logs')
-        .select('*')
-        .order('timestamp', { ascending: false });
-      if (error) throw error;
-      setLogs(data || []);
+        .select('*', { count: 'exact' })
+        .order('timestamp', { ascending: false })
+        .order('id', { ascending: true })
+        .range(0, PAGE_SIZE - 1);
+      if (first.error) throw first.error;
+
+      const firstRows = (first.data || []) as AuditLog[];
+      const total = first.count ?? firstRows.length;
+      // Pin later pages to the first page's snapshot so logs written while
+      // loading don't shift rows across page boundaries.
+      const newest = firstRows[0]?.timestamp;
+      const rest = await Promise.all(
+        Array.from({ length: Math.ceil(total / PAGE_SIZE) - 1 }, (_, i) => {
+          const offset = (i + 1) * PAGE_SIZE;
+          return supabase
+            .from('audit_logs')
+            .select('*')
+            .lte('timestamp', newest)
+            .order('timestamp', { ascending: false })
+            .order('id', { ascending: true })
+            .range(offset, offset + PAGE_SIZE - 1);
+        })
+      );
+      const failed = rest.find(r => r.error);
+      if (failed?.error) throw failed.error;
+
+      const seen = new Set<string>();
+      const all = [firstRows, ...rest.map(r => (r.data || []) as AuditLog[])]
+        .flat()
+        .filter(log => !seen.has(log.id) && seen.add(log.id));
+      setLogs(all);
     } catch (err) {
       console.error('Error fetching audit logs:', err);
     } finally {

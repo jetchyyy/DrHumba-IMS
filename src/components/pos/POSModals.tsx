@@ -1,4 +1,5 @@
 import React from 'react';
+import { discrepancyColorClass } from '../../lib/utils';
 import { CheckCircle } from 'lucide-react';
 import {
   FileTextIcon as Printer,
@@ -702,7 +703,7 @@ export const ClosedZReportDialog: React.FC<ClosedZReportDialogProps> = ({
               <div className="flex justify-between"><span>Expected Cash:</span><span>{formatPHP(summary.expectedCash)}</span></div>
               <div className="flex justify-between font-bold"><span>Expected Drawer:</span><span>{formatPHP(summary.openingBalance + summary.expectedCash)}</span></div>
               <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-bold"><span>Actual Drawer:</span><span>{formatPHP(summary.actualCash)}</span></div>
-              <div className={`flex justify-between font-bold ${summary.discrepancy < 0 ? 'text-destructive' : 'text-emerald-500'}`}>
+              <div className={`flex justify-between font-bold ${discrepancyColorClass(summary.discrepancy)}`}>
                 <span>Discrepancy:</span>
                 <span>{formatPHP(summary.discrepancy)}</span>
               </div>

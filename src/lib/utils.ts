@@ -272,3 +272,11 @@ export function resolvePosItemPrice(
   return basePrice;
 }
 
+
+/** Drawer discrepancy color: red when short, yellow when over, green when exact (to the centavo). */
+export function discrepancyColorClass(discrepancy: number): string {
+  const cents = Math.round(Number(discrepancy || 0) * 100);
+  if (cents < 0) return 'text-red-500';
+  if (cents > 0) return 'text-amber-500';
+  return 'text-emerald-500';
+}

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { discrepancyColorClass } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useModal } from '../contexts/ModalContext';
 import { printXZReport } from '../lib/printService';
@@ -230,6 +231,14 @@ export const ZReadHistory: React.FC = () => {
         />
       </div>
 
+      {/* Discrepancy color legend */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span className="font-medium">Discrepancy:</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-red-500" />Short (drawer below expected)</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" />Over (drawer above expected)</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Exact (balanced)</span>
+      </div>
+
       {/* Table Card */}
       <Card>
         <CardContent className="p-0">
@@ -293,11 +302,7 @@ export const ZReadHistory: React.FC = () => {
                         {formatPHP(session.actual_cash)}
                       </TableCell>
                       <TableCell className={`text-right font-bold text-xs ${
-                        discrepancy < 0 
-                          ? 'text-rose-600 dark:text-rose-400' 
-                          : discrepancy > 0 
-                            ? 'text-amber-500' 
-                            : 'text-emerald-500'
+                        discrepancyColorClass(discrepancy)
                       }`}>
                         {formatPHP(discrepancy)}
                       </TableCell>
@@ -417,7 +422,7 @@ export const ZReadHistory: React.FC = () => {
                   <div className="flex justify-between"><span>Expected Cash:</span><span>{formatPHP(summary.expectedCash)}</span></div>
                   <div className="flex justify-between font-bold"><span>Expected Drawer:</span><span>{formatPHP(summary.openingBalance + summary.expectedCash)}</span></div>
                   <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-bold"><span>Actual Drawer:</span><span>{formatPHP(summary.actualCash)}</span></div>
-                  <div className={`flex justify-between font-bold ${summary.discrepancy < 0 ? 'text-destructive' : 'text-emerald-500'}`}>
+                  <div className={`flex justify-between font-bold ${discrepancyColorClass(summary.discrepancy)}`}>
                     <span>Discrepancy:</span>
                     <span>{formatPHP(summary.discrepancy)}</span>
                   </div>
