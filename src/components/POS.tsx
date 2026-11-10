@@ -249,6 +249,7 @@ export const POS: React.FC<POSProps> = ({
     if (isOnline) {
       syncOfflineSales();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline]);
 
   // Customer Display Sync state
@@ -333,6 +334,7 @@ export const POS: React.FC<POSProps> = ({
 
   useEffect(() => {
     checkActiveSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBranch?.id, profile?.id]);
 
   const handleOpenSession = async () => {
@@ -456,6 +458,7 @@ export const POS: React.FC<POSProps> = ({
   // Trigger broadcast whenever state changes
   useEffect(() => {
     broadcastState(cart, cartTotal, cartCount, paymentOpen, checkingOut, lastSaleResult, paymentState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cart, cartTotal, cartCount, paymentOpen, checkingOut, lastSaleResult, paymentState, supabaseChannel]);
 
   const toggleFullscreen = async () => {
@@ -560,6 +563,7 @@ export const POS: React.FC<POSProps> = ({
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadMenuItems(); }, [selectedBranch?.id, branches?.length]);
 
   const getSaleForPrinting = async (saleId: string) => {
@@ -758,9 +762,9 @@ export const POS: React.FC<POSProps> = ({
       await ensureBluetoothPrinter();
       const settings = await settingsService.getSettings();
       await printBluetoothThermalInvoice(getMappedSale(saleResult), settings.sales_invoice);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to print thermal invoice via Bluetooth:', err);
-      showError('Failed to print receipt via Bluetooth.');
+      showError(err?.message || 'Failed to print receipt via Bluetooth.');
     } finally {
       setIsPrintingReceiptBluetooth(false);
     }
@@ -770,9 +774,9 @@ export const POS: React.FC<POSProps> = ({
     try {
       const settings = await settingsService.getSettings();
       printThermalInvoice(getMappedSale(saleResult), settings.sales_invoice);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to print thermal invoice via System:', err);
-      showError('Failed to print receipt via System Drivers.');
+      showError(err?.message || 'Failed to print receipt via System Drivers.');
     }
   };
 
@@ -780,10 +784,14 @@ export const POS: React.FC<POSProps> = ({
     try {
       setIsPrintingKitchenBluetooth(true);
       await ensureBluetoothPrinter();
-      await printBluetoothKitchenReceipt(getMappedSale(saleResult));
-    } catch (err) {
+      // Pass the payload directly — printBluetoothKitchenReceipt accepts both
+      // LastSaleResult and KitchenOrderSentPayload shapes (items field is compatible).
+      // Previously wrapping in getMappedSale() caused a type mismatch when called
+      // from KitchenOrderSentDialog with a KitchenOrderSentPayload.
+      await printBluetoothKitchenReceipt(saleResult);
+    } catch (err: any) {
       console.error('Failed to print kitchen receipt via Bluetooth:', err);
-      showError('Failed to print kitchen receipt via Bluetooth.');
+      showError(err?.message || 'Failed to print kitchen receipt via Bluetooth.');
     } finally {
       setIsPrintingKitchenBluetooth(false);
     }
@@ -793,9 +801,9 @@ export const POS: React.FC<POSProps> = ({
     try {
       const settings = await settingsService.getSettings();
       printKitchenReceipt(getMappedSale(saleResult), settings.sales_invoice);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to print kitchen receipt via System:', err);
-      showError('Failed to print kitchen receipt via System Drivers.');
+      showError(err?.message || 'Failed to print kitchen receipt via System Drivers.');
     }
   };
 
@@ -808,7 +816,7 @@ export const POS: React.FC<POSProps> = ({
       showSuccess(`Printed bill out for Table ${billData.table_number} via Bluetooth.`);
     } catch (err: any) {
       console.error('Failed to print bill slip via Bluetooth:', err);
-      showError('Failed to print bill slip via Bluetooth.');
+      showError(err?.message || 'Failed to print bill slip via Bluetooth.');
     } finally {
       setIsPrintingBillBluetooth(false);
     }
@@ -820,7 +828,7 @@ export const POS: React.FC<POSProps> = ({
       printRunningBillSlip(billData, settings.sales_invoice);
     } catch (err: any) {
       console.error('Failed to print bill slip via System:', err);
-      showError('Failed to print bill slip via System Drivers.');
+      showError(err?.message || 'Failed to print bill slip via System Drivers.');
     }
   };
 
@@ -829,9 +837,9 @@ export const POS: React.FC<POSProps> = ({
       setIsPrintingXZBluetooth(true);
       await ensureBluetoothPrinter();
       await printBluetoothXZReport(summary, isZRead, selectedBranch?.name || 'TERMINAL');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to print report via Bluetooth:', err);
-      showError('Failed to print report via Bluetooth.');
+      showError(err?.message || 'Failed to print report via Bluetooth.');
     } finally {
       setIsPrintingXZBluetooth(false);
     }
@@ -871,6 +879,7 @@ export const POS: React.FC<POSProps> = ({
         })
       );
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priceChannel, selectedSubStore?.id, branchPrices]);
 
   const addToCart = (item: MenuItem, qty = 1) => {
@@ -1065,19 +1074,8 @@ export const POS: React.FC<POSProps> = ({
         })),
       };
 
-      // Set for KitchenOrderSentDialog
+      // Set for KitchenOrderSentDialog — the dialog buttons handle printing explicitly
       setLastKitchenResult(kitchenPayload);
-
-      // Print via Bluetooth using the exact same approach as direct to sale POS
-      try {
-        setIsPrintingKitchenBluetooth(true);
-        await ensureBluetoothPrinter();
-        await printBluetoothKitchenReceipt(getMappedSale(kitchenPayload));
-      } catch (btErr: any) {
-        console.warn('Bluetooth kitchen print error or skipped:', btErr);
-      } finally {
-        setIsPrintingKitchenBluetooth(false);
-      }
 
       // Update cart items in state
       setCart(prev =>
@@ -1119,7 +1117,6 @@ export const POS: React.FC<POSProps> = ({
         if (!proceed) return;
       }
 
-      const settings = await settingsService.getSettings();
       const vatRelief = tabDiscountMetadata?.[0]?.vat_relief || 0;
       const finalDue = Math.max(0, Number((cartTotal - vatRelief - tabDiscountAmount + serviceChargeAmount).toFixed(2)));
 
@@ -1148,19 +1145,8 @@ export const POS: React.FC<POSProps> = ({
         payable_total: finalDue,
       };
 
-      // Set bill data for the BillOutDialog (direct-to-sale approach)
+      // Set bill data for the BillOutDialog — the dialog buttons handle printing explicitly
       setLastBillOutData(billData);
-
-      // Directly print via Bluetooth thermal printer using the same approach as direct to sale POS
-      try {
-        setIsPrintingBillBluetooth(true);
-        await ensureBluetoothPrinter();
-        await printBluetoothRunningBill(billData, settings.sales_invoice);
-      } catch (btErr) {
-        console.warn('Bluetooth running bill print failed or skipped:', btErr);
-      } finally {
-        setIsPrintingBillBluetooth(false);
-      }
 
       // Update pos_tabs status to 'billed_out'
       await supabase
@@ -1627,11 +1613,10 @@ export const POS: React.FC<POSProps> = ({
                         setPriceAdjustmentInput(String(item.price));
                         setPriceAdjustmentReason(item.price_adjustment_reason || 'Platform Campaign Promo');
                       }}
-                      className={`text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1.5 transition-all active:scale-95 truncate ${
-                        item.original_price && Math.abs(item.original_price - item.price) > 0.01
+                      className={`text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1.5 transition-all active:scale-95 truncate ${item.original_price && Math.abs(item.original_price - item.price) > 0.01
                           ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/40 shadow-sm'
                           : 'text-muted-foreground hover:text-primary hover:bg-primary/10 border border-transparent'
-                      }`}
+                        }`}
                       title="Tap to match Grab / Foodpanda item price"
                     >
                       <span>{formatPHP(item.price)} each</span>
@@ -1917,8 +1902,8 @@ export const POS: React.FC<POSProps> = ({
 
         {!isOnline && (
           <div className={`flex items-center gap-2 text-xs font-semibold p-2.5 rounded-lg border ${terminalConfig
-              ? 'text-amber-500 bg-amber-500/10 border-amber-500/20'
-              : 'text-destructive bg-destructive/10 border-destructive/20'
+            ? 'text-amber-500 bg-amber-500/10 border-amber-500/20'
+            : 'text-destructive bg-destructive/10 border-destructive/20'
             }`}>
             <WifiOff className="w-4 h-4 flex-shrink-0" />
             {terminalConfig
@@ -2004,8 +1989,8 @@ export const POS: React.FC<POSProps> = ({
                   type="button"
                   onClick={() => setPriceChannel('standard')}
                   className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${priceChannel === 'standard'
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                     }`}
                 >
                   Standard
@@ -2014,8 +1999,8 @@ export const POS: React.FC<POSProps> = ({
                   type="button"
                   onClick={() => setPriceChannel('foodpanda')}
                   className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${priceChannel === 'foodpanda'
-                      ? 'bg-amber-500 text-white shadow-sm'
-                      : 'text-amber-500 hover:bg-amber-500/10'
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'text-amber-500 hover:bg-amber-500/10'
                     }`}
                 >
                   Foodpanda
@@ -2024,8 +2009,8 @@ export const POS: React.FC<POSProps> = ({
                   type="button"
                   onClick={() => setPriceChannel('grab')}
                   className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${priceChannel === 'grab'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-emerald-500 hover:bg-emerald-500/10'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-emerald-500 hover:bg-emerald-500/10'
                     }`}
                 >
                   Grab
@@ -2073,11 +2058,10 @@ export const POS: React.FC<POSProps> = ({
                     variant={activeTable ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setTableFloorOpen(true)}
-                    className={`h-8 text-xs font-bold gap-1.5 transition-all ${
-                      activeTable
+                    className={`h-8 text-xs font-bold gap-1.5 transition-all ${activeTable
                         ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-sm ring-1 ring-rose-400/40'
                         : 'border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10'
-                    }`}
+                      }`}
                     title="Open Table Floor Plan"
                   >
                     <TableIcon className="w-3.5 h-3.5" />
@@ -2105,8 +2089,8 @@ export const POS: React.FC<POSProps> = ({
               <Badge
                 variant="outline"
                 className={`px-3 py-1 text-xs font-bold flex items-center gap-1.5 ${isOnline
-                    ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400'
-                    : 'bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400 animate-pulse'
+                  ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400'
+                  : 'bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400 animate-pulse'
                   }`}
               >
                 <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-amber-500'}`} />
@@ -2247,9 +2231,8 @@ export const POS: React.FC<POSProps> = ({
                   variant={selectedCategory === cat ? 'default' : 'outline'}
                   size="default"
                   onClick={() => setSelectedCategory(cat)}
-                  className={`h-11 px-4 text-xs font-bold rounded-xl whitespace-nowrap active:scale-95 transition-transform shrink-0 ${
-                    selectedCategory === cat ? 'shadow-sm' : ''
-                  }`}
+                  className={`h-11 px-4 text-xs font-bold rounded-xl whitespace-nowrap active:scale-95 transition-transform shrink-0 ${selectedCategory === cat ? 'shadow-sm' : ''
+                    }`}
                 >
                   {cat}
                 </Button>
@@ -2280,10 +2263,10 @@ export const POS: React.FC<POSProps> = ({
                       }
                     }}
                     className={`transition-all group flex flex-col justify-between min-h-[10rem] h-auto select-none rounded-2xl ${isOutOfStock
-                        ? 'opacity-60 cursor-not-allowed bg-muted/40 border-muted-foreground/20'
-                        : needsAdjustment
-                          ? 'cursor-pointer border-amber-300 dark:border-amber-700/80 hover:border-amber-500 hover:shadow-md active:scale-[0.98]'
-                          : 'cursor-pointer hover:border-primary/50 hover:shadow-md active:scale-[0.98]'
+                      ? 'opacity-60 cursor-not-allowed bg-muted/40 border-muted-foreground/20'
+                      : needsAdjustment
+                        ? 'cursor-pointer border-amber-300 dark:border-amber-700/80 hover:border-amber-500 hover:shadow-md active:scale-[0.98]'
+                        : 'cursor-pointer hover:border-primary/50 hover:shadow-md active:scale-[0.98]'
                       }`}
                   >
                     <CardContent className="p-4 flex flex-col h-full justify-between">
@@ -2324,12 +2307,12 @@ export const POS: React.FC<POSProps> = ({
                           size="sm"
                           disabled={isOutOfStock}
                           className={`h-9 px-3.5 text-xs font-bold rounded-lg transition-all active:scale-95 ${isOutOfStock
-                              ? ''
-                              : needsAdjustment
-                                ? 'border-amber-400 text-amber-700 dark:text-amber-300 group-hover:bg-amber-500 group-hover:text-white group-hover:border-amber-500'
-                                : inCartQty > 0
-                                  ? 'bg-primary text-primary-foreground shadow-sm'
-                                  : 'group-hover:bg-primary group-hover:text-primary-foreground'
+                            ? ''
+                            : needsAdjustment
+                              ? 'border-amber-400 text-amber-700 dark:text-amber-300 group-hover:bg-amber-500 group-hover:text-white group-hover:border-amber-500'
+                              : inCartQty > 0
+                                ? 'bg-primary text-primary-foreground shadow-sm'
+                                : 'group-hover:bg-primary group-hover:text-primary-foreground'
                             }`}
                         >
                           {isOutOfStock ? 'Sold Out' : inCartQty > 0 ? `+ Add (${inCartQty})` : '+ Add'}
@@ -2394,10 +2377,10 @@ export const POS: React.FC<POSProps> = ({
           activeTable
             ? 'Dine In'
             : priceChannel === "foodpanda"
-            ? "Foodpanda"
-            : priceChannel === "grab"
-            ? "Grab"
-            : vocab.defaultSaleCategory
+              ? "Foodpanda"
+              : priceChannel === "grab"
+                ? "Grab"
+                : vocab.defaultSaleCategory
         }
         subStores={subStores}
         initialSubStore={selectedSubStore}
@@ -2448,11 +2431,11 @@ export const POS: React.FC<POSProps> = ({
             prev.map(ci =>
               ci.menu_item_id === editingPriceItem.menu_item_id
                 ? {
-                    ...ci,
-                    price,
-                    original_price: editingPriceItem.catalogPrice,
-                    price_adjustment_reason: reason,
-                  }
+                  ...ci,
+                  price,
+                  original_price: editingPriceItem.catalogPrice,
+                  price_adjustment_reason: reason,
+                }
                 : ci
             )
           );

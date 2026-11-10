@@ -296,6 +296,7 @@ export const SalesHistory: React.FC = () => {
     });
 
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showEODModal, eodDate, eodBranchId, eodCashierId]);
 
   // Auto-fill time fields based on selected cashier and date transactions
@@ -496,9 +497,9 @@ export const SalesHistory: React.FC = () => {
       setIsPrintingEODBluetooth(true);
       await ensureBluetoothPrinter();
       await printBluetoothEODReport(eodReportData);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to print EOD via Bluetooth:', err);
-      showError('Failed to print EOD via Bluetooth.');
+      showError(err?.message || 'Failed to print EOD via Bluetooth.');
     } finally {
       setIsPrintingEODBluetooth(false);
     }
@@ -717,15 +718,17 @@ export const SalesHistory: React.FC = () => {
         setProfilesList(data || []);
         setProfilesLoaded(true);
       });
-  }, [profile]);
+  }, [profile, isAdminRole]);
 
   // The cashier search maps emails to profile IDs, so wait for profiles before querying
   useEffect(() => {
     if (profilesLoaded) loadStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter]);
 
   useEffect(() => {
     if (profilesLoaded) loadPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter, currentPage, itemsPerPage]);
 
   const openSheet = (sale: SaleRecord) => {
@@ -956,12 +959,13 @@ export const SalesHistory: React.FC = () => {
       await ensureBluetoothPrinter();
       const settings = await settingsService.getSettings();
       await printBluetoothThermalInvoice(sale, settings.sales_invoice);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to print thermal receipt:', err);
       try {
         await printBluetoothThermalInvoice(sale, DEFAULT_SALES_INVOICE_TEMPLATE);
-      } catch (innerErr) {
+      } catch (innerErr: any) {
         console.error('Failed fallback print:', innerErr);
+        showError(innerErr?.message || err?.message || 'Failed to print thermal receipt via Bluetooth.');
       }
     } finally {
       setIsPrintingBluetooth(false);
