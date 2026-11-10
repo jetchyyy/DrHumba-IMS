@@ -43,6 +43,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from './ui/sheet';
+import { BranchTablesModal } from './branch/BranchTablesModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ interface FormState {
   status: BranchStatus;
   serviceChargeMode: ServiceChargeMode;
   customServiceChargeRate: number;
+  enableTableService: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -65,6 +67,7 @@ const EMPTY_FORM: FormState = {
   status: 'active',
   serviceChargeMode: 'inherit',
   customServiceChargeRate: 0,
+  enableTableService: false,
 };
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -150,6 +153,7 @@ export const BranchManagement: React.FC = () => {
   const [parentForSubStore, setParentForSubStore] = useState<any>(null);
   const [editingBranch, setEditingBranch] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [tableModalBranch, setTableModalBranch] = useState<any>(null);
 
   const isSheetOpen = sheetMode !== null;
 
@@ -160,6 +164,7 @@ export const BranchManagement: React.FC = () => {
       location: parent?.location ?? '',
       serviceChargeMode: 'inherit',
       customServiceChargeRate: tenantGeneralSCRate,
+      enableTableService: false,
     });
     setEditingBranch(null);
     setSheetMode('create');
@@ -175,6 +180,7 @@ export const BranchManagement: React.FC = () => {
       status: branch.status || 'active',
       serviceChargeMode: hasBranchOverride ? 'custom' : 'inherit',
       customServiceChargeRate: hasBranchOverride ? Number(branch.service_charge_rate) : tenantGeneralSCRate,
+      enableTableService: Boolean(branch.enable_table_service),
     });
     setParentForSubStore(null);
     setSheetMode('edit');
@@ -270,6 +276,7 @@ export const BranchManagement: React.FC = () => {
           is_warehouse: form.isWarehouse,
           status: form.status,
           service_charge_rate: finalSCRate,
+          enable_table_service: form.enableTableService,
           parent_id: parentForSubStore?.id || null,
           tenant_id: tenant?.id,
         });
@@ -288,6 +295,7 @@ export const BranchManagement: React.FC = () => {
             is_warehouse: form.isWarehouse,
             status: form.status,
             service_charge_rate: finalSCRate,
+            enable_table_service: form.enableTableService,
           })
           .eq('id', editingBranch.id);
         if (error) throw error;
@@ -443,6 +451,21 @@ export const BranchManagement: React.FC = () => {
             </Tooltip>
             <div className="w-px h-4 bg-border mx-0.5" />
           </>
+        )}
+        {Boolean(branch.enable_table_service) && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={e => { e.stopPropagation(); setTableModalBranch(branch); }}
+                className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10 text-xs"
+              >
+                🍽️
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Manage Tables</TooltipContent>
+          </Tooltip>
         )}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -1001,6 +1024,45 @@ export const BranchManagement: React.FC = () => {
                 )}
               </div>
 
+              {/* Table Management & Running Bill Configuration */}
+              <div className="space-y-3 p-3.5 bg-muted/30 rounded-lg border border-border/60">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="enableTableService" className="font-semibold text-sm cursor-pointer">
+                        Table Service & Running Bill
+                      </Label>
+                      <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-500/40 bg-amber-500/10">
+                        Dine-In
+                      </Badge>
+                    </div>
+                    <p className="text-muted-foreground text-xs leading-relaxed">
+                      Enable floor map, table selection, incremental kitchen order rounds, and running bills for this branch. If disabled, POS remains direct-to-sale.
+                    </p>
+                  </div>
+                  <Checkbox
+                    id="enableTableService"
+                    checked={form.enableTableService}
+                    onCheckedChange={checked => setForm(f => ({ ...f, enableTableService: !!checked }))}
+                    className="mt-1"
+                  />
+                </div>
+
+                {form.enableTableService && editingBranch && (
+                  <div className="pt-2 border-t border-border/50">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTableModalBranch(editingBranch)}
+                      className="w-full text-xs gap-1.5 border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10"
+                    >
+                      🍽️ Configure Tables for {editingBranch.name}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
               {/* Warehouse toggle (only for top-level branches) */}
               {!parentForSubStore && !editingBranch?.parent_id && (
                 <div className="flex items-start gap-3 p-3 bg-muted/40 rounded-lg border border-border/60">
@@ -1121,6 +1183,17 @@ export const BranchManagement: React.FC = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {tableModalBranch && (
+          <BranchTablesModal
+            open={!!tableModalBranch}
+            onClose={() => {
+              setTableModalBranch(null);
+              refreshProfile();
+            }}
+            branch={tableModalBranch}
+          />
+        )}
       </div>
     </TooltipProvider>
   );

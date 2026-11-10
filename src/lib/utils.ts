@@ -58,6 +58,7 @@ export interface Branch {
   status?: string;
   parent_id?: string | null;
   service_charge_rate?: number | null;
+  enable_table_service?: boolean | null;
 }
 
 export interface OrganizedBranch extends Branch {

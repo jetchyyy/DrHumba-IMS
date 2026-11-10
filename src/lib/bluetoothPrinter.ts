@@ -646,3 +646,123 @@ export async function printBluetoothEODReport(report: any) {
   await sendToGlobalThermalPrinter(new Uint8Array(payload));
 }
 
+export async function printBluetoothRunningBill(bill: any, template: any = {}) {
+  await ensureBluetoothPrinter();
+
+  const payload: number[] = [];
+  const encoder = new TextEncoder();
+
+  const INIT = [0x1B, 0x40];
+  const ALIGN_CENTER = [0x1B, 0x61, 0x01];
+  const ALIGN_LEFT = [0x1B, 0x61, 0x00];
+  const BOLD_ON = [0x1B, 0x45, 0x01];
+  const BOLD_OFF = [0x1B, 0x45, 0x00];
+  const CUT = [0x1D, 0x56, 0x42, 0x00];
+
+  payload.push(...INIT);
+  payload.push(...ALIGN_CENTER);
+  payload.push(...BOLD_ON);
+
+  const businessName = template.business_name || 'RESTAURANT';
+  payload.push(...encoder.encode(businessName.toUpperCase() + '\n'));
+  payload.push(...BOLD_OFF);
+
+  const branchName = template.branch_name || bill.branch_name || '';
+  if (branchName) payload.push(...encoder.encode(branchName + '\n'));
+  if (template.address) payload.push(...encoder.encode(template.address + '\n'));
+  if (template.tin) payload.push(...encoder.encode(`TIN: ${template.tin}\n`));
+
+  payload.push(...encoder.encode('--------------------------------\n'));
+  payload.push(...BOLD_ON);
+  payload.push(...encoder.encode('*** GUEST CHECK / RUNNING BILL ***\n'));
+  payload.push(...BOLD_OFF);
+  payload.push(...encoder.encode('(NOT AN OFFICIAL SALES INVOICE)\n'));
+  payload.push(...encoder.encode('--------------------------------\n'));
+
+  payload.push(...ALIGN_LEFT);
+  payload.push(...BOLD_ON);
+  payload.push(...encoder.encode(formatKeyValueLine('TABLE:', (bill.table_number || '').toUpperCase(), 32) + '\n'));
+  payload.push(...BOLD_OFF);
+  payload.push(...encoder.encode(formatKeyValueLine('PAX:', String(bill.pax_count || 1), 32) + '\n'));
+
+  const dateStr = new Date(bill.created_at || new Date()).toLocaleString('en-US', {
+    dateStyle: 'short',
+    timeStyle: 'short'
+  });
+  payload.push(...encoder.encode(formatKeyValueLine('Date:', dateStr, 32) + '\n'));
+
+  if (bill.server_name) {
+    payload.push(...encoder.encode(formatKeyValueLine('Server:', bill.server_name, 32) + '\n'));
+  }
+  if (bill.cashier_email) {
+    let staffName = bill.cashier_email.split('@')[0];
+    if (staffName.length > 15) staffName = staffName.substring(0, 15);
+    payload.push(...encoder.encode(formatKeyValueLine('Staff:', staffName, 32) + '\n'));
+  }
+
+  payload.push(...encoder.encode('--------------------------------\n'));
+
+  // Items
+  if (bill.items && Array.isArray(bill.items)) {
+    for (const item of bill.items) {
+      const itemName = item.name || item.item_name || 'Unknown Item';
+      payload.push(...BOLD_ON);
+      payload.push(...encoder.encode(String(itemName).toUpperCase() + '\n'));
+      payload.push(...BOLD_OFF);
+
+      const itemSub = Number(item.subtotal ?? (item.quantity * item.price));
+      const qtyStr = `  ${item.quantity} x P${Number(item.price).toFixed(2)}`;
+      const subtotalStr = `P${itemSub.toFixed(2)}`;
+      payload.push(...encoder.encode(formatKeyValueLine(qtyStr, subtotalStr, 32) + '\n'));
+      if (item.notes) {
+        payload.push(...encoder.encode(`  * ${item.notes}\n`));
+      }
+    }
+  }
+
+  payload.push(...encoder.encode('--------------------------------\n'));
+
+  // Subtotal & Discounts
+  const subtotal = Number(bill.subtotal || 0);
+  payload.push(...encoder.encode(formatKeyValueLine('Gross Subtotal:', `P${subtotal.toFixed(2)}`, 32) + '\n'));
+
+  if (Number(bill.vat_exempt_amount || 0) > 0) {
+    payload.push(...encoder.encode(formatKeyValueLine('12% VAT Relief:', `-P${Number(bill.vat_exempt_amount).toFixed(2)}`, 32) + '\n'));
+  }
+
+  if (Number(bill.discount_amount || 0) > 0) {
+    let discType = (bill.discount_type || 'DISC').toUpperCase();
+    if (discType === 'SC') discType = 'SENIOR';
+    payload.push(...encoder.encode(formatKeyValueLine(`Discount (${discType}):`, `-P${Number(bill.discount_amount).toFixed(2)}`, 32) + '\n'));
+  }
+
+  // Service Charge (NO percentage, exactly as requested!)
+  if (Number(bill.service_charge_amount || 0) > 0) {
+    payload.push(...encoder.encode(formatKeyValueLine('Service Charge:', `P${Number(bill.service_charge_amount).toFixed(2)}`, 32) + '\n'));
+  }
+
+  if (Number(bill.vat_amount || 0) > 0) {
+    payload.push(...encoder.encode(formatKeyValueLine('12% VAT:', `P${Number(bill.vat_amount).toFixed(2)}`, 32) + '\n'));
+  }
+
+  payload.push(...encoder.encode('--------------------------------\n'));
+  payload.push(...BOLD_ON);
+  const totalStr = `P${Number(bill.payable_total || 0).toFixed(2)}`;
+  payload.push(...encoder.encode(formatKeyValueLine('TOTAL AMOUNT DUE:', totalStr, 32) + '\n'));
+  payload.push(...BOLD_OFF);
+  payload.push(...encoder.encode('--------------------------------\n'));
+
+  payload.push(...ALIGN_CENTER);
+  payload.push(...encoder.encode('FOR BILLING PURPOSES ONLY\n'));
+  if (Number(bill.discount_amount || 0) > 0) {
+    payload.push(...encoder.encode('Discounts already applied.\n'));
+  } else {
+    payload.push(...encoder.encode('Present Senior/PWD ID before pay.\n'));
+  }
+  payload.push(...encoder.encode('Thank you for dining with us!\n'));
+
+  payload.push(...encoder.encode('\n\n\n'));
+  payload.push(...CUT);
+  await sendToGlobalThermalPrinter(new Uint8Array(payload));
+}
+

@@ -181,7 +181,7 @@ export const UserManagement: React.FC = () => {
     super_admin: [
       'dashboard', 'pos', 'queue-caller', 'sales-history', 'z-read-history', 'expenses', 'inventory', 'global-inventory',
       'receiving', 'transfers', 'transfers_dispatch', 'transfers_receive', 'adjustments', 'portioning',
-      'transactions', 'kitchen-receipts', 'recipes', 'branches', 'analytics', 'audit-logs', 'users', 'settings',
+      'transactions', 'kitchen-receipts', 'recipes', 'branches', 'table-management', 'analytics', 'audit-logs', 'users', 'settings',
       'action_buttons', 'sales_void'
     ],
     inventory_manager: [
@@ -191,7 +191,7 @@ export const UserManagement: React.FC = () => {
     ],
     branch_manager: [
       'dashboard', 'pos', 'sales-history', 'z-read-history', 'expenses', 'inventory', 'global-inventory',
-      'transfers', 'transfers_receive', 'adjustments', 'recipes', 'analytics', 'settings',
+      'transfers', 'transfers_receive', 'adjustments', 'recipes', 'table-management', 'analytics', 'settings',
       'sales_void', 'restrict_adjustment_edits'
     ],
     cashier: [
@@ -221,6 +221,7 @@ export const UserManagement: React.FC = () => {
     'kitchen-receipts': 'kitchen_receipts',
     recipes: 'recipes',
     branches: 'branches',
+    'table-management': 'table_management',
     analytics: 'analytics',
     'audit-logs': 'audit_logs',
     users: 'users',
@@ -257,6 +258,7 @@ export const UserManagement: React.FC = () => {
     { id: 'kitchen-receipts', name: 'Kitchen Orders' },
     { id: 'recipes', name: 'Recipes' },
     { id: 'branches', name: 'Branches' },
+    { id: 'table-management', name: 'Table Management' },
     { id: 'analytics', name: 'Analytics' },
     { id: 'audit-logs', name: 'Audit Logs' },
     { id: 'users', name: 'Staff Management' },

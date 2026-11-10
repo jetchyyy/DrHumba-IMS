@@ -26,6 +26,9 @@ export interface CartItem {
   needsAdjustment?: boolean;
   notes?: string;
   price_adjustment_reason?: string;
+  tab_item_id?: string;
+  round_number?: number;
+  kitchen_status?: 'pending' | 'sent' | 'served' | 'cancelled';
 }
 
 export interface ItemAvailability {
@@ -71,6 +74,10 @@ export interface PaymentDialogProps {
   initialSubStore: any | null;
   serviceChargeRate?: number;
   priceChannel?: PriceChannel;
+  initialDiscountType?: string | null;
+  initialDiscountAmount?: number;
+  initialDiscountMetadata?: any[];
+  initialGroupSize?: number;
 }
 
 export interface LastSaleResult {
@@ -152,3 +159,48 @@ export const QUICK_CASH_AMOUNTS = (total: number): number[] => {
     .sort((a, b) => a - b)
     .slice(0, 4);
 };
+
+export interface RestaurantTable {
+  id: string;
+  tenant_id?: string;
+  branch_id: string;
+  table_number: string;
+  zone: string;
+  capacity: number;
+  status: 'available' | 'occupied' | 'billed_out' | 'cleaning' | 'reserved';
+  is_active: boolean;
+  current_tab_id?: string | null;
+  created_at?: string;
+}
+
+export interface PosTab {
+  id: string;
+  tenant_id?: string;
+  branch_id: string;
+  table_id: string;
+  server_id?: string | null;
+  server_name?: string | null;
+  pax_count: number;
+  status: 'open' | 'billed_out' | 'settled' | 'cancelled';
+  notes?: string | null;
+  discount_type?: string | null;
+  discount_amount?: number;
+  discount_metadata?: any[];
+  sale_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  closed_at?: string | null;
+}
+
+export interface PosTabItem {
+  id?: string;
+  tab_id?: string;
+  menu_item_id: string;
+  quantity: number;
+  price: number;
+  notes?: string | null;
+  round_number: number;
+  kitchen_status: 'pending' | 'sent' | 'served' | 'cancelled';
+  name?: string;
+}
+

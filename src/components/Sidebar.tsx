@@ -25,6 +25,7 @@ import {
   ReloadIcon as Spinner,
   CardStackIcon as ExpensesIcon,
   SpeakerLoudIcon as Megaphone,
+  TableIcon,
   ChevronLeftIcon,
   ChevronRightIcon
 } from '@radix-ui/react-icons';
@@ -57,6 +58,7 @@ const TAB_FEATURE_KEYS: Record<string, string> = {
   'kitchen-receipts': 'kitchen_receipts',
   recipes: 'recipes',
   branches: 'branches',
+  'table-management': 'table_management',
   analytics: 'analytics',
   'audit-logs': 'audit_logs',
   users: 'users',
@@ -90,6 +92,7 @@ export const useNavItems = () => {
     { id: 'kitchen-receipts', name: 'Kitchen Orders', icon: ChefHat, show: isRestaurant },
     { id: 'recipes', name: isRestaurant ? 'Recipes' : 'Products & Services', icon: ChefHat, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
     { id: 'branches', name: 'Branches', icon: Store, show: ['super_admin', 'auditor'].includes(role) },
+    { id: 'table-management', name: 'Table Management', icon: TableIcon, show: isRestaurant && ['super_admin', 'branch_manager'].includes(role) },
     { id: 'analytics', name: 'Analytics', icon: BarChart3, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
     { id: 'audit-logs', name: 'Audit Logs', icon: FileText, show: ['super_admin', 'auditor'].includes(role) },
     { id: 'users', name: 'Staff Management', icon: Users, show: ['super_admin'].includes(role) },

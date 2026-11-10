@@ -2593,3 +2593,205 @@ export const printRankingsPDFReport = (
   printWindow.document.write(html);
   printWindow.document.close();
 };
+
+export interface RunningBillSlipData {
+  branch_name: string;
+  table_number: string;
+  pax_count?: number;
+  server_name?: string;
+  cashier_email?: string;
+  created_at?: string;
+  tab_id?: string;
+  items: Array<{
+    name: string;
+    quantity: number;
+    price: number;
+    subtotal?: number;
+    notes?: string;
+    round_number?: number;
+  }>;
+  subtotal: number;
+  discount_type?: string | null;
+  discount_amount?: number;
+  discount_metadata?: any;
+  vat_exempt_amount?: number;
+  service_charge_amount?: number;
+  vatable_sales?: number;
+  vat_amount?: number;
+  payable_total: number;
+}
+
+export const printRunningBillSlip = (bill: RunningBillSlipData, template: SalesInvoiceTemplate) => {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Please allow popups to generate the bill slip.');
+    return;
+  }
+
+  const itemsHtml = bill.items.map((item: any) => {
+    const itemSub = Number(item.subtotal ?? (item.quantity * item.price));
+    const noteHtml = item.notes ? `
+      <div style="font-size: 0.85em; font-style: italic; color: #444; margin-left: 8px;">
+        * ${item.notes}
+      </div>
+    ` : '';
+
+    return `
+      <div style="margin-bottom: 5px;">
+        <div style="font-weight: bold; text-transform: uppercase;">${item.name}</div>
+        <div style="display: flex; justify-content: space-between; font-family: monospace;">
+          <span>  ${item.quantity} x ₱${Number(item.price).toFixed(2)}</span>
+          <span>₱${itemSub.toFixed(2)}</span>
+        </div>
+        ${noteHtml}
+      </div>
+    `;
+  }).join('');
+
+  const logoHtml = template.logo_url
+    ? `<div class="centered" style="margin-bottom: 8px;">
+         <img src="${template.logo_url}" style="max-height: 55px; max-width: 100%; object-fit: contain;" />
+       </div>`
+    : '';
+
+  const dateStr = new Date(bill.created_at || new Date()).toLocaleString();
+  const widthStyle = template.paper_width === '58mm' ? '54mm' : '76mm';
+  const fontSizeStyle = template.font_size === 'small' ? '11px' : template.font_size === 'large' ? '14px' : '12px';
+
+  let discountLabel = 'Discount';
+  if (bill.discount_type === 'sc') discountLabel = 'Senior Citizen (20%)';
+  else if (bill.discount_type === 'pwd') discountLabel = 'PWD Discount (20%)';
+  else if (bill.discount_type === 'solo') discountLabel = 'Solo Parent (10%)';
+  else if (bill.discount_type === 'custom') discountLabel = 'Special Discount';
+
+  let discountIdStr = '';
+  if (Array.isArray(bill.discount_metadata) && bill.discount_metadata.length > 0) {
+    const idItem = bill.discount_metadata[0];
+    if (idItem?.id_number || idItem?.idNumber) {
+      discountIdStr = ` (ID: ${idItem.id_number || idItem.idNumber})`;
+    }
+  }
+
+  const html = `
+    <html>
+      <head>
+        <title>Running Bill - ${bill.table_number}</title>
+        <style>
+          @page { margin: 0; }
+          body {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: ${fontSizeStyle};
+            line-height: 1.3;
+            color: #000000;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 8px;
+            width: ${widthStyle};
+          }
+          .centered { text-align: center; }
+          .bold { font-weight: bold; }
+          .separator { border-top: 1px dashed #000000; margin: 7px 0; }
+          .flex-between { display: flex; justify-content: space-between; }
+        </style>
+      </head>
+      <body>
+        <div>
+          ${logoHtml}
+          <div class="centered bold" style="font-size: 1.15em;">${template.merchant_name || 'RESTAURANT'}</div>
+          <div class="centered">${bill.branch_name}</div>
+          ${template.merchant_address ? `<div class="centered">${template.merchant_address}</div>` : ''}
+          ${template.merchant_tin ? `<div class="centered">TIN: ${template.merchant_tin}</div>` : ''}
+
+          <div class="separator"></div>
+          <div class="centered bold" style="font-size: 1.1em; letter-spacing: 0.5px;">
+            *** GUEST CHECK / RUNNING BILL ***
+          </div>
+          <div class="centered bold" style="font-size: 0.8em; margin-bottom: 4px;">
+            (THIS IS NOT AN OFFICIAL SALES INVOICE)
+          </div>
+          <div class="separator"></div>
+
+          <div class="flex-between bold" style="font-size: 1.05em;">
+            <span>TABLE: ${bill.table_number.toUpperCase()}</span>
+            <span>PAX: ${bill.pax_count || 1}</span>
+          </div>
+          <div class="flex-between">
+            <span>Date & Time:</span>
+            <span>${dateStr}</span>
+          </div>
+          ${bill.server_name ? `
+          <div class="flex-between">
+            <span>Server:</span>
+            <span>${bill.server_name}</span>
+          </div>` : ''}
+          ${bill.cashier_email ? `
+          <div class="flex-between">
+            <span>Staff:</span>
+            <span>${bill.cashier_email.split('@')[0]}</span>
+          </div>` : ''}
+
+          <div class="separator"></div>
+          <div class="bold" style="margin-bottom: 6px;">ORDERED ITEMS:</div>
+          ${itemsHtml}
+
+          <div class="separator"></div>
+          <div class="flex-between">
+            <span>Subtotal (Gross):</span>
+            <span>₱${Number(bill.subtotal || 0).toFixed(2)}</span>
+          </div>
+
+          ${(Number(bill.vat_exempt_amount) || 0) > 0 ? `
+          <div class="flex-between">
+            <span>Less VAT Relief (12%):</span>
+            <span>-₱${Number(bill.vat_exempt_amount).toFixed(2)}</span>
+          </div>` : ''}
+
+          ${(Number(bill.discount_amount) || 0) > 0 ? `
+          <div class="flex-between bold">
+            <span>Less ${discountLabel}${discountIdStr}:</span>
+            <span>-₱${Number(bill.discount_amount).toFixed(2)}</span>
+          </div>` : ''}
+
+          ${(Number(bill.service_charge_amount) || 0) > 0 ? `
+          <div class="flex-between">
+            <span>Service Charge:</span>
+            <span>₱${Number(bill.service_charge_amount).toFixed(2)}</span>
+          </div>` : ''}
+
+          ${(Number(bill.vat_amount) || 0) > 0 ? `
+          <div class="flex-between" style="font-size: 0.9em; color: #444;">
+            <span>12% VAT:</span>
+            <span>₱${Number(bill.vat_amount).toFixed(2)}</span>
+          </div>` : ''}
+
+          <div class="separator"></div>
+          <div class="flex-between bold" style="font-size: 1.15em; margin: 4px 0;">
+            <span>TOTAL AMOUNT DUE:</span>
+            <span>₱${Number(bill.payable_total || 0).toFixed(2)}</span>
+          </div>
+          <div class="separator"></div>
+
+          <div class="centered" style="font-size: 0.85em; margin-top: 8px;">
+            <div class="bold">FOR BILLING PURPOSES ONLY</div>
+            ${(Number(bill.discount_amount) || 0) > 0 
+              ? `<div>Discounts are already reflected above.</div>` 
+              : `<div>Present Senior/PWD ID before payment to apply discount.</div>`
+            }
+            <div style="margin-top: 4px;">Thank you for dining with us!</div>
+          </div>
+        </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          };
+        </script>
+      </body>
+    </html>
+  `;
+
+  printWindow.document.write(html);
+  printWindow.document.close();
+};

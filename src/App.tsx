@@ -31,6 +31,7 @@ import { ZReadHistory } from './components/ZReadHistory';
 import { Expenses } from './components/Expenses';
 import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen';
 import { KitchenReceipts } from './components/KitchenReceipts';
+import { TableManagement } from './components/TableManagement';
 import { Pig404 } from './components/Pig404';
 import { CustomerDisplay } from './components/CustomerDisplay';
 import { QueueCaller } from './components/QueueCaller';
@@ -675,6 +676,8 @@ const AppContent: React.FC = () => {
         return <Recipes />;
       case 'branches':
         return <BranchManagement />;
+      case 'table-management':
+        return <TableManagement />;
       case 'analytics':
         return <Analytics />;
       case 'expenses':

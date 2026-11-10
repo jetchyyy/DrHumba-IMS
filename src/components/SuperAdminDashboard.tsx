@@ -200,6 +200,7 @@ export const SuperAdminDashboard: React.FC = () => {
     kitchen_receipts: 'Kitchen Orders Queue',
     recipes: 'Menu Recipes & Deductions',
     branches: 'Branch Management',
+    table_management: 'Table Management & Dining',
     analytics: 'Analytics Charts',
     audit_logs: 'System Audit Logs',
     users: 'Staff Management Tab',

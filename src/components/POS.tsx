@@ -21,8 +21,9 @@ import {
 } from '../lib/offlineService';
 import type { TerminalConfig } from '../lib/offlineService';
 import { settingsService } from '../lib/settingsService';
-import { printXZReport, printQueueNumberTicket, printThermalInvoice, printKitchenReceipt } from '../lib/printService';
-import { printBluetoothThermalInvoice, printBluetoothKitchenReceipt, ensureBluetoothPrinter, printBluetoothXZReport } from '../lib/bluetoothPrinter';
+import { printXZReport, printQueueNumberTicket, printThermalInvoice, printKitchenReceipt, printRunningBillSlip } from '../lib/printService';
+import type { RunningBillSlipData } from '../lib/printService';
+import { printBluetoothThermalInvoice, printBluetoothKitchenReceipt, ensureBluetoothPrinter, printBluetoothXZReport, printBluetoothRunningBill } from '../lib/bluetoothPrinter';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
@@ -42,12 +43,16 @@ import type {
   LastSaleResult,
   EditingPriceItem,
   PriceChannel,
+  RestaurantTable,
+  PosTab,
 } from "./pos/types";
 import {
   COMMON_ITEM_NOTES,
   formatPHP,
 } from "./pos/types";
 import { PaymentDialog } from "./pos/PaymentDialog";
+import { TableFloorDialog } from "./pos/TableFloorDialog";
+import { TabDiscountModal } from "./pos/TabDiscountModal";
 import {
   MatchPriceDialog,
   SaleSuccessDialog,
@@ -74,7 +79,7 @@ export const POS: React.FC<POSProps> = ({
   onToggleFullscreen,
 }) => {
   const { selectedBranch, profile, branches } = useAuth();
-  const { showSuccess, showError } = useModal();
+  const { showSuccess, showError, confirm } = useModal();
   const { isOnline } = useNetworkStatus();
   const vocab = useBusinessVocab();
   const { tenant } = useTenant();
@@ -150,6 +155,16 @@ export const POS: React.FC<POSProps> = ({
   const [editingPriceItem, setEditingPriceItem] = useState<EditingPriceItem | null>(null);
   const [priceAdjustmentInput, setPriceAdjustmentInput] = useState<string>('');
   const [priceAdjustmentReason, setPriceAdjustmentReason] = useState<string>('Platform Campaign Promo');
+
+  // Table Service & Running Bills States
+  const [activeTable, setActiveTable] = useState<RestaurantTable | null>(null);
+  const [activeTab, setActiveTab] = useState<PosTab | null>(null);
+  const [tableFloorOpen, setTableFloorOpen] = useState(false);
+  const [tabDiscountOpen, setTabDiscountOpen] = useState(false);
+  const [tabDiscountType, setTabDiscountType] = useState<string | null>(null);
+  const [tabDiscountAmount, setTabDiscountAmount] = useState<number>(0);
+  const [tabDiscountMetadata, setTabDiscountMetadata] = useState<any[]>([]);
+  const [firingKitchen, setFiringKitchen] = useState(false);
 
   // Offline and Terminal Sync states
   const [terminalConfig, setTerminalConfig] = useState<TerminalConfig | null>(null);
@@ -258,6 +273,12 @@ export const POS: React.FC<POSProps> = ({
   const effectiveCartSCRate = isCartDineIn ? serviceChargeRate : 0;
   const serviceChargeAmount = effectiveCartSCRate > 0 ? Number((cartTotal * (effectiveCartSCRate / 100)).toFixed(2)) : 0;
   const cartTotalWithSC = Number((cartTotal + serviceChargeAmount).toFixed(2));
+
+  const tabVatRelief = tabDiscountMetadata?.[0]?.vat_relief || 0;
+  const runningTabTotalDue = Math.max(0, Number((cartTotal - tabVatRelief - tabDiscountAmount + serviceChargeAmount).toFixed(2)));
+  const finalCartTotal = activeTable && tabDiscountAmount > 0 ? runningTabTotalDue : cartTotalWithSC;
+  const unsentCount = cart.filter(ci => ci.kitchen_status !== 'sent').length;
+  const hasUnsentItems = Boolean(activeTable && unsentCount > 0);
 
   // Set up Supabase Realtime sync channel
   useEffect(() => {
@@ -873,6 +894,265 @@ export const POS: React.FC<POSProps> = ({
   const removeFromCart = (menuItemId: string) =>
     setCart(prev => prev.filter(ci => ci.menu_item_id !== menuItemId));
 
+  // ─── Table Service & Running Bills Handlers ─────────────────
+
+  const handleSelectTable = async (table: RestaurantTable, tab: PosTab | null) => {
+    setActiveTable(table);
+    setActiveTab(tab);
+
+    if (tab) {
+      if (tab.discount_type) {
+        setTabDiscountType(tab.discount_type);
+        setTabDiscountAmount(Number(tab.discount_amount || 0));
+        setTabDiscountMetadata(tab.discount_metadata || []);
+      } else {
+        setTabDiscountType(null);
+        setTabDiscountAmount(0);
+        setTabDiscountMetadata([]);
+      }
+
+      if (tab.notes) {
+        setOrderKitchenNote(tab.notes);
+      }
+
+      // Fetch existing items for this tab
+      try {
+        const { data: tabItems, error } = await supabase
+          .from('pos_tab_items')
+          .select(`
+            id,
+            menu_item_id,
+            quantity,
+            price,
+            notes,
+            round_number,
+            kitchen_status,
+            menu_items (name)
+          `)
+          .eq('tab_id', tab.id)
+          .order('round_number', { ascending: true })
+          .order('created_at', { ascending: true });
+
+        if (error) throw error;
+
+        const loadedCart: CartItem[] = (tabItems || []).map((ti: any) => ({
+          menu_item_id: ti.menu_item_id,
+          name: ti.menu_items?.name || 'Menu Item',
+          price: Number(ti.price),
+          quantity: ti.quantity,
+          notes: ti.notes || undefined,
+          tab_item_id: ti.id,
+          round_number: ti.round_number || 1,
+          kitchen_status: ti.kitchen_status || 'sent',
+        }));
+
+        setCart(loadedCart);
+      } catch (err: any) {
+        console.error('Error fetching tab items:', err);
+        showError('Failed to load table items');
+      }
+    } else {
+      setCart([]);
+      setTabDiscountType(null);
+      setTabDiscountAmount(0);
+      setTabDiscountMetadata([]);
+      setOrderKitchenNote('');
+    }
+  };
+
+  const handleExitTableView = () => {
+    setActiveTable(null);
+    setActiveTab(null);
+    setCart([]);
+    setTabDiscountType(null);
+    setTabDiscountAmount(0);
+    setTabDiscountMetadata([]);
+    setOrderKitchenNote('');
+  };
+
+  const handleFireToKitchen = async () => {
+    if (!activeTable || !activeTab) return;
+    const pendingItems = cart.filter(ci => ci.kitchen_status !== 'sent');
+    if (pendingItems.length === 0) {
+      showError('All items in the cart have already been sent to the kitchen.');
+      return;
+    }
+
+    setFiringKitchen(true);
+    try {
+      const nextRound = Math.max(0, ...cart.map(c => c.round_number || 0)) + 1;
+
+      // Insert into pos_tab_items
+      const rows = pendingItems.map(item => ({
+        tenant_id: tenant?.id,
+        tab_id: activeTab.id,
+        menu_item_id: item.menu_item_id,
+        quantity: item.quantity,
+        price: item.price,
+        notes: item.notes || null,
+        round_number: nextRound,
+        kitchen_status: 'sent',
+      }));
+
+      const { error } = await supabase
+        .from('pos_tab_items')
+        .insert(rows);
+
+      if (error) throw error;
+
+      // Print Kitchen Ticket for this round
+      const settings = await settingsService.getSettings();
+      const kitchenPayload = {
+        branch_name: selectedBranch?.name || 'Main Branch',
+        table_number: activeTable.table_number,
+        server_name: activeTab.server_name || profile?.full_name || 'Staff',
+        sale_category: `Table ${activeTable.table_number} (Round ${nextRound})`,
+        notes: orderKitchenNote.trim() || undefined,
+        created_at: new Date().toISOString(),
+        items: pendingItems.map(p => ({
+          item_name: p.name,
+          quantity: p.quantity,
+          notes: p.notes,
+        })),
+      };
+
+      try {
+        printKitchenReceipt(kitchenPayload, settings.sales_invoice);
+      } catch (printErr) {
+        console.warn('System kitchen print failed:', printErr);
+      }
+
+      try {
+        await printBluetoothKitchenReceipt(kitchenPayload);
+      } catch (btErr) {
+        // Bluetooth optional
+      }
+
+      // Update cart items in state
+      setCart(prev =>
+        prev.map(item => {
+          if (item.kitchen_status !== 'sent') {
+            return {
+              ...item,
+              kitchen_status: 'sent',
+              round_number: nextRound,
+            };
+          }
+          return item;
+        })
+      );
+
+      showSuccess(`Round ${nextRound} fired to kitchen for ${activeTable.table_number}!`);
+    } catch (err: any) {
+      console.error('Error firing round to kitchen:', err);
+      showError(err.message || 'Failed to send round to kitchen.');
+    } finally {
+      setFiringKitchen(false);
+    }
+  };
+
+  const handlePrintBillOut = async () => {
+    if (!activeTable || !activeTab) return;
+    if (cart.length === 0) {
+      showError('Cannot print a bill for an empty table.');
+      return;
+    }
+
+    try {
+      const hasUnfired = cart.some(ci => ci.kitchen_status !== 'sent');
+      if (hasUnfired) {
+        const proceed = await confirm(
+          'Unfired Items in Cart',
+          'Some newly added items have not been sent to the kitchen yet. Include them in this bill anyway?'
+        );
+        if (!proceed) return;
+      }
+
+      const settings = await settingsService.getSettings();
+      const vatRelief = tabDiscountMetadata?.[0]?.vat_relief || 0;
+      const finalDue = Math.max(0, Number((cartTotal - vatRelief - tabDiscountAmount + serviceChargeAmount).toFixed(2)));
+
+      const billData: RunningBillSlipData = {
+        branch_name: selectedBranch?.name || 'Main Branch',
+        table_number: activeTable.table_number,
+        pax_count: activeTab.pax_count || 1,
+        server_name: activeTab.server_name || profile?.full_name || 'Staff',
+        cashier_email: profile?.email || '',
+        created_at: activeTab.created_at || new Date().toISOString(),
+        tab_id: activeTab.id,
+        items: cart.map(ci => ({
+          name: ci.name,
+          quantity: ci.quantity,
+          price: ci.price,
+          subtotal: ci.price * ci.quantity,
+          notes: ci.notes,
+          round_number: ci.round_number,
+        })),
+        subtotal: cartTotal,
+        discount_type: tabDiscountType,
+        discount_amount: tabDiscountAmount,
+        discount_metadata: tabDiscountMetadata,
+        vat_exempt_amount: vatRelief,
+        service_charge_amount: serviceChargeAmount, // NO percentage displayed!
+        payable_total: finalDue,
+      };
+
+      // Print via browser
+      printRunningBillSlip(billData, settings.sales_invoice);
+
+      // Print via Bluetooth if connected
+      try {
+        await printBluetoothRunningBill(billData, settings.sales_invoice);
+      } catch (btErr) {
+        // Bluetooth optional
+      }
+
+      // Update pos_tabs status to 'billed_out'
+      await supabase
+        .from('pos_tabs')
+        .update({
+          status: 'billed_out',
+          discount_type: tabDiscountType,
+          discount_amount: tabDiscountAmount,
+          discount_metadata: tabDiscountMetadata,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', activeTab.id);
+
+      setActiveTab(prev => prev ? { ...prev, status: 'billed_out' } : null);
+      showSuccess(`Bill Out slip printed for ${activeTable.table_number}!`);
+    } catch (err: any) {
+      console.error('Error printing bill out:', err);
+      showError(err.message || 'Failed to print bill slip.');
+    }
+  };
+
+  const handleApplyTabDiscount = async (
+    discountType: string | null,
+    discountAmount: number,
+    metadata: any[]
+  ) => {
+    setTabDiscountType(discountType);
+    setTabDiscountAmount(discountAmount);
+    setTabDiscountMetadata(metadata);
+
+    if (activeTab?.id) {
+      try {
+        await supabase
+          .from('pos_tabs')
+          .update({
+            discount_type: discountType,
+            discount_amount: discountAmount,
+            discount_metadata: metadata,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', activeTab.id);
+      } catch (err) {
+        console.error('Failed to save tab discount:', err);
+      }
+    }
+  };
+
   const updateCartItemNote = (menuItemId: string, note: string) => {
     setCart(prev =>
       prev.map(ci =>
@@ -1008,6 +1288,26 @@ export const POS: React.FC<POSProps> = ({
           vat_amount: discountedItems.reduce((acc, p) => acc + (p.vat_amount || 0), 0),
           vat_exempt_sales: discountedItems.reduce((acc, p) => acc + (p.vat_exempt_sales || 0), 0)
         } as any);
+
+        if (activeTab?.id) {
+          try {
+            await supabase
+              .from('pos_tabs')
+              .update({
+                status: 'settled',
+                sale_id: saleId,
+                closed_at: new Date().toISOString(),
+              })
+              .eq('id', activeTab.id);
+          } catch (tabErr) {
+            console.error('Error settling tab:', tabErr);
+          }
+          setActiveTable(null);
+          setActiveTab(null);
+          setTabDiscountType(null);
+          setTabDiscountAmount(0);
+          setTabDiscountMetadata([]);
+        }
 
         setCart([]);
         setOrderKitchenNote('');
@@ -1178,6 +1478,48 @@ export const POS: React.FC<POSProps> = ({
         )}
       </div>
 
+      {/* Active Table Banner */}
+      {activeTable && (
+        <div className="p-3 mx-3 sm:mx-4 mt-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center justify-between">
+          <div className="min-w-0 pr-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-black text-sm text-rose-600 dark:text-rose-400">🍽️ {activeTable.table_number}</span>
+              <Badge variant="outline" className="text-[10px] h-4 font-bold border-rose-500/40 text-rose-600">
+                {activeTab?.pax_count || 1} Guests
+              </Badge>
+              {activeTab?.status === 'billed_out' && (
+                <Badge className="bg-amber-500 text-black text-[9px] h-4 font-bold uppercase">
+                  Billed Out
+                </Badge>
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+              Server: {activeTab?.server_name || 'Staff'} {activeTab?.notes ? `• ${activeTab.notes}` : ''}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setTableFloorOpen(true)}
+              className="h-7 text-xs px-2 border-rose-500/30 hover:bg-rose-500/10"
+              title="Switch to another table"
+            >
+              Switch
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleExitTableView}
+              className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
+              title="Exit table view (keeps tab running in background)"
+            >
+              Exit
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Items */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 min-h-0 w-full space-y-3">
         {cart.map(item => (
@@ -1192,6 +1534,17 @@ export const POS: React.FC<POSProps> = ({
                       <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-amber-400 text-amber-700 dark:text-amber-300 bg-amber-500/10 font-bold whitespace-nowrap">
                         Alt Prep
                       </Badge>
+                    )}
+                    {activeTable && (
+                      item.kitchen_status === 'sent' ? (
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-emerald-500/40 text-emerald-600 bg-emerald-500/10 font-bold whitespace-nowrap">
+                          ✓ Sent (Round {item.round_number || 1})
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-amber-500/40 text-amber-600 bg-amber-500/10 font-bold whitespace-nowrap">
+                          🔥 Ready to Fire
+                        </Badge>
+                      )
                     )}
                   </div>
                 </div>
@@ -1456,7 +1809,35 @@ export const POS: React.FC<POSProps> = ({
           </div>
         )}
 
+        {/* Customer Pre-Bill Discount (When table is active) */}
+        {activeTable && (
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="font-bold text-amber-700 dark:text-amber-300 truncate">
+                {tabDiscountAmount > 0
+                  ? `${tabDiscountType === 'sc' ? 'Senior' : tabDiscountType === 'pwd' ? 'PWD' : 'Discount'}: -${formatPHP(tabDiscountAmount)}`
+                  : 'Customer Discount'}
+              </span>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setTabDiscountOpen(true)}
+              className="h-7 text-xs border-amber-500/40 text-amber-700 dark:text-amber-300 font-bold hover:bg-amber-500/20 px-2.5 shrink-0"
+            >
+              {tabDiscountAmount > 0 ? 'Edit' : '+ Apply (SC/PWD)'}
+            </Button>
+          </div>
+        )}
+
         <div className="space-y-1.5">
+          {activeTable && tabDiscountAmount > 0 && (
+            <div className="flex justify-between items-center text-xs text-amber-600 dark:text-amber-400 font-medium">
+              <span>Customer Discount:</span>
+              <span>-{formatPHP(tabDiscountAmount)}</span>
+            </div>
+          )}
           {serviceChargeAmount > 0 && (
             <div className="flex justify-between items-center text-xs">
               <span className="text-muted-foreground font-medium">Service Charge:</span>
@@ -1467,7 +1848,7 @@ export const POS: React.FC<POSProps> = ({
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-black">
               Total Due ({cartCount} {cartCount === 1 ? 'item' : 'items'})
             </span>
-            <span className="text-primary text-3xl font-black">{formatPHP(cartTotalWithSC)}</span>
+            <span className="text-primary text-3xl font-black">{formatPHP(finalCartTotal)}</span>
           </div>
         </div>
 
@@ -1489,14 +1870,56 @@ export const POS: React.FC<POSProps> = ({
           </div>
         )}
 
-        <Button
-          size="lg"
-          className="w-full font-black shadow-lg h-14 text-base active:scale-[0.99] transition-transform rounded-xl"
-          onClick={openPayment}
-          disabled={checkingOut || cart.length === 0 || !selectedBranch || (!isOnline && !terminalConfig)}
-        >
-          {checkingOut ? 'Processing…' : 'Charge & Collect Payment'}
-        </Button>
+        {/* Action Buttons: Table Running Bill Mode vs Counter Direct-to-Sale Mode */}
+        {activeTable ? (
+          <div className="space-y-2">
+            {hasUnsentItems && (
+              <Button
+                type="button"
+                size="lg"
+                onClick={handleFireToKitchen}
+                disabled={firingKitchen}
+                className="w-full font-bold h-11 text-xs bg-amber-500 hover:bg-amber-600 text-black active:scale-[0.99] transition-transform rounded-xl gap-1.5 shadow-sm"
+              >
+                {firingKitchen ? <Spinner className="w-4 h-4 animate-spin" /> : <span>🔥</span>}
+                <span>Fire Unsent Items to Kitchen ({unsentCount})</span>
+              </Button>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                className="font-bold h-12 text-xs border-primary/40 text-primary hover:bg-primary/10 rounded-xl gap-1.5"
+                onClick={handlePrintBillOut}
+                disabled={cart.length === 0}
+              >
+                <span>🧾</span>
+                <span>Print Bill Out</span>
+              </Button>
+              <Button
+                type="button"
+                size="lg"
+                className="font-black h-12 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl gap-1.5 shadow-md active:scale-[0.99] transition-transform"
+                onClick={openPayment}
+                disabled={checkingOut || cart.length === 0 || !selectedBranch || (!isOnline && !terminalConfig)}
+              >
+                <span>💳</span>
+                <span>{checkingOut ? 'Processing…' : 'Settle & Pay'}</span>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            size="lg"
+            className="w-full font-black shadow-lg h-14 text-base active:scale-[0.99] transition-transform rounded-xl"
+            onClick={openPayment}
+            disabled={checkingOut || cart.length === 0 || !selectedBranch || (!isOnline && !terminalConfig)}
+          >
+            {checkingOut ? 'Processing…' : 'Charge & Collect Payment'}
+          </Button>
+        )}
       </div>
     </>
   );
@@ -1584,6 +2007,41 @@ export const POS: React.FC<POSProps> = ({
                     <Badge variant="outline" className="text-[10px] px-2 py-0.5 font-bold border-emerald-500/50 text-emerald-600 bg-emerald-500/10 whitespace-nowrap">
                       Custom Pricing Active
                     </Badge>
+                  )}
+                </div>
+              )}
+
+              {/* Table Floor Grid Button (When branch has Table Service enabled) */}
+              {selectedBranch?.enable_table_service && (
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant={activeTable ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setTableFloorOpen(true)}
+                    className={`h-8 text-xs font-bold gap-1.5 transition-all ${
+                      activeTable
+                        ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-sm ring-1 ring-rose-400/40'
+                        : 'border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10'
+                    }`}
+                    title="Open Table Floor Plan"
+                  >
+                    <span>🍽️</span>
+                    <span>
+                      {activeTable
+                        ? `${activeTable.table_number} (${activeTab?.pax_count || 1} Pax)`
+                        : 'Select Table'}
+                    </span>
+                  </Button>
+                  {activeTable && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleExitTableView}
+                      className="h-8 text-xs text-muted-foreground hover:text-foreground px-2"
+                      title="Exit table view (keeps tab running in background)"
+                    >
+                      Exit Table
+                    </Button>
                   )}
                 </div>
               )}
@@ -1877,11 +2335,46 @@ export const POS: React.FC<POSProps> = ({
         processing={checkingOut}
         onStateChange={setPaymentState}
         saleCategories={vocab.saleCategories}
-        defaultSaleCategory={priceChannel === "foodpanda" ? "Foodpanda" : priceChannel === "grab" ? "Grab" : vocab.defaultSaleCategory}
+        defaultSaleCategory={
+          activeTable
+            ? 'Dine In'
+            : priceChannel === "foodpanda"
+            ? "Foodpanda"
+            : priceChannel === "grab"
+            ? "Grab"
+            : vocab.defaultSaleCategory
+        }
         subStores={subStores}
         initialSubStore={selectedSubStore}
         serviceChargeRate={serviceChargeRate}
         priceChannel={priceChannel}
+        initialDiscountType={tabDiscountType}
+        initialDiscountAmount={tabDiscountAmount}
+        initialDiscountMetadata={tabDiscountMetadata}
+        initialGroupSize={activeTab?.pax_count || 1}
+      />
+
+      {/* Table Floor Grid Dialog */}
+      {selectedBranch && (
+        <TableFloorDialog
+          open={tableFloorOpen}
+          onClose={() => setTableFloorOpen(false)}
+          branchId={selectedBranch.id}
+          activeTableId={activeTable?.id}
+          onSelectTable={handleSelectTable}
+        />
+      )}
+
+      {/* Tab Pre-Bill Discount Modal */}
+      <TabDiscountModal
+        open={tabDiscountOpen}
+        onClose={() => setTabDiscountOpen(false)}
+        subtotal={cartTotal}
+        paxCount={activeTab?.pax_count || 1}
+        initialDiscountType={tabDiscountType}
+        initialDiscountAmount={tabDiscountAmount}
+        initialDiscountMetadata={tabDiscountMetadata}
+        onApplyDiscount={handleApplyTabDiscount}
       />
 
       {/* ─── Match Delivery Price Dialog (Foodpanda / Grab) ─── */}

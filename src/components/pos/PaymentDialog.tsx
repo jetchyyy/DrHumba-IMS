@@ -44,6 +44,10 @@ export const PaymentDialog: React.FC<PaymentDialogProps> = ({
   initialSubStore,
   serviceChargeRate = 0,
   priceChannel = 'standard',
+  initialDiscountType,
+  initialDiscountAmount: _initialDiscountAmount,
+  initialDiscountMetadata,
+  initialGroupSize,
 }) => {
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [tenderedStr, setTenderedStr] = useState('');
@@ -86,20 +90,40 @@ export const PaymentDialog: React.FC<PaymentDialogProps> = ({
       setRefNumber('');
       setQueueNumber('');
       setDialogSubStoreId(initialSubStore?.id || 'parent');
-      setApplyDiscount(false);
-      setDiscountMode('shared');
-      setDiscountType('sc');
-      setGroupSize(1);
-      setDiscountCount(1);
-      setCustomDiscountRate(20);
-      setCustomDiscountIsVatExempt(true);
-      setDeliveryPromoMode('fixed');
-      setDeliveryPromoAmount(0);
-      setDeliveryPromoRate(10);
-      setCardHolders([{ name: '', id: '' }]);
+      
+      // Initialize discount if provided (e.g. from running bill tab)
+      if (initialDiscountType) {
+        setApplyDiscount(true);
+        setDiscountMode('shared');
+        setDiscountType(initialDiscountType);
+        const meta = Array.isArray(initialDiscountMetadata) && initialDiscountMetadata.length > 0
+          ? initialDiscountMetadata[0]
+          : null;
+        const count = meta?.count || 1;
+        setGroupSize(initialGroupSize || meta?.pax_count || 1);
+        setDiscountCount(count);
+        if (meta?.id_number || meta?.name) {
+          setCardHolders([{ name: meta.name || '', id: meta.id_number || '' }]);
+        } else {
+          setCardHolders([{ name: '', id: '' }]);
+        }
+        if (meta?.custom_rate) setCustomDiscountRate(meta.custom_rate);
+      } else {
+        setApplyDiscount(false);
+        setDiscountMode('shared');
+        setDiscountType('sc');
+        setGroupSize(1);
+        setDiscountCount(1);
+        setCustomDiscountRate(20);
+        setCustomDiscountIsVatExempt(true);
+        setDeliveryPromoMode('fixed');
+        setDeliveryPromoAmount(0);
+        setDeliveryPromoRate(10);
+        setCardHolders([{ name: '', id: '' }]);
+      }
       setManualSelection({});
     }
-  }, [open, defaultSaleCategory, initialSubStore]);
+  }, [open, defaultSaleCategory, initialSubStore, initialDiscountType, initialDiscountMetadata, initialGroupSize]);
 
   // Synchronize cardholder list when count updates
   const updateDiscountCount = useCallback((newCount: number) => {
