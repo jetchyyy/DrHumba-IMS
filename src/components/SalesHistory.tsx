@@ -46,6 +46,7 @@ interface SaleRecord {
   payment_method: string | null;
   sale_category: string | null;
   reference_number: string | null;
+  queue_number?: string | null;
   amount_tendered: number | null;
   change_given: number | null;
   void_reason: string | null;
@@ -97,6 +98,7 @@ const SALE_SELECT = `
   payment_method,
   sale_category,
   reference_number,
+  queue_number,
   amount_tendered,
   change_given,
   void_reason,
@@ -130,6 +132,7 @@ const SALE_SELECT_LEGACY = `
   payment_method,
   sale_category,
   reference_number,
+  queue_number,
   amount_tendered,
   change_given,
   void_reason,
@@ -527,6 +530,7 @@ export const SalesHistory: React.FC = () => {
       payment_method: sale.payment_method || null,
       sale_category: sale.sale_category || null,
       reference_number: sale.reference_number || null,
+      queue_number: sale.queue_number || null,
       amount_tendered: sale.amount_tendered != null ? Number(sale.amount_tendered) : null,
       change_given: sale.change_given != null ? Number(sale.change_given) : null,
       void_reason: sale.void_reason || null,
@@ -604,7 +608,11 @@ export const SalesHistory: React.FC = () => {
 
     if (debouncedSearch) {
       const term = debouncedSearch.toLowerCase();
-      const clauses = [`control_number.ilike.*${debouncedSearch.replace(/[,()"*\\]/g, '')}*`];
+      const cleanTerm = debouncedSearch.replace(/[,()"*\\]/g, '');
+      const clauses = [
+        `control_number.ilike.*${cleanTerm}*`,
+        `queue_number.ilike.*${cleanTerm}*`,
+      ];
       const idRange = uuidPrefixRange(debouncedSearch);
       if (idRange) clauses.push(`and(id.gte.${idRange[0]},id.lte.${idRange[1]})`);
       const cashierIds = profilesList.filter(p => p.email?.toLowerCase().includes(term)).map(p => p.id);
@@ -1277,7 +1285,14 @@ export const SalesHistory: React.FC = () => {
                           )}
                         </TableCell>
                         <TableCell>
-                          {getCategoryBadge(sale.sale_category)}
+                          <div className="flex flex-col gap-1 items-start">
+                            {getCategoryBadge(sale.sale_category)}
+                            {sale.queue_number && (
+                              <Badge variant="outline" className="text-[10px] font-semibold text-muted-foreground border-border/80">
+                                {sale.queue_number}
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground font-mono">{sale.cashier_email}</TableCell>
                         <TableCell className="text-right font-black text-emerald-500">
@@ -1617,12 +1632,17 @@ export const SalesHistory: React.FC = () => {
                   <p className="text-muted-foreground uppercase tracking-wider text-[10px] mb-0.5">Sale Category</p>
                   <p className="font-bold capitalize">{selectedSale.sale_category || 'Dine in'}</p>
                 </div>
-                {selectedSale.reference_number && (
+                {selectedSale.queue_number ? (
+                  <div className="bg-muted/50 rounded-lg px-3 py-2 border">
+                    <p className="text-muted-foreground uppercase tracking-wider text-[10px] mb-0.5">Table / Order #</p>
+                    <p className="font-bold text-foreground">{selectedSale.queue_number}</p>
+                  </div>
+                ) : selectedSale.reference_number ? (
                   <div className="bg-muted/50 rounded-lg px-3 py-2 border">
                     <p className="text-muted-foreground uppercase tracking-wider text-[10px] mb-0.5">Reference No</p>
                     <p className="font-bold font-mono">{selectedSale.reference_number}</p>
                   </div>
-                )}
+                ) : null}
               </div>
 
               {/* Payment Summary */}

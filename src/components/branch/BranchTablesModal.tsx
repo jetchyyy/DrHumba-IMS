@@ -22,6 +22,7 @@ import {
   ReloadIcon as Spinner,
   CheckIcon as Check,
   Cross2Icon as X,
+  TableIcon,
 } from '@radix-ui/react-icons';
 
 export interface RestaurantTable {
@@ -286,7 +287,7 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pr-6">
             <div>
               <DialogTitle className="text-lg font-bold flex items-center gap-2">
-                <span>🍽️ Manage Tables</span>
+                <span>Manage Tables</span>
                 <span className="text-muted-foreground font-normal text-sm">
                   &bull; {branch?.name}
                 </span>
@@ -420,7 +421,7 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
         {showQuickGen && (
           <form onSubmit={handleQuickGenerate} className="p-4 bg-muted/40 rounded-xl border border-border/80 space-y-3">
             <div className="font-semibold text-xs text-foreground">
-              ⚡ Quick Batch Generate Tables
+              Quick Batch Generate Tables
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div className="space-y-1">
@@ -500,8 +501,8 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
             </div>
           ) : tables.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-muted-foreground text-center p-6">
-              <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center mb-2 text-xl">
-                🍽️
+              <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center mb-2">
+                <TableIcon className="w-5 h-5 text-muted-foreground" />
               </div>
               <p className="text-sm font-medium text-foreground">No tables configured</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-sm">

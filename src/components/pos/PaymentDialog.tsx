@@ -48,6 +48,7 @@ export const PaymentDialog: React.FC<PaymentDialogProps> = ({
   initialDiscountAmount: _initialDiscountAmount,
   initialDiscountMetadata,
   initialGroupSize,
+  initialQueueNumber,
 }) => {
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [tenderedStr, setTenderedStr] = useState('');
@@ -88,7 +89,7 @@ export const PaymentDialog: React.FC<PaymentDialogProps> = ({
       setSaleCategory(defaultSaleCategory);
       setCustomCategory('');
       setRefNumber('');
-      setQueueNumber('');
+      setQueueNumber(initialQueueNumber || '');
       setDialogSubStoreId(initialSubStore?.id || 'parent');
       
       // Initialize discount if provided (e.g. from running bill tab)

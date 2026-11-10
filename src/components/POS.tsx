@@ -12,6 +12,7 @@ import {
   Cross2Icon as X,
   Pencil1Icon as Edit3,
   ChatBubbleIcon as MessageSquare,
+  TableIcon,
 } from '@radix-ui/react-icons';
 import {
   getTerminalConfig,
@@ -45,6 +46,7 @@ import type {
   PriceChannel,
   RestaurantTable,
   PosTab,
+  KitchenOrderSentPayload,
 } from "./pos/types";
 import {
   COMMON_ITEM_NOTES,
@@ -56,6 +58,8 @@ import { TabDiscountModal } from "./pos/TabDiscountModal";
 import {
   MatchPriceDialog,
   SaleSuccessDialog,
+  KitchenOrderSentDialog,
+  BillOutDialog,
   OpenSessionDialog,
   XReadDialog,
   ZReadDialog,
@@ -165,6 +169,9 @@ export const POS: React.FC<POSProps> = ({
   const [tabDiscountAmount, setTabDiscountAmount] = useState<number>(0);
   const [tabDiscountMetadata, setTabDiscountMetadata] = useState<any[]>([]);
   const [firingKitchen, setFiringKitchen] = useState(false);
+  const [lastKitchenResult, setLastKitchenResult] = useState<KitchenOrderSentPayload | null>(null);
+  const [lastBillOutData, setLastBillOutData] = useState<RunningBillSlipData | null>(null);
+  const [isPrintingBillBluetooth, setIsPrintingBillBluetooth] = useState(false);
 
   // Offline and Terminal Sync states
   const [terminalConfig, setTerminalConfig] = useState<TerminalConfig | null>(null);
@@ -365,6 +372,21 @@ export const POS: React.FC<POSProps> = ({
   const handleCloseSession = async () => {
     if (!activeSession?.id) return;
     try {
+      if (selectedBranch?.enable_table_service) {
+        const { data: openTabs } = await supabase
+          .from('pos_tabs')
+          .select('id')
+          .eq('branch_id', selectedBranch.id)
+          .in('status', ['open', 'billed_out']);
+        if (openTabs && openTabs.length > 0) {
+          const proceed = await confirm(
+            'Active Tables Still Open',
+            `There are currently ${openTabs.length} open table tab(s) that have not been settled. Closing this register session will finalize the Z-Read for this shift. Do you want to proceed?`
+          );
+          if (!proceed) return;
+        }
+      }
+
       const { data, error } = await supabase.rpc('fn_close_cashier_session', {
         p_session_id: activeSession.id,
         p_actual_cash: Number(actualCashStr) || 0
@@ -703,7 +725,7 @@ export const POS: React.FC<POSProps> = ({
 
     return {
       id: saleResult.id,
-      control_number: saleResult.control_number || saleResult.id.substring(0, 8),
+      control_number: saleResult.control_number || (saleResult.id ? String(saleResult.id).substring(0, 8) : 'ORDER'),
       branch_name: saleResult.branch_name,
       cashier_email: saleResult.cashier_email,
       total_amount: saleResult.total_amount,
@@ -774,6 +796,31 @@ export const POS: React.FC<POSProps> = ({
     } catch (err) {
       console.error('Failed to print kitchen receipt via System:', err);
       showError('Failed to print kitchen receipt via System Drivers.');
+    }
+  };
+
+  const handlePrintBillBluetooth = async (billData: RunningBillSlipData) => {
+    try {
+      setIsPrintingBillBluetooth(true);
+      await ensureBluetoothPrinter();
+      const settings = await settingsService.getSettings();
+      await printBluetoothRunningBill(billData, settings.sales_invoice);
+      showSuccess(`Printed bill out for Table ${billData.table_number} via Bluetooth.`);
+    } catch (err: any) {
+      console.error('Failed to print bill slip via Bluetooth:', err);
+      showError('Failed to print bill slip via Bluetooth.');
+    } finally {
+      setIsPrintingBillBluetooth(false);
+    }
+  };
+
+  const handlePrintBillSystem = async (billData: RunningBillSlipData) => {
+    try {
+      const settings = await settingsService.getSettings();
+      printRunningBillSlip(billData, settings.sales_invoice);
+    } catch (err: any) {
+      console.error('Failed to print bill slip via System:', err);
+      showError('Failed to print bill slip via System Drivers.');
     }
   };
 
@@ -970,7 +1017,7 @@ export const POS: React.FC<POSProps> = ({
     setOrderKitchenNote('');
   };
 
-  const handleFireToKitchen = async () => {
+  const handleSendToKitchen = async () => {
     if (!activeTable || !activeTab) return;
     const pendingItems = cart.filter(ci => ci.kitchen_status !== 'sent');
     if (pendingItems.length === 0) {
@@ -1000,11 +1047,13 @@ export const POS: React.FC<POSProps> = ({
 
       if (error) throw error;
 
-      // Print Kitchen Ticket for this round
-      const settings = await settingsService.getSettings();
-      const kitchenPayload = {
+      // Prepare Kitchen Ticket Payload
+      const kitchenPayload: KitchenOrderSentPayload = {
+        id: String(activeTab.id || Date.now()),
+        control_number: `T${activeTable.table_number}-R${nextRound}`,
         branch_name: selectedBranch?.name || 'Main Branch',
         table_number: activeTable.table_number,
+        round_number: nextRound,
         server_name: activeTab.server_name || profile?.full_name || 'Staff',
         sale_category: `Table ${activeTable.table_number} (Round ${nextRound})`,
         notes: orderKitchenNote.trim() || undefined,
@@ -1016,16 +1065,18 @@ export const POS: React.FC<POSProps> = ({
         })),
       };
 
-      try {
-        printKitchenReceipt(kitchenPayload, settings.sales_invoice);
-      } catch (printErr) {
-        console.warn('System kitchen print failed:', printErr);
-      }
+      // Set for KitchenOrderSentDialog
+      setLastKitchenResult(kitchenPayload);
 
+      // Print via Bluetooth using the exact same approach as direct to sale POS
       try {
-        await printBluetoothKitchenReceipt(kitchenPayload);
-      } catch (btErr) {
-        // Bluetooth optional
+        setIsPrintingKitchenBluetooth(true);
+        await ensureBluetoothPrinter();
+        await printBluetoothKitchenReceipt(getMappedSale(kitchenPayload));
+      } catch (btErr: any) {
+        console.warn('Bluetooth kitchen print error or skipped:', btErr);
+      } finally {
+        setIsPrintingKitchenBluetooth(false);
       }
 
       // Update cart items in state
@@ -1042,9 +1093,9 @@ export const POS: React.FC<POSProps> = ({
         })
       );
 
-      showSuccess(`Round ${nextRound} fired to kitchen for ${activeTable.table_number}!`);
+      showSuccess(`Round ${nextRound} sent to kitchen for Table ${activeTable.table_number}!`);
     } catch (err: any) {
-      console.error('Error firing round to kitchen:', err);
+      console.error('Error sending round to kitchen:', err);
       showError(err.message || 'Failed to send round to kitchen.');
     } finally {
       setFiringKitchen(false);
@@ -1059,10 +1110,10 @@ export const POS: React.FC<POSProps> = ({
     }
 
     try {
-      const hasUnfired = cart.some(ci => ci.kitchen_status !== 'sent');
-      if (hasUnfired) {
+      const hasUnsent = cart.some(ci => ci.kitchen_status !== 'sent');
+      if (hasUnsent) {
         const proceed = await confirm(
-          'Unfired Items in Cart',
+          'Unsent Items in Cart',
           'Some newly added items have not been sent to the kitchen yet. Include them in this bill anyway?'
         );
         if (!proceed) return;
@@ -1097,14 +1148,18 @@ export const POS: React.FC<POSProps> = ({
         payable_total: finalDue,
       };
 
-      // Print via browser
-      printRunningBillSlip(billData, settings.sales_invoice);
+      // Set bill data for the BillOutDialog (direct-to-sale approach)
+      setLastBillOutData(billData);
 
-      // Print via Bluetooth if connected
+      // Directly print via Bluetooth thermal printer using the same approach as direct to sale POS
       try {
+        setIsPrintingBillBluetooth(true);
+        await ensureBluetoothPrinter();
         await printBluetoothRunningBill(billData, settings.sales_invoice);
       } catch (btErr) {
-        // Bluetooth optional
+        console.warn('Bluetooth running bill print failed or skipped:', btErr);
+      } finally {
+        setIsPrintingBillBluetooth(false);
       }
 
       // Update pos_tabs status to 'billed_out'
@@ -1124,6 +1179,8 @@ export const POS: React.FC<POSProps> = ({
     } catch (err: any) {
       console.error('Error printing bill out:', err);
       showError(err.message || 'Failed to print bill slip.');
+    } finally {
+      // Done
     }
   };
 
@@ -1483,7 +1540,7 @@ export const POS: React.FC<POSProps> = ({
         <div className="p-3 mx-3 sm:mx-4 mt-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center justify-between">
           <div className="min-w-0 pr-2">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-black text-sm text-rose-600 dark:text-rose-400">🍽️ {activeTable.table_number}</span>
+              <span className="font-black text-sm text-rose-600 dark:text-rose-400">{activeTable.table_number}</span>
               <Badge variant="outline" className="text-[10px] h-4 font-bold border-rose-500/40 text-rose-600">
                 {activeTab?.pax_count || 1} Guests
               </Badge>
@@ -1542,7 +1599,7 @@ export const POS: React.FC<POSProps> = ({
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-amber-500/40 text-amber-600 bg-amber-500/10 font-bold whitespace-nowrap">
-                          🔥 Ready to Fire
+                          Ready to Send
                         </Badge>
                       )
                     )}
@@ -1677,7 +1734,7 @@ export const POS: React.FC<POSProps> = ({
                       className="text-xs font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1 truncate cursor-pointer hover:bg-amber-500/20 active:scale-98 transition-all flex items-center gap-1.5 min-h-[32px]"
                       title="Click to edit kitchen note"
                     >
-                      <span className="truncate">📝 {item.notes}</span>
+                      <span className="truncate">{item.notes}</span>
                       <Edit3 className="w-3 h-3 opacity-60 ml-0.5 shrink-0" />
                     </button>
                     <button
@@ -1877,12 +1934,12 @@ export const POS: React.FC<POSProps> = ({
               <Button
                 type="button"
                 size="lg"
-                onClick={handleFireToKitchen}
+                onClick={handleSendToKitchen}
                 disabled={firingKitchen}
                 className="w-full font-bold h-11 text-xs bg-amber-500 hover:bg-amber-600 text-black active:scale-[0.99] transition-transform rounded-xl gap-1.5 shadow-sm"
               >
-                {firingKitchen ? <Spinner className="w-4 h-4 animate-spin" /> : <span>🔥</span>}
-                <span>Fire Unsent Items to Kitchen ({unsentCount})</span>
+                {firingKitchen && <Spinner className="w-4 h-4 animate-spin" />}
+                <span>Send to Kitchen ({unsentCount})</span>
               </Button>
             )}
 
@@ -1895,7 +1952,6 @@ export const POS: React.FC<POSProps> = ({
                 onClick={handlePrintBillOut}
                 disabled={cart.length === 0}
               >
-                <span>🧾</span>
                 <span>Print Bill Out</span>
               </Button>
               <Button
@@ -1905,7 +1961,6 @@ export const POS: React.FC<POSProps> = ({
                 onClick={openPayment}
                 disabled={checkingOut || cart.length === 0 || !selectedBranch || (!isOnline && !terminalConfig)}
               >
-                <span>💳</span>
                 <span>{checkingOut ? 'Processing…' : 'Settle & Pay'}</span>
               </Button>
             </div>
@@ -1993,7 +2048,7 @@ export const POS: React.FC<POSProps> = ({
                         </SelectItem>
                         {subStores.map((ss) => (
                           <SelectItem key={ss.id} value={ss.id} className="text-xs font-medium">
-                            📍 {ss.name}
+                            {ss.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -2025,7 +2080,7 @@ export const POS: React.FC<POSProps> = ({
                     }`}
                     title="Open Table Floor Plan"
                   >
-                    <span>🍽️</span>
+                    <TableIcon className="w-3.5 h-3.5" />
                     <span>
                       {activeTable
                         ? `${activeTable.table_number} (${activeTab?.pax_count || 1} Pax)`
@@ -2352,6 +2407,7 @@ export const POS: React.FC<POSProps> = ({
         initialDiscountAmount={tabDiscountAmount}
         initialDiscountMetadata={tabDiscountMetadata}
         initialGroupSize={activeTab?.pax_count || 1}
+        initialQueueNumber={activeTable ? (activeTable.table_number.toLowerCase().startsWith('table') ? activeTable.table_number : `Table ${activeTable.table_number}`) : undefined}
       />
 
       {/* Table Floor Grid Dialog */}
@@ -2417,6 +2473,32 @@ export const POS: React.FC<POSProps> = ({
         onPrintKitchenBluetooth={handlePrintKitchenBluetooth}
         onPrintKitchenSystem={handlePrintKitchenSystem}
         onPrintQueue={handlePrintQueue}
+      />
+
+      {/* ─── Kitchen Order Sent Dialog ─── */}
+      <KitchenOrderSentDialog
+        order={lastKitchenResult}
+        onClose={() => setLastKitchenResult(null)}
+        isPrintingKitchenBluetooth={isPrintingKitchenBluetooth}
+        onPrintKitchenBluetooth={async (order) => {
+          await handlePrintKitchenBluetooth(order);
+        }}
+        onPrintKitchenSystem={async (order) => {
+          await handlePrintKitchenSystem(order);
+        }}
+      />
+
+      {/* ─── Bill Out Dialog ─── */}
+      <BillOutDialog
+        billData={lastBillOutData}
+        onClose={() => setLastBillOutData(null)}
+        isPrintingBillBluetooth={isPrintingBillBluetooth}
+        onPrintBillBluetooth={handlePrintBillBluetooth}
+        onPrintBillSystem={handlePrintBillSystem}
+        onProceedToSettle={() => {
+          setLastBillOutData(null);
+          openPayment();
+        }}
       />
 
       {/* ─── Open Session Dialog ─── */}

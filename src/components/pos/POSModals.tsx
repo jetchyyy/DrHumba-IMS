@@ -15,6 +15,8 @@ import type {
   LastSaleResult,
   PaymentMethod,
   PriceChannel,
+  KitchenOrderSentPayload,
+  RunningBillSlipData,
 } from './types';
 import {
   PAYMENT_LABELS,
@@ -366,6 +368,238 @@ export const SaleSuccessDialog: React.FC<SaleSuccessDialogProps> = ({
 
           <Button variant="default" size="lg" onClick={onClose} className="w-full h-12 text-sm font-black shadow-md rounded-xl active:scale-98">
             Start Next Order / New Sale
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ─── 2b. Kitchen Order Sent & Printing Dialog ─────────────────────────────────
+
+interface KitchenOrderSentDialogProps {
+  order: KitchenOrderSentPayload | null;
+  onClose: () => void;
+  isPrintingKitchenBluetooth: boolean;
+  onPrintKitchenBluetooth: (order: KitchenOrderSentPayload) => Promise<void>;
+  onPrintKitchenSystem: (order: KitchenOrderSentPayload) => Promise<void>;
+}
+
+export const KitchenOrderSentDialog: React.FC<KitchenOrderSentDialogProps> = ({
+  order,
+  onClose,
+  isPrintingKitchenBluetooth,
+  onPrintKitchenBluetooth,
+  onPrintKitchenSystem,
+}) => {
+  if (!order) return null;
+
+  return (
+    <Dialog open={!!order} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <div className="flex items-center space-x-2 text-emerald-600 dark:text-emerald-400">
+            <CheckCircle className="w-6 h-6" />
+            <DialogTitle className="text-xl font-bold">Sent to Kitchen!</DialogTitle>
+          </div>
+          <DialogDescription className="text-xs">
+            Round {order.round_number} for Table {order.table_number} has been logged and sent.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-3">
+          <div className="bg-muted/50 p-4 rounded-lg space-y-2 border">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Table</span>
+              <span className="font-bold text-foreground">Table {order.table_number}</span>
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Order Round</span>
+              <span className="font-bold text-foreground">Round {order.round_number}</span>
+            </div>
+            {order.server_name && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Server / Staff</span>
+                <span className="font-bold text-foreground">{order.server_name}</span>
+              </div>
+            )}
+            {order.notes && (
+              <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 p-2.5 rounded border border-amber-500/30 font-medium">
+                Note: {order.notes}
+              </div>
+            )}
+
+            <div className="pt-2 border-t text-xs font-semibold text-muted-foreground">
+              Items Sent ({order.items.length}):
+            </div>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              {order.items.map((it, idx) => (
+                <div key={idx} className="flex justify-between text-xs font-medium">
+                  <span>{it.quantity}x {it.item_name}</span>
+                  {it.notes && <span className="text-[10px] text-amber-600 italic">({it.notes})</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="flex flex-col sm:flex-col sm:space-x-0 gap-2 w-full">
+          <div className="grid grid-cols-2 gap-2 w-full">
+            <Button
+              variant="secondary"
+              className="w-full font-bold text-xs"
+              disabled={isPrintingKitchenBluetooth}
+              onClick={() => onPrintKitchenBluetooth(order)}
+            >
+              {isPrintingKitchenBluetooth ? (
+                <Spinner className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Printer className="w-4 h-4 mr-2" />
+              )}
+              Print Kitchen (Bluetooth)
+            </Button>
+            <Button
+              variant="secondary"
+              className="w-full font-bold text-xs"
+              onClick={() => onPrintKitchenSystem(order)}
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Print Kitchen (System)
+            </Button>
+          </div>
+
+          <Button variant="default" size="lg" onClick={onClose} className="w-full h-11 text-xs font-bold rounded-xl active:scale-98">
+            Done / Continue Orders
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ─── 2c. Bill Out / Guest Check & Printing Dialog ──────────────────────────────
+
+interface BillOutDialogProps {
+  billData: RunningBillSlipData | null;
+  onClose: () => void;
+  isPrintingBillBluetooth: boolean;
+  onPrintBillBluetooth: (bill: RunningBillSlipData) => Promise<void>;
+  onPrintBillSystem: (bill: RunningBillSlipData) => Promise<void>;
+  onProceedToSettle: () => void;
+}
+
+export const BillOutDialog: React.FC<BillOutDialogProps> = ({
+  billData,
+  onClose,
+  isPrintingBillBluetooth,
+  onPrintBillBluetooth,
+  onPrintBillSystem,
+  onProceedToSettle,
+}) => {
+  if (!billData) return null;
+
+  return (
+    <Dialog open={!!billData} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <div className="flex items-center space-x-2 text-emerald-600 dark:text-emerald-400">
+            <CheckCircle className="w-6 h-6" />
+            <DialogTitle className="text-xl font-bold">Bill Out Slip Ready</DialogTitle>
+          </div>
+          <DialogDescription className="text-xs">
+            Guest check summary for Table {billData.table_number}.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-3">
+          <div className="bg-muted/50 p-4 rounded-lg space-y-2 border">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Table</span>
+              <span className="font-bold text-foreground">Table {billData.table_number}</span>
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Guests (Pax)</span>
+              <span className="font-bold text-foreground">{billData.pax_count || 1} Guests</span>
+            </div>
+            {billData.server_name && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Server</span>
+                <span className="font-bold text-foreground">{billData.server_name}</span>
+              </div>
+            )}
+
+            <Separator className="my-2" />
+
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Gross Subtotal</span>
+              <span className="font-semibold text-foreground">{formatPHP(billData.subtotal)}</span>
+            </div>
+
+            {(billData.vat_exempt_amount || 0) > 0 && (
+              <div className="flex justify-between text-xs text-emerald-600 font-semibold">
+                <span>12% VAT Relief</span>
+                <span>- {formatPHP(billData.vat_exempt_amount || 0)}</span>
+              </div>
+            )}
+
+            {(billData.discount_amount || 0) > 0 && (
+              <div className="flex justify-between text-xs text-rose-500 font-semibold">
+                <span>Discount ({billData.discount_type || 'Promo'})</span>
+                <span>- {formatPHP(billData.discount_amount || 0)}</span>
+              </div>
+            )}
+
+            {(billData.service_charge_amount || 0) > 0 && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Service Charge</span>
+                <span className="font-semibold text-foreground">{formatPHP(billData.service_charge_amount || 0)}</span>
+              </div>
+            )}
+
+            <div className="flex justify-between items-center pt-2 border-t font-black">
+              <span className="text-sm text-muted-foreground">Total Payable Due</span>
+              <span className="text-2xl font-black text-primary">
+                {formatPHP(billData.payable_total)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="flex flex-col sm:flex-col sm:space-x-0 gap-2 w-full">
+          <div className="grid grid-cols-2 gap-2 w-full">
+            <Button
+              variant="secondary"
+              className="w-full font-bold text-xs"
+              disabled={isPrintingBillBluetooth}
+              onClick={() => onPrintBillBluetooth(billData)}
+            >
+              {isPrintingBillBluetooth ? (
+                <Spinner className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Printer className="w-4 h-4 mr-2" />
+              )}
+              Print Bill (Bluetooth)
+            </Button>
+            <Button
+              variant="secondary"
+              className="w-full font-bold text-xs"
+              onClick={() => onPrintBillSystem(billData)}
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Print Bill (System)
+            </Button>
+          </div>
+
+          <Button
+            variant="default"
+            size="lg"
+            onClick={() => {
+              onClose();
+              onProceedToSettle();
+            }}
+            className="w-full h-11 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl active:scale-98"
+          >
+            Proceed to Settle & Pay
           </Button>
         </DialogFooter>
       </DialogContent>

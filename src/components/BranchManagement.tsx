@@ -16,6 +16,7 @@ import {
   ChevronRightIcon,
   ExternalLinkIcon,
   GearIcon as SettingsIcon,
+  TableIcon,
 } from '@radix-ui/react-icons';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
@@ -461,7 +462,7 @@ export const BranchManagement: React.FC = () => {
                 onClick={e => { e.stopPropagation(); setTableModalBranch(branch); }}
                 className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10 text-xs"
               >
-                🍽️
+                <TableIcon className="w-3.5 h-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Manage Tables</TooltipContent>
@@ -1057,7 +1058,8 @@ export const BranchManagement: React.FC = () => {
                       onClick={() => setTableModalBranch(editingBranch)}
                       className="w-full text-xs gap-1.5 border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10"
                     >
-                      🍽️ Configure Tables for {editingBranch.name}
+                      <TableIcon className="w-3.5 h-3.5" />
+                      <span>Configure Tables for {editingBranch.name}</span>
                     </Button>
                   </div>
                 )}

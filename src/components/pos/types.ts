@@ -78,6 +78,7 @@ export interface PaymentDialogProps {
   initialDiscountAmount?: number;
   initialDiscountMetadata?: any[];
   initialGroupSize?: number;
+  initialQueueNumber?: string;
 }
 
 export interface LastSaleResult {
@@ -203,4 +204,19 @@ export interface PosTabItem {
   kitchen_status: 'pending' | 'sent' | 'served' | 'cancelled';
   name?: string;
 }
+
+export interface KitchenOrderSentPayload {
+  id: string;
+  table_number: string;
+  round_number: number;
+  server_name: string;
+  items: Array<{ item_name: string; quantity: number; notes?: string }>;
+  notes?: string;
+  created_at: string;
+  control_number: string;
+  sale_category: string;
+  branch_name?: string;
+}
+
+export type { RunningBillSlipData } from '../../lib/printService';
 

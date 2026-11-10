@@ -16,6 +16,7 @@ import { Badge } from '../ui/badge';
 import {
   ReloadIcon as Spinner,
   CheckIcon as Check,
+  TableIcon,
 } from '@radix-ui/react-icons';
 import type { RestaurantTable, PosTab } from './types';
 import { formatPHP } from './types';
@@ -222,7 +223,8 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pr-6">
               <div>
                 <DialogTitle className="text-lg font-bold flex items-center gap-2">
-                  <span>🍽️ Table Floor Plan & Running Bills</span>
+                  <TableIcon className="w-5 h-5 text-primary" />
+                  <span>Table Floor Plan & Running Bills</span>
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground mt-0.5">
                   Select a table to open a new tab or view an ongoing running bill.
@@ -275,7 +277,7 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
               </div>
             ) : filteredTables.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 text-center p-6 text-muted-foreground">
-                <span className="text-3xl mb-2">🍽️</span>
+                <TableIcon className="w-10 h-10 mb-2 opacity-30" />
                 <p className="text-sm font-semibold text-foreground">No tables found</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Add tables under Branches &rarr; Configure Tables to enable table service.
@@ -365,7 +367,8 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
           <DialogContent className="max-w-md p-6">
             <DialogHeader>
               <DialogTitle className="text-base font-bold flex items-center gap-2">
-                <span>🍽️ Open {openingTable.table_number}</span>
+                <TableIcon className="w-4 h-4 text-primary" />
+                <span>Open {openingTable.table_number}</span>
                 <Badge variant="outline" className="text-xs">
                   Max: {openingTable.capacity} Pax
                 </Badge>

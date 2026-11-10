@@ -368,7 +368,7 @@ export const TableManagement: React.FC = () => {
             onClick={() => setQuickGenOpen(true)}
             className="h-9 text-xs gap-1.5"
           >
-            ⚡ Quick Generate
+            Quick Generate
           </Button>
 
           <Button
@@ -504,7 +504,7 @@ export const TableManagement: React.FC = () => {
         </div>
       ) : filteredTables.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-64 text-center p-6 text-muted-foreground border rounded-2xl bg-card">
-          <span className="text-4xl mb-2">🍽️</span>
+          <TableIcon className="w-12 h-12 mb-2 opacity-30" />
           <p className="text-base font-bold text-foreground">No tables found</p>
           <p className="text-xs text-muted-foreground mt-1 max-w-sm">
             {searchTerm || selectedZone !== 'All'
@@ -565,7 +565,7 @@ export const TableManagement: React.FC = () => {
 
                     <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                       <div className="flex items-center gap-1.5">
-                        <span>👥 {tbl.capacity} Seats</span>
+                        <span>{tbl.capacity} Seats</span>
                         <span>&bull;</span>
                         <span className="font-medium text-foreground">{tbl.zone}</span>
                       </div>
@@ -699,7 +699,7 @@ export const TableManagement: React.FC = () => {
           <DialogContent className="max-w-md p-6">
             <DialogHeader>
               <DialogTitle className="text-base font-bold flex items-center gap-2">
-                <span>⚡ Quick Batch Generate Tables</span>
+                <span>Quick Batch Generate Tables</span>
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
                 Rapidly generate multiple tables for {currentBranch?.name} in one click.

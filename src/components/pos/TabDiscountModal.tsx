@@ -125,7 +125,7 @@ export const TabDiscountModal: React.FC<TabDiscountModalProps> = ({
       <DialogContent className="max-w-md p-6">
         <DialogHeader>
           <DialogTitle className="text-base font-bold flex items-center gap-2">
-            <span>🏷️ Apply Discount to Running Bill</span>
+            <span>Apply Discount to Running Bill</span>
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
             Discounts applied here will be printed on the customer's Bill Out slip before payment.
