@@ -21,6 +21,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from './ui/dropdown-menu';
+import { Printer, ChevronDown, Utensils, Store, FileText } from 'lucide-react';
+import { useModal } from '../contexts/ModalContext';
+import { settingsService, DEFAULT_TRANSFER_SLIP_TEMPLATE } from '../lib/settingsService';
+import { printRankingsPDFReport } from '../lib/printService';
 import { getOrganizedBranches } from '../lib/utils';
 
 interface BranchAnalyticsData {
@@ -41,7 +52,8 @@ interface BranchAnalyticsData {
 }
 
 export const Analytics: React.FC = () => {
-  const { branches, selectedBranch } = useAuth();
+  const { profile, branches, selectedBranch } = useAuth();
+  const { showError } = useModal();
   const vocab = useBusinessVocab();
   
   const [activeBranchId, setActiveBranchId] = useState('All');
@@ -363,6 +375,36 @@ export const Analytics: React.FC = () => {
       loadAnalytics();
     }
   }, [activeBranchId, startDate, endDate, branches]);
+
+  const handleExportPDF = async (exportType: 'dish' | 'store' | 'both') => {
+    try {
+      const settings = await settingsService.getSettings();
+      const template = settings.transfer_slip || DEFAULT_TRANSFER_SLIP_TEMPLATE;
+
+      const dateRangeText = dateRangeType === '7days'
+        ? `Last 7 Days (${startDate} to ${endDate})`
+        : dateRangeType === '30days'
+          ? `Last 30 Days (${startDate} to ${endDate})`
+          : `Custom Range (${startDate} to ${endDate})`;
+
+      const branchName = activeBranchId === 'All'
+        ? 'All Branches'
+        : (branches.find(b => b.id === activeBranchId)?.name || 'Branch');
+
+      const generatedBy = profile?.full_name?.trim() || profile?.email || 'Staff';
+
+      printRankingsPDFReport(exportType, {
+        dishes: analyticsData?.topProducts || [],
+        stores: [...storePerformanceData].sort((a, b) => b.sales - a.sales),
+        dateRangeText,
+        branchName,
+        generatedBy,
+      }, template);
+    } catch (err: any) {
+      console.error('Failed to export rankings PDF:', err);
+      showError(err?.message || 'Failed to generate PDF report');
+    }
+  };
 
   if (loading && !refreshing) {
     return (
@@ -696,20 +738,56 @@ export const Analytics: React.FC = () => {
 
       {/* Rankings & Top Performers Card */}
       <Card className="glass-dark border-border/50">
-        <CardHeader className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-2 sm:space-y-0">
+        <CardHeader className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div>
             <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Rankings & Highlights</CardTitle>
             <CardDescription className="text-xs">Rank top performing stores or dishes based on gross sales revenue.</CardDescription>
           </div>
-          <Select value={rankFilter} onValueChange={(val: 'store' | 'dish') => setRankFilter(val)}>
-            <SelectTrigger className="w-[220px] text-xs h-8">
-              <SelectValue placeholder="Ranking Type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="store" className="text-xs">Top Performing Stores</SelectItem>
-              <SelectItem value="dish" className="text-xs">Top Performing Dishes</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Select value={rankFilter} onValueChange={(val: 'store' | 'dish') => setRankFilter(val)}>
+              <SelectTrigger className="w-[190px] text-xs h-8 bg-background/50">
+                <SelectValue placeholder="Ranking Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="store" className="text-xs">Top Performing Stores</SelectItem>
+                <SelectItem value="dish" className="text-xs">Top Performing Dishes</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 text-xs flex items-center gap-1.5 cursor-pointer bg-background/50">
+                  <Printer className="w-3.5 h-3.5 text-primary" />
+                  <span>Export PDF</span>
+                  <ChevronDown className="w-3 h-3 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem
+                  onClick={() => handleExportPDF('dish')}
+                  className="text-xs flex items-center gap-2 cursor-pointer"
+                >
+                  <Utensils className="w-3.5 h-3.5 text-pink-500" />
+                  <span>Top Performing Dishes</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleExportPDF('store')}
+                  className="text-xs flex items-center gap-2 cursor-pointer"
+                >
+                  <Store className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Top Performing Branches</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => handleExportPDF('both')}
+                  className="text-xs flex items-center gap-2 cursor-pointer font-medium"
+                >
+                  <FileText className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Combined Report (Both)</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {rankFilter === 'store' ? (

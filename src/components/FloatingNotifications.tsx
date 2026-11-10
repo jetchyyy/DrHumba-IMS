@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import {
@@ -12,6 +13,7 @@ import {
   MagicWandIcon as ChefHat,
   SpeakerOffIcon as VolumeX,
   SpeakerLoudIcon as Volume2,
+  Cross2Icon,
 } from '@radix-ui/react-icons';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Button } from './ui/button';
@@ -40,11 +42,12 @@ interface Notification {
 
 interface FloatingNotificationsProps {
   onNavigate?: (tab: string) => void;
+  hidePermissionPrompt?: boolean;
 }
 
 export type NotificationFilter = 'all' | 'unread' | 'transfers' | 'adjustments' | 'portioning' | 'low_stock';
 
-export const FloatingNotifications: React.FC<FloatingNotificationsProps> = ({ onNavigate }) => {
+export const FloatingNotifications: React.FC<FloatingNotificationsProps> = ({ onNavigate, hidePermissionPrompt = false }) => {
   const { profile, selectedBranch } = useAuth();
   const { showSuccess, showError } = useModal();
   const { counts, isApprover } = usePendingApprovalCounts();
@@ -168,11 +171,12 @@ export const FloatingNotifications: React.FC<FloatingNotificationsProps> = ({ on
 
   // ── Show permission prompt on mount (deferred) ─────────────────────────────
   useEffect(() => {
+    if (hidePermissionPrompt) return;
     if (isApprover && shouldPromptForPermission()) {
       const t = setTimeout(() => setShowPermissionPrompt(true), 3000);
       return () => clearTimeout(t);
     }
-  }, [isApprover]);
+  }, [isApprover, hidePermissionPrompt]);
 
   // ── Mark as read ───────────────────────────────────────────────────────────
   const handleMarkAsRead = async (id: string) => {
@@ -209,6 +213,15 @@ export const FloatingNotifications: React.FC<FloatingNotificationsProps> = ({ on
     setPermissionState(getNotificationPermission());
     setShowPermissionPrompt(false);
     if (granted) showSuccess('Desktop notifications enabled!');
+  };
+
+  const handleDismissPermission = () => {
+    try {
+      localStorage.setItem('drhumba_notification_permission_asked', 'true');
+    } catch {
+      // ignore storage errors
+    }
+    setShowPermissionPrompt(false);
   };
 
   const toggleMute = () => {
@@ -312,11 +325,20 @@ export const FloatingNotifications: React.FC<FloatingNotificationsProps> = ({ on
 
   return (
     <>
-      {/* ── Permission Prompt Toast ── */}
-      {showPermissionPrompt && permissionState === 'default' && (
-        <div className="fixed bottom-20 right-4 z-50 max-w-xs bg-card border border-border shadow-xl rounded-xl p-3 animate-slide-down">
-          <p className="text-xs font-semibold text-foreground mb-1">Enable Desktop Notifications?</p>
-          <p className="text-[10px] text-muted-foreground mb-3 leading-relaxed">
+      {/* ── Permission Prompt Toast (Portaled to document.body to prevent stacking context clipping) ── */}
+      {!hidePermissionPrompt && showPermissionPrompt && permissionState === 'default' && typeof document !== 'undefined' && createPortal(
+        <div className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-[9999] max-w-xs w-full bg-popover text-popover-foreground border border-border shadow-2xl rounded-xl p-4 animate-slide-down">
+          <div className="flex items-start justify-between gap-2 mb-1.5">
+            <p className="text-xs font-semibold text-foreground">Enable Desktop Notifications?</p>
+            <button
+              onClick={handleDismissPermission}
+              className="text-muted-foreground hover:text-foreground text-xs p-1 rounded-md hover:bg-muted transition-colors -mr-1 -mt-1 cursor-pointer"
+              aria-label="Close"
+            >
+              <Cross2Icon className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
             Get notified about pending approvals even when you're on another tab.
           </p>
           <div className="flex gap-2">
@@ -325,14 +347,15 @@ export const FloatingNotifications: React.FC<FloatingNotificationsProps> = ({ on
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               className="text-xs h-7 flex-1"
-              onClick={() => setShowPermissionPrompt(false)}
+              onClick={handleDismissPermission}
             >
               Not now
             </Button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       <Popover open={open} onOpenChange={setOpen}>

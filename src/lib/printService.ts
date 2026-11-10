@@ -2239,3 +2239,357 @@ export const printXZReport = (report: any, isZRead: boolean, merchantName: strin
   printWindow.document.write(html);
   printWindow.document.close();
 };
+
+export interface RankingsReportData {
+  dishes?: Array<{ name: string; quantity_sold: number; revenue: number }>;
+  stores?: Array<{ id: string; name: string; parent_id?: string | null; transactions: number; sales: number }>;
+  dateRangeText: string;
+  branchName: string;
+  generatedBy: string;
+}
+
+export const printRankingsPDFReport = (
+  exportType: 'dish' | 'store' | 'both',
+  data: RankingsReportData,
+  template: TransferSlipTemplate
+) => {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Please allow popups to generate the PDF report.');
+    return;
+  }
+
+  const formatVal = (num: number) =>
+    (num || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const logoHtml = template?.logo_url
+    ? `<img src="${template.logo_url}" style="max-height: 56px; max-width: 130px; object-fit: contain; border-radius: 4px;" />`
+    : '';
+
+  const docTitle = exportType === 'dish'
+    ? 'TOP PERFORMING DISHES'
+    : exportType === 'store'
+      ? 'TOP PERFORMING BRANCHES'
+      : 'TOP PERFORMING DISHES & BRANCHES';
+
+  const dishes = data.dishes || [];
+  const stores = data.stores || [];
+
+  const totalDishQty = dishes.reduce((acc, d) => acc + Number(d.quantity_sold || 0), 0);
+  const totalDishRevenue = dishes.reduce((acc, d) => acc + Number(d.revenue || 0), 0);
+
+  const totalStoreTx = stores.reduce((acc, s) => acc + Number(s.transactions || 0), 0);
+  const totalStoreSales = stores.reduce((acc, s) => acc + Number(s.sales || 0), 0);
+
+  const dishesSectionHtml = (exportType === 'dish' || exportType === 'both') ? `
+    <div class="section-title">Top Performing Dishes / Items</div>
+    <table class="report-table">
+      <thead>
+        <tr>
+          <th style="width: 60px;">Rank</th>
+          <th>Dish / Item Name</th>
+          <th style="text-align: center; width: 130px;">Quantity Sold</th>
+          <th style="text-align: right; width: 160px;">Gross Sales</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${dishes.length === 0 ? `
+          <tr>
+            <td colspan="4" style="text-align: center; color: #64748b; padding: 16px;">No dish sales recorded for this period.</td>
+          </tr>
+        ` : dishes.map((dish, idx) => `
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 9px 10px; font-weight: 700; color: #0f172a;">#${idx + 1}</td>
+            <td style="padding: 9px 10px; font-weight: 600; color: #1e293b;">${dish.name}</td>
+            <td style="padding: 9px 10px; text-align: center; color: #475569;">${dish.quantity_sold.toLocaleString()}</td>
+            <td style="padding: 9px 10px; text-align: right; font-weight: 700; color: #047857;">₱${formatVal(dish.revenue)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+      <tfoot>
+        <tr style="background-color: #f8fafc; font-weight: 700; border-top: 2px solid #cbd5e1;">
+          <td colspan="2" style="padding: 10px; text-align: left; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; color: #475569;">Total Dish Sales</td>
+          <td style="padding: 10px; text-align: center; color: #0f172a;">${totalDishQty.toLocaleString()}</td>
+          <td style="padding: 10px; text-align: right; color: #047857; font-size: 14px;">₱${formatVal(totalDishRevenue)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  ` : '';
+
+  const storesSectionHtml = (exportType === 'store' || exportType === 'both') ? `
+    <div class="section-title" style="${exportType === 'both' ? 'margin-top: 40px;' : ''}">Top Performing Branches / Stores</div>
+    <table class="report-table">
+      <thead>
+        <tr>
+          <th style="width: 60px;">Rank</th>
+          <th>Branch / Store Name</th>
+          <th style="text-align: center; width: 130px;">Transactions</th>
+          <th style="text-align: right; width: 160px;">Gross Sales</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${stores.length === 0 ? `
+          <tr>
+            <td colspan="4" style="text-align: center; color: #64748b; padding: 16px;">No branch sales recorded for this period.</td>
+          </tr>
+        ` : stores.map((store, idx) => `
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 9px 10px; font-weight: 700; color: #0f172a;">#${idx + 1}</td>
+            <td style="padding: 9px 10px; font-weight: 600; color: #1e293b;">
+              ${store.name}
+              ${store.parent_id ? '<span style="font-size: 10px; font-weight: 600; color: #6366f1; background: #e0e7ff; padding: 2px 6px; border-radius: 4px; margin-left: 6px;">Sub-store</span>' : ''}
+            </td>
+            <td style="padding: 9px 10px; text-align: center; color: #475569;">${store.transactions.toLocaleString()}</td>
+            <td style="padding: 9px 10px; text-align: right; font-weight: 700; color: #047857;">₱${formatVal(store.sales)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+      <tfoot>
+        <tr style="background-color: #f8fafc; font-weight: 700; border-top: 2px solid #cbd5e1;">
+          <td colspan="2" style="padding: 10px; text-align: left; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; color: #475569;">Total Branch Sales</td>
+          <td style="padding: 10px; text-align: center; color: #0f172a;">${totalStoreTx.toLocaleString()}</td>
+          <td style="padding: 10px; text-align: right; color: #047857; font-size: 14px;">₱${formatVal(totalStoreSales)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  ` : '';
+
+  const signaturesHtml = (template?.show_signatures !== false)
+    ? `<div class="signatures">
+        <div class="sig-box">
+          <div class="sig-title">${template?.sender_label || 'Prepared By (Staff Signature)'}</div>
+          <div style="margin-top: 45px; font-size: 11px; color: #64748b;">Name: ______________________</div>
+        </div>
+        <div class="sig-box">
+          <div class="sig-title">${template?.receiver_label || 'Verified By (Manager/Auditor Signature)'}</div>
+          <div style="margin-top: 45px; font-size: 11px; color: #64748b;">Name: ______________________</div>
+        </div>
+      </div>`
+    : '';
+
+  const footerHtml = template?.custom_footer
+    ? `<div style="margin-top: 40px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 15px;">
+        ${template.custom_footer}
+      </div>`
+    : '';
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>${docTitle} - ${data.dateRangeText}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #1e293b;
+            padding: 40px;
+            background-color: #ffffff;
+            margin: 0;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .report-container {
+            max-width: 900px;
+            margin: 0 auto;
+          }
+          .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 20px;
+            margin-bottom: 24px;
+          }
+          .brand {
+            font-size: 22px;
+            font-weight: 800;
+            color: #0f172a;
+            text-transform: uppercase;
+            letter-spacing: -0.025em;
+          }
+          .title {
+            font-size: 15px;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: #4f46e5;
+            letter-spacing: 0.05em;
+          }
+          .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 28px;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px;
+          }
+          .meta-item h3 {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #64748b;
+            margin: 0 0 4px 0;
+            letter-spacing: 0.05em;
+          }
+          .meta-item p {
+            font-size: 13px;
+            font-weight: 600;
+            margin: 0;
+            color: #0f172a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .section-title {
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #334155;
+            margin-bottom: 12px;
+            letter-spacing: 0.05em;
+            border-left: 4px solid #4f46e5;
+            padding-left: 8px;
+          }
+          .report-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin-bottom: 25px;
+          }
+          .report-table th {
+            background-color: #f1f5f9;
+            font-weight: 700;
+            color: #475569;
+            padding: 10px;
+            text-align: left;
+            border-bottom: 2px solid #cbd5e1;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.03em;
+          }
+          .signatures {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 40px;
+            margin-top: 45px;
+            page-break-inside: avoid;
+          }
+          .sig-box {
+            border-top: 1px solid #94a3b8;
+            padding-top: 8px;
+          }
+          .sig-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #475569;
+          }
+          .no-print {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 8px;
+            z-index: 9999;
+          }
+          .print-btn {
+            background: #4f46e5;
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);
+            transition: background 0.15s ease;
+          }
+          .print-btn:hover {
+            background: #4338ca;
+          }
+          .close-btn {
+            background: #f1f5f9;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+          }
+          .close-btn:hover {
+            background: #e2e8f0;
+          }
+          @media print {
+            .no-print { display: none !important; }
+            body { padding: 15px !important; }
+            .report-container { max-width: 100% !important; margin: 0 !important; }
+            tr { page-break-inside: avoid; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="no-print">
+          <button class="print-btn" onclick="window.print()">Print / Save PDF</button>
+          <button class="close-btn" onclick="window.close()">Close</button>
+        </div>
+
+        <div class="report-container">
+          <div class="header">
+            <div style="display: flex; align-items: center; gap: 16px;">
+              ${logoHtml}
+              <div>
+                <div class="brand">${template?.header_title || 'RESTAURANT INVENTORY SYSTEM'}</div>
+                <div style="font-size: 12px; color: #64748b; font-weight: 500; margin-top: 3px;">
+                  ${template?.header_subtitle || 'Kitchen & Stock Logistics Management'}
+                </div>
+              </div>
+            </div>
+            <div style="text-align: right;">
+              <div class="title">${docTitle}</div>
+              <div style="font-size: 10px; color: #94a3b8; font-weight: 600; margin-top: 4px; letter-spacing: 0.05em;">ANALYTICS PERFORMANCE REPORT</div>
+            </div>
+          </div>
+
+          <div class="meta-grid">
+            <div class="meta-item">
+              <h3>Date Range</h3>
+              <p title="${data.dateRangeText}">${data.dateRangeText}</p>
+            </div>
+            <div class="meta-item">
+              <h3>Branch Scope</h3>
+              <p title="${data.branchName}">${data.branchName}</p>
+            </div>
+            <div class="meta-item">
+              <h3>Generated On</h3>
+              <p>${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+            </div>
+            <div class="meta-item">
+              <h3>Prepared By</h3>
+              <p title="${data.generatedBy || 'Staff'}">${data.generatedBy || 'Staff'}</p>
+            </div>
+          </div>
+
+          ${dishesSectionHtml}
+          ${storesSectionHtml}
+
+          ${signaturesHtml}
+          ${footerHtml}
+        </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 400);
+          };
+        </script>
+      </body>
+    </html>
+  `;
+
+  printWindow.document.write(html);
+  printWindow.document.close();
+};

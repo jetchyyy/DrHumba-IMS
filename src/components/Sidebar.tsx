@@ -430,7 +430,7 @@ export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }
 
       {/* Right: logo + theme toggle */}
       <div className="flex items-center space-x-2">
-        <FloatingNotifications onNavigate={(tab) => { setActiveTab(tab); setOpen(false); }} />
+        <FloatingNotifications hidePermissionPrompt onNavigate={(tab) => { setActiveTab(tab); setOpen(false); }} />
         <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" onClick={toggleTheme}>
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
