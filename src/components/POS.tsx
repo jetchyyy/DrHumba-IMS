@@ -374,7 +374,7 @@ export const POS: React.FC<POSProps> = ({
   const handleCloseSession = async () => {
     if (!activeSession?.id) return;
     try {
-      if (selectedBranch?.enable_table_service) {
+      if (selectedBranch?.enable_table_service && Boolean(tenant?.features?.table_management)) {
         const { data: openTabs } = await supabase
           .from('pos_tabs')
           .select('id')
@@ -2051,8 +2051,8 @@ export const POS: React.FC<POSProps> = ({
                 </div>
               )}
 
-              {/* Table Floor Grid Button (When branch has Table Service enabled) */}
-              {selectedBranch?.enable_table_service && (
+              {/* Table Floor Grid Button (When branch has Table Service enabled and tenant has feature flag) */}
+              {Boolean(selectedBranch?.enable_table_service) && Boolean(tenant?.features?.table_management) && (
                 <div className="flex items-center gap-1">
                   <Button
                     variant={activeTable ? 'default' : 'outline'}

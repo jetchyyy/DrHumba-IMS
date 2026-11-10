@@ -453,7 +453,7 @@ export const BranchManagement: React.FC = () => {
             <div className="w-px h-4 bg-border mx-0.5" />
           </>
         )}
-        {Boolean(branch.enable_table_service) && (
+        {Boolean(tenant?.features?.table_management) && Boolean(branch.enable_table_service) && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -1026,44 +1026,46 @@ export const BranchManagement: React.FC = () => {
               </div>
 
               {/* Table Management & Running Bill Configuration */}
-              <div className="space-y-3 p-3.5 bg-muted/30 rounded-lg border border-border/60">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor="enableTableService" className="font-semibold text-sm cursor-pointer">
-                        Table Service & Running Bill
-                      </Label>
-                      <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-500/40 bg-amber-500/10">
-                        Dine-In
-                      </Badge>
+              {Boolean(tenant?.features?.table_management) && (
+                <div className="space-y-3 p-3.5 bg-muted/30 rounded-lg border border-border/60">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="enableTableService" className="font-semibold text-sm cursor-pointer">
+                          Table Service & Running Bill
+                        </Label>
+                        <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-500/40 bg-amber-500/10">
+                          Dine-In
+                        </Badge>
+                      </div>
+                      <p className="text-muted-foreground text-xs leading-relaxed">
+                        Enable floor map, table selection, incremental kitchen order rounds, and running bills for this branch. If disabled, POS remains direct-to-sale.
+                      </p>
                     </div>
-                    <p className="text-muted-foreground text-xs leading-relaxed">
-                      Enable floor map, table selection, incremental kitchen order rounds, and running bills for this branch. If disabled, POS remains direct-to-sale.
-                    </p>
+                    <Checkbox
+                      id="enableTableService"
+                      checked={form.enableTableService}
+                      onCheckedChange={checked => setForm(f => ({ ...f, enableTableService: !!checked }))}
+                      className="mt-1"
+                    />
                   </div>
-                  <Checkbox
-                    id="enableTableService"
-                    checked={form.enableTableService}
-                    onCheckedChange={checked => setForm(f => ({ ...f, enableTableService: !!checked }))}
-                    className="mt-1"
-                  />
-                </div>
 
-                {form.enableTableService && editingBranch && (
-                  <div className="pt-2 border-t border-border/50">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setTableModalBranch(editingBranch)}
-                      className="w-full text-xs gap-1.5 border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10"
-                    >
-                      <TableIcon className="w-3.5 h-3.5" />
-                      <span>Configure Tables for {editingBranch.name}</span>
-                    </Button>
-                  </div>
-                )}
-              </div>
+                  {form.enableTableService && editingBranch && (
+                    <div className="pt-2 border-t border-border/50">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTableModalBranch(editingBranch)}
+                        className="w-full text-xs gap-1.5 border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10"
+                      >
+                        <TableIcon className="w-3.5 h-3.5" />
+                        <span>Configure Tables for {editingBranch.name}</span>
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Warehouse toggle (only for top-level branches) */}
               {!parentForSubStore && !editingBranch?.parent_id && (

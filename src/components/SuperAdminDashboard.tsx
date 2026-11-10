@@ -382,6 +382,33 @@ export const SuperAdminDashboard: React.FC = () => {
     }
   };
 
+  // 3a. Quick Toggle Table Management for Tenant
+  const handleToggleTenantTableService = async (tenantItem: TenantRecord) => {
+    const currentVal = Boolean(tenantItem.features?.table_management);
+    const nextVal = !currentVal;
+    const updatedFeatures = {
+      ...(tenantItem.features || {}),
+      table_management: nextVal,
+    };
+
+    try {
+      const { error } = await supabase
+        .from('tenants')
+        .update({
+          features: updatedFeatures,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', tenantItem.id);
+
+      if (error) throw error;
+      showSuccess(`Table Management ${nextVal ? 'enabled' : 'disabled'} for "${tenantItem.name}".`);
+      setTenants(prev => prev.map(t => t.id === tenantItem.id ? { ...t, features: updatedFeatures } : t));
+    } catch (err: any) {
+      console.error('Failed to toggle Table Management for tenant:', err);
+      showError(err.message || 'Failed to toggle Table Management.');
+    }
+  };
+
   // 3b. Export Tenant Data
   const handleExportTenant = async (tenant: TenantRecord) => {
     try {
@@ -808,6 +835,7 @@ export const SuperAdminDashboard: React.FC = () => {
                     <TableHead className="text-slate-400">Business Model</TableHead>
                     <TableHead className="text-slate-400">Plan & Billing</TableHead>
                     <TableHead className="text-slate-400 text-center">Quotas (Branches/Users)</TableHead>
+                    <TableHead className="text-slate-400 text-center">Table Service</TableHead>
                     <TableHead className="text-slate-400 text-center">Status</TableHead>
                     <TableHead className="text-slate-400 text-right">Actions</TableHead>
                   </TableRow>
@@ -815,11 +843,11 @@ export const SuperAdminDashboard: React.FC = () => {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-slate-500 py-12">Loading tenant registries...</TableCell>
+                      <TableCell colSpan={8} className="text-center text-slate-500 py-12">Loading tenant registries...</TableCell>
                     </TableRow>
                   ) : tenants.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-slate-500 py-12">No tenants found.</TableCell>
+                      <TableCell colSpan={8} className="text-center text-slate-500 py-12">No tenants found.</TableCell>
                     </TableRow>
                   ) : (
                     tenants.map(t => (
@@ -874,6 +902,21 @@ export const SuperAdminDashboard: React.FC = () => {
                         </TableCell>
                         <TableCell className="text-center text-xs font-semibold">
                           {t.max_branches} Locations / {t.max_users} staff
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTenantTableService(t)}
+                            title={`Click to ${t.features?.table_management ? 'disable' : 'enable'} Table Service for ${t.name}`}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
+                              t.features?.table_management
+                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                                : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700'
+                            }`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${t.features?.table_management ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                            {t.features?.table_management ? 'Enabled' : 'Disabled'}
+                          </button>
                         </TableCell>
                         <TableCell className="text-center">
                           <Badge variant={t.status === 'suspended' ? "destructive" : "default"} className="uppercase text-[9px] tracking-wider">
@@ -1425,10 +1468,30 @@ export const SuperAdminDashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-2 border-t border-slate-850 pt-3">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Feature Access Flags (Switch Enable/Disable)</Label>
+            <div className="space-y-3 border-t border-slate-850 pt-3">
+              <div className="p-3.5 rounded-xl border border-pink-500/30 bg-pink-500/5 flex items-center justify-between">
+                <div className="space-y-0.5 pr-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-white">Table Management & Running Bills</span>
+                    <Badge variant="outline" className={`text-[9px] font-bold uppercase tracking-wider ${
+                      editFeatures.table_management ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10' : 'border-slate-700 text-slate-500'
+                    }`}>
+                      {editFeatures.table_management ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Allow this tenant to configure floor tables, seating capacities, and handle dine-in running bills.
+                  </p>
+                </div>
+                <InlineSwitch
+                  checked={Boolean(editFeatures.table_management)}
+                  onChange={(checked: boolean) => setEditFeatures({ ...editFeatures, table_management: checked })}
+                />
+              </div>
+
+              <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Other Feature Access Flags</Label>
               <div className="grid grid-cols-2 gap-3 p-4 border border-slate-800 rounded-xl bg-slate-950/40 max-h-48 overflow-y-auto">
-                {Object.keys(FEATURE_LABELS).map(key => {
+                {Object.keys(FEATURE_LABELS).filter(k => k !== 'table_management').map(key => {
                   const isEnabled = editFeatures[key] !== false; // default true if not configured
                   return (
                     <div key={key} className="flex items-center justify-between bg-slate-950 p-2 rounded-lg border border-slate-900">

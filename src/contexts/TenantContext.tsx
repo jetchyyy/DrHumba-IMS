@@ -21,10 +21,12 @@ export interface Tenant {
     transactions: boolean;
     recipes: boolean;
     branches: boolean;
+    table_management?: boolean;
     analytics: boolean;
     audit_logs: boolean;
     users: boolean;
     settings: boolean;
+    [key: string]: boolean | undefined;
   };
   logo_url: string | null;
   created_at: string;

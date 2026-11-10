@@ -265,6 +265,9 @@ export const UserManagement: React.FC = () => {
     { id: 'settings', name: 'Settings' },
   ].filter(tab => {
     // Only show tabs that are enabled by the tenant plan
+    if (tab.id === 'table-management') {
+      return Boolean(planFeatures.table_management);
+    }
     const key = TAB_FEATURE_KEYS[tab.id];
     if (!key || !tenant?.features) return true;
     return planFeatures[key] !== false;

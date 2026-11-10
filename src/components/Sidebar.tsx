@@ -103,7 +103,12 @@ export const useNavItems = () => {
   const filtered = tabs.filter(tab => {
     // 1. Plan feature flag is a hard ceiling — always applied first regardless of role
     const key = TAB_FEATURE_KEYS[tab.id];
-    if (key && tenant?.features && features[key] === false) {
+    if (key === 'table_management') {
+      // Table Management is an opt-in feature: must be explicitly enabled
+      if (!tenant?.features?.table_management) {
+        return false;
+      }
+    } else if (key && tenant?.features && features[key] === false) {
       return false;
     }
 

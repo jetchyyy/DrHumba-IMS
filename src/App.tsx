@@ -582,6 +582,7 @@ const AppContent: React.FC = () => {
     transactions:     'transactions',
     recipes:          'recipes',
     branches:         'branches',
+    'table-management': 'table_management',
     analytics:        'analytics',
     'audit-logs':     'audit_logs',
     users:            'users',
@@ -592,6 +593,9 @@ const AppContent: React.FC = () => {
   const isFeatureAllowed = (tabId: string): boolean => {
     // dashboard is always allowed; platform admins bypass
     if (tabId === 'dashboard') return true;
+    if (tabId === 'table-management') {
+      return Boolean(tenant?.features?.table_management);
+    }
     if (!tenant?.features) return true; // single-tenant / no restriction
     const key = TAB_FEATURE_MAP[tabId];
     if (!key) return true;
