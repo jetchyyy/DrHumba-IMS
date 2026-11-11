@@ -73,7 +73,8 @@ export const Expenses: React.FC = () => {
 
   const isSuperAdmin = profile?.role_name === 'super_admin';
   const isBranchManager = profile?.role_name === 'branch_manager';
-  const canManage = isSuperAdmin || isBranchManager;
+  const hasExpensesPermission = Boolean(profile?.allowed_tabs && profile.allowed_tabs.includes('expenses'));
+  const canManage = isSuperAdmin || isBranchManager || hasExpensesPermission;
 
   useEffect(() => {
     if (selectedBranch) {
@@ -81,10 +82,15 @@ export const Expenses: React.FC = () => {
       if (!isSuperAdmin) {
         setFilterBranchId(selectedBranch.id);
       }
+    } else if (profile?.branch_id) {
+      setBranchId(profile.branch_id);
+      if (!isSuperAdmin) {
+        setFilterBranchId(profile.branch_id);
+      }
     } else if (branches.length > 0) {
       setBranchId(branches[0].id);
     }
-  }, [selectedBranch, branches, isSuperAdmin]);
+  }, [selectedBranch, profile?.branch_id, branches, isSuperAdmin]);
 
   const loadExpenses = async () => {
     setLoading(true);
@@ -150,6 +156,8 @@ export const Expenses: React.FC = () => {
     setExpenseDate(new Date().toISOString().split('T')[0]);
     if (selectedBranch) {
       setBranchId(selectedBranch.id);
+    } else if (profile?.branch_id) {
+      setBranchId(profile.branch_id);
     } else if (branches.length > 0) {
       setBranchId(branches[0].id);
     }
@@ -158,7 +166,8 @@ export const Expenses: React.FC = () => {
 
   const handleOpenEditModal = (expense: ExpenseRecord) => {
     // Check write permissions
-    if (!isSuperAdmin && isBranchManager && expense.branch_id !== profile?.branch_id) {
+    const isOwnBranch = isSuperAdmin || (profile?.branch_id ? profile.branch_id === expense.branch_id : selectedBranch?.id === expense.branch_id);
+    if (!isSuperAdmin && !isOwnBranch) {
       showError("Unauthorized: You can only edit expenses logged for your own branch.");
       return;
     }
@@ -179,10 +188,16 @@ export const Expenses: React.FC = () => {
       return;
     }
 
+    const activeBranchId = branchId || selectedBranch?.id || profile?.branch_id;
+    if (!activeBranchId) {
+      showError("Please select or assign a branch for this expense.");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const payload = {
-        branch_id: branchId,
+        branch_id: activeBranchId,
         category,
         amount: Number(amount),
         description: description.trim() || null,
@@ -220,7 +235,8 @@ export const Expenses: React.FC = () => {
 
   const handleDelete = async (expense: ExpenseRecord) => {
     // Check write permissions
-    if (!isSuperAdmin && isBranchManager && expense.branch_id !== profile?.branch_id) {
+    const isOwnBranch = isSuperAdmin || (profile?.branch_id ? profile.branch_id === expense.branch_id : selectedBranch?.id === expense.branch_id);
+    if (!isSuperAdmin && !isOwnBranch) {
       showError("Unauthorized: You can only delete expenses logged for your own branch.");
       return;
     }
@@ -415,7 +431,7 @@ export const Expenses: React.FC = () => {
                 </TableRow>
               ) : (
                 paginatedExpenses.map(item => {
-                  const isOwnBranch = isSuperAdmin || (profile?.branch_id === item.branch_id);
+                  const isOwnBranch = isSuperAdmin || (profile?.branch_id ? profile.branch_id === item.branch_id : selectedBranch?.id === item.branch_id);
                   return (
                     <TableRow key={item.id}>
                       <TableCell className="pl-6 font-medium">
@@ -565,7 +581,7 @@ export const Expenses: React.FC = () => {
                 <div className="space-y-2 opacity-60">
                   <Label>Branch Context</Label>
                   <div className="h-10 flex items-center px-3 border rounded-md bg-muted text-sm font-medium">
-                    {selectedBranch?.name || 'Your Assigned Branch'}
+                    {selectedBranch?.name || branches.find(b => b.id === (branchId || profile?.branch_id))?.name || 'Your Assigned Branch'}
                   </div>
                 </div>
               )}
