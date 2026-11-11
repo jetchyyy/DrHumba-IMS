@@ -112,12 +112,12 @@ export const ZReadHistory: React.FC = () => {
       const branchName = session.branches?.name?.toLowerCase() || '';
       const query = searchTerm.toLowerCase();
 
-      const matchesSearch = 
-        cashierEmail.includes(query) || 
+      const matchesSearch =
+        cashierEmail.includes(query) ||
         cashierFullName.includes(query) ||
-        branchName.includes(query) || 
+        branchName.includes(query) ||
         (session.shift_name || '').toLowerCase().includes(query) ||
-        String(session.z_counter).includes(query) || 
+        String(session.z_counter).includes(query) ||
         (session.control_number || '').toLowerCase().includes(query);
 
       let matchesDates = true;
@@ -276,104 +276,103 @@ export const ZReadHistory: React.FC = () => {
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-          <Table>
-            <TableHeader className="sticky top-0 z-10 bg-card">
-              <TableRow>
-                <TableHead className="pl-6 w-24">Z-Counter</TableHead>
-                <TableHead>Closed Date</TableHead>
-                <TableHead>Cashier</TableHead>
-                <TableHead>Branch Location</TableHead>
-                <TableHead className="text-right">Opening Cash</TableHead>
-                <TableHead className="text-right">Expected Drawer</TableHead>
-                <TableHead className="text-right">Actual Drawer</TableHead>
-                <TableHead className="text-right">Discrepancy</TableHead>
-                <TableHead className="text-right pr-6 w-28">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
-                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
-                    Loading cashier session logs...
-                  </TableCell>
+                  <TableHead className="pl-6 w-24">Z-Counter</TableHead>
+                  <TableHead>Closed Date</TableHead>
+                  <TableHead>Cashier</TableHead>
+                  <TableHead>Branch Location</TableHead>
+                  <TableHead className="text-right">Opening Cash</TableHead>
+                  <TableHead className="text-right">Expected Drawer</TableHead>
+                  <TableHead className="text-right">Actual Drawer</TableHead>
+                  <TableHead className="text-right">Discrepancy</TableHead>
+                  <TableHead className="text-right pr-6 w-28">Actions</TableHead>
                 </TableRow>
-              ) : paginatedSessions.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                    No closed register drawer shifts found matching filters.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                paginatedSessions.map(session => {
-                  const summary = getSummaryObject(session);
-                  const expectedCash = summary ? Number(summary.expectedCash || 0) : 0;
-                  const expectedDrawer = session.opening_balance + expectedCash;
-                  const discrepancy = session.actual_cash - expectedDrawer;
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                      <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
+                      Loading cashier session logs...
+                    </TableCell>
+                  </TableRow>
+                ) : paginatedSessions.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      No closed register drawer shifts found matching filters.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  paginatedSessions.map(session => {
+                    const summary = getSummaryObject(session);
+                    const expectedCash = summary ? Number(summary.expectedCash || 0) : 0;
+                    const expectedDrawer = session.opening_balance + expectedCash;
+                    const discrepancy = session.actual_cash - expectedDrawer;
 
-                  return (
-                    <TableRow key={session.id}>
-                      <TableCell className="pl-6 font-bold font-mono text-destructive">
-                        {session.control_number || `#${String(session.z_counter).padStart(5, '0')}`}
-                      </TableCell>
-                      <TableCell className="text-xs font-medium">
-                        {new Date(session.closed_at).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-xs font-semibold max-w-[150px]" title={session.profiles?.full_name ? `${session.profiles.full_name} (${session.profiles.email})` : session.profiles?.email}>
-                        <div className="truncate">{session.profiles?.full_name || session.profiles?.email}</div>
-                        {session.shift_name && (
-                          <Badge variant="outline" className="mt-0.5 text-[10px] font-bold py-0 h-4 border-indigo-400/40 text-indigo-500 bg-indigo-500/10">
-                            {session.shift_name} Shift
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs font-medium">
-                        {session.branches?.name || 'Main Branch'}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold text-xs">
-                        {formatPHP(session.opening_balance)}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold text-xs text-muted-foreground">
-                        {formatPHP(expectedDrawer)}
-                      </TableCell>
-                      <TableCell className="text-right font-black text-xs text-primary">
-                        {formatPHP(session.actual_cash)}
-                      </TableCell>
-                      <TableCell className={`text-right font-bold text-xs ${
-                        discrepancyColorClass(discrepancy)
-                      }`}>
-                        {formatPHP(discrepancy)}
-                      </TableCell>
-                      <TableCell className="text-right pr-6">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-primary"
-                            onClick={() => setSelectedSession(session)}
-                            title="View Z-Report Summary"
-                          >
-                            <FileText className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-primary"
-                            onClick={() => printXZReport(summary, true, session.branches?.name || 'TERMINAL')}
-                            title="Reprint Z-Read Receipt"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                            </svg>
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
+                    return (
+                      <TableRow key={session.id}>
+                        <TableCell className="pl-6 font-bold font-mono text-destructive">
+                          {session.control_number || `#${String(session.z_counter).padStart(5, '0')}`}
+                        </TableCell>
+                        <TableCell className="text-xs font-medium">
+                          {new Date(session.closed_at).toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-xs font-semibold max-w-[150px]" title={session.profiles?.full_name ? `${session.profiles.full_name} (${session.profiles.email})` : session.profiles?.email}>
+                          <div className="truncate">{session.profiles?.full_name || session.profiles?.email}</div>
+                          {session.shift_name && (
+                            <Badge variant="outline" className="mt-0.5 text-[10px] font-bold py-0 h-4 border-indigo-400/40 text-indigo-500 bg-indigo-500/10">
+                              {session.shift_name} Shift
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs font-medium">
+                          {session.branches?.name || 'Main Branch'}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-xs">
+                          {formatPHP(session.opening_balance)}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-xs text-muted-foreground">
+                          {formatPHP(expectedDrawer)}
+                        </TableCell>
+                        <TableCell className="text-right font-black text-xs text-primary">
+                          {formatPHP(session.actual_cash)}
+                        </TableCell>
+                        <TableCell className={`text-right font-bold text-xs ${discrepancyColorClass(discrepancy)
+                          }`}>
+                          {formatPHP(discrepancy)}
+                        </TableCell>
+                        <TableCell className="text-right pr-6">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-primary"
+                              onClick={() => setSelectedSession(session)}
+                              title="View Z-Report Summary"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-primary"
+                              onClick={() => printXZReport(summary, true, session.branches?.name || 'TERMINAL')}
+                              title="Reprint Z-Read Receipt"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                              </svg>
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
           </div>
 
           {/* Pagination */}
