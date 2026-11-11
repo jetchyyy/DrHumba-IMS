@@ -59,6 +59,12 @@ interface SaleRecord {
   sub_store_name?: string | null;
   service_charge_rate?: number;
   service_charge_amount?: number;
+  discount_type?: string | null;
+  discount_amount?: number;
+  discount_metadata?: any[];
+  vatable_sales?: number;
+  vat_amount?: number;
+  vat_exempt_sales?: number;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -106,6 +112,12 @@ const SALE_SELECT = `
   created_at,
   service_charge_rate,
   service_charge_amount,
+  discount_type,
+  discount_amount,
+  discount_metadata,
+  vatable_sales,
+  vat_amount,
+  vat_exempt_sales,
   branches:branches!branch_id (name),
   sub_stores:branches!sub_store_id (name),
   sale_items (
@@ -138,6 +150,12 @@ const SALE_SELECT_LEGACY = `
   void_reason,
   voided_at,
   created_at,
+  discount_type,
+  discount_amount,
+  discount_metadata,
+  vatable_sales,
+  vat_amount,
+  vat_exempt_sales,
   branches:branches!branch_id (name),
   sub_stores:branches!sub_store_id (name),
   sale_items (
@@ -543,6 +561,12 @@ export const SalesHistory: React.FC = () => {
       sub_store_name: sale.sub_stores?.name || null,
       service_charge_rate: Number(sale.service_charge_rate) || 0,
       service_charge_amount: Number(sale.service_charge_amount) || 0,
+      discount_type: sale.discount_type || null,
+      discount_amount: Number(sale.discount_amount) || 0,
+      discount_metadata: sale.discount_metadata || [],
+      vatable_sales: Number(sale.vatable_sales) || 0,
+      vat_amount: Number(sale.vat_amount) || 0,
+      vat_exempt_sales: Number(sale.vat_exempt_sales) || 0,
       items: (sale.sale_items || []).map((si: any) => ({
         id: si.id,
         quantity: Number(si.quantity),
@@ -926,10 +950,22 @@ export const SalesHistory: React.FC = () => {
                 <span>₱${sale.change_given.toFixed(2)}</span>
               </div>
               ` : ''}
+              ${(sale.vat_exempt_sales || 0) > 0 ? `
+              <div class="payment-row" style="color: #059669;">
+                <span>12% VAT Relief (Exemption):</span>
+                <span>-₱${((sale.vat_exempt_sales || 0) * 0.12).toFixed(2)}</span>
+              </div>
+              ` : ''}
+              ${(sale.discount_amount || 0) > 0 ? `
+              <div class="payment-row" style="color: #d97706; font-weight: 600;">
+                <span>Discount (${(sale.discount_type || 'DISC').toUpperCase()}):</span>
+                <span>-₱${Number(sale.discount_amount).toFixed(2)}</span>
+              </div>
+              ` : ''}
               ${(sale.service_charge_amount || 0) > 0 ? `
               <div class="payment-row">
                 <span>Service Charge:</span>
-                <span>₱${Number(sale.service_charge_amount).toFixed(2)}</span>
+                <span>+₱${Number(sale.service_charge_amount).toFixed(2)}</span>
               </div>
               ` : ''}
               <div class="payment-row total-row">
@@ -937,6 +973,16 @@ export const SalesHistory: React.FC = () => {
                 <span>₱${sale.total_amount.toFixed(2)}</span>
               </div>
             </div>
+            ${sale.discount_metadata && sale.discount_metadata.length > 0 ? `
+            <div style="border-top: 1px dashed #cbd5e1; margin-top: 15px; padding-top: 10px; font-size: 11px;">
+              <strong style="text-transform: uppercase; color: #475569;">Discount Beneficiary Details:</strong>
+              ${sale.discount_metadata.map((dm: any) => `
+                <div style="margin-top: 3px;">
+                  <span>${dm.type || 'Senior / PWD'}: <strong>${dm.name || ''}</strong> ${dm.id ? `(ID: ${dm.id})` : ''}</span>
+                </div>
+              `).join('')}
+            </div>
+            ` : ''}
             <div style="text-align: center; margin: 30px auto; font-size: 11px; font-weight: bold; color: #475569;">
               THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX<br/>
               <span style="font-weight: normal; font-style: italic;">An Official Receipt (OR) will be issued upon payment.</span>
@@ -1296,11 +1342,21 @@ export const SalesHistory: React.FC = () => {
                                 {sale.queue_number}
                               </Badge>
                             )}
+                            {Boolean(sale.discount_amount && sale.discount_amount > 0) && (
+                              <Badge variant="outline" className="text-[10px] font-bold text-amber-500 border-amber-500/40 bg-amber-500/10">
+                                {(sale.discount_type || 'SC').toUpperCase()}: -{formatPHP(sale.discount_amount || 0)}
+                              </Badge>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground font-mono">{sale.cashier_email}</TableCell>
-                        <TableCell className="text-right font-black text-emerald-500">
-                          {formatPHP(sale.total_amount)}
+                        <TableCell className="text-right">
+                          <div className="font-black text-emerald-500">{formatPHP(sale.total_amount)}</div>
+                          {Boolean(sale.discount_amount && sale.discount_amount > 0) && (
+                            <div className="text-[10px] font-semibold text-amber-500">
+                              Less: {formatPHP(sale.discount_amount || 0)} ({(sale.discount_type || 'SC').toUpperCase()})
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-center">
                           <Badge variant={
@@ -1675,6 +1731,30 @@ export const SalesHistory: React.FC = () => {
                 )}
               </div>
 
+              {/* Discount Beneficiary Card (if discount exists) */}
+              {Boolean((selectedSale.discount_amount && selectedSale.discount_amount > 0) || (selectedSale.discount_metadata && selectedSale.discount_metadata.length > 0)) && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider text-[11px]">
+                      {(selectedSale.discount_type || 'Statutory').toUpperCase()} Discount Applied
+                    </span>
+                    <Badge variant="outline" className="border-amber-500/40 text-amber-500 bg-amber-500/10 text-[11px] font-black">
+                      - {formatPHP(selectedSale.discount_amount || 0)}
+                    </Badge>
+                  </div>
+                  {selectedSale.discount_metadata && selectedSale.discount_metadata.length > 0 && (
+                    <div className="pt-2 border-t border-amber-500/20 space-y-1">
+                      {selectedSale.discount_metadata.map((dm: any, idx: number) => (
+                        <div key={idx} className="flex justify-between items-center text-foreground text-xs">
+                          <span className="font-semibold text-muted-foreground">{dm.type || 'ID'}:</span>
+                          <span className="font-bold font-mono">{dm.name || ''} {dm.id ? `(#${dm.id})` : ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Items List with Crashout Strikethrough UI */}
               <div>
                 <h4 className="text-sm font-bold uppercase tracking-wider mb-3 text-muted-foreground">Order Items</h4>
@@ -1757,19 +1837,39 @@ export const SalesHistory: React.FC = () => {
                       })}
 
                       {/* Financial Breakdown */}
+                      {Boolean(selectedSale.vat_exempt_sales && selectedSale.vat_exempt_sales > 0) && (
+                        <TableRow className="bg-muted/10 border-t text-emerald-600">
+                          <TableCell colSpan={3} className="text-right text-xs font-semibold">
+                            12% VAT Relief (Exemption):
+                          </TableCell>
+                          <TableCell className="text-right font-bold text-xs">
+                            - {formatPHP(Number(((selectedSale.vat_exempt_sales || 0) * 0.12).toFixed(2)))}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {Boolean(selectedSale.discount_amount && selectedSale.discount_amount > 0) && (
+                        <TableRow className="bg-muted/10 border-t text-amber-600">
+                          <TableCell colSpan={3} className="text-right text-xs font-semibold">
+                            Discount ({(selectedSale.discount_type || 'SC/PWD').toUpperCase()}):
+                          </TableCell>
+                          <TableCell className="text-right font-bold text-xs">
+                            - {formatPHP(selectedSale.discount_amount || 0)}
+                          </TableCell>
+                        </TableRow>
+                      )}
                       {selectedSale.service_charge_amount != null && selectedSale.service_charge_amount > 0 && (
                         <TableRow className="bg-muted/10 border-t">
                           <TableCell colSpan={3} className="text-right text-xs text-muted-foreground font-semibold">
                             Service Charge:
                           </TableCell>
                           <TableCell className="text-right font-bold text-xs">
-                            {formatPHP(selectedSale.service_charge_amount)}
+                            + {formatPHP(selectedSale.service_charge_amount)}
                           </TableCell>
                         </TableRow>
                       )}
                       <TableRow className="bg-muted/10 border-t">
                         <TableCell colSpan={3} className="text-right text-xs text-muted-foreground font-semibold">
-                          Original Gross Total:
+                          Total Amount Paid:
                         </TableCell>
                         <TableCell className="text-right font-bold text-xs">
                           {formatPHP(selectedSale.total_amount)}
