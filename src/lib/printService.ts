@@ -1990,6 +1990,16 @@ export const printXZReport = (report: any, isZRead: boolean, merchantName: strin
   const dateStr = new Date().toLocaleString();
   const openedDateStr = new Date(report.openedAt).toLocaleString();
   const closedDateStr = report.closedAt ? new Date(report.closedAt).toLocaleString() : 'N/A';
+  const cashierDisplay = report.cashierName || (report.cashierEmail ? report.cashierEmail.split('@')[0] : '') || report.cashier || '';
+  const totalPayments = Number(
+    report.totalPayments ?? (
+      Number(report.cashSales || 0) +
+      Number(report.gcashSales || 0) +
+      Number(report.mayaSales || 0) +
+      Number(report.cardSales || 0) +
+      Number(report.otherSales || 0)
+    )
+  );
 
   const html = `
     <html>
@@ -2057,6 +2067,12 @@ export const printXZReport = (report: any, isZRead: boolean, merchantName: strin
               <span>Z-Counter:</span>
               <span>#${String(report.zCounter || 0).padStart(5, '0')}</span>
             </div>
+            ${cashierDisplay ? `
+            <div class="flex-between">
+              <span>Cashier:</span>
+              <span>${cashierDisplay}</span>
+            </div>
+            ` : ''}
             <div class="flex-between">
               <span>Opened At:</span>
               <span>${openedDateStr}</span>
@@ -2127,6 +2143,11 @@ export const printXZReport = (report: any, isZRead: boolean, merchantName: strin
               <span>Transaction Count:</span>
               <span>${report.transactionCount || 0}</span>
             </div>
+            <div class="separator" style="margin: 4px 0;"></div>
+            <div class="flex-between bold">
+              <span>Net Amount Due:</span>
+              <span>₱${totalPayments.toFixed(2)}</span>
+            </div>
           </div>
 
           <div class="separator"></div>
@@ -2154,6 +2175,11 @@ export const printXZReport = (report: any, isZRead: boolean, merchantName: strin
             <div class="flex-between">
               <span>Other Sales:</span>
               <span>₱${Number(report.otherSales || 0).toFixed(2)}</span>
+            </div>
+            <div class="separator" style="margin: 4px 0;"></div>
+            <div class="flex-between bold">
+              <span>Total Payments:</span>
+              <span>₱${totalPayments.toFixed(2)}</span>
             </div>
           </div>
 
@@ -2185,6 +2211,11 @@ export const printXZReport = (report: any, isZRead: boolean, merchantName: strin
               <span>₱${Number(report.otherChannelSales || 0).toFixed(2)}</span>
             </div>
             ` : ''}
+            <div class="separator" style="margin: 4px 0;"></div>
+            <div class="flex-between bold">
+              <span>Total Channels:</span>
+              <span>₱${totalPayments.toFixed(2)}</span>
+            </div>
           </div>
 
           <div class="separator"></div>

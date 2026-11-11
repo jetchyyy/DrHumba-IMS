@@ -33,7 +33,7 @@ interface CashierSession {
   sales_summary: any;
   control_number?: string;
   branches?: { name: string };
-  profiles?: { email: string };
+  profiles?: { email: string; full_name?: string | null };
 }
 
 const formatPHP = (n: number) =>
@@ -65,7 +65,7 @@ export const ZReadHistory: React.FC = () => {
         .select(`
           *,
           branches (name),
-          profiles (email)
+          profiles (email, full_name)
         `)
         .eq('status', 'closed')
         .order('closed_at', { ascending: false });
@@ -106,11 +106,13 @@ export const ZReadHistory: React.FC = () => {
   const filteredSessions = useMemo(() => {
     return sessions.filter(session => {
       const cashierEmail = session.profiles?.email?.toLowerCase() || '';
+      const cashierFullName = session.profiles?.full_name?.toLowerCase() || '';
       const branchName = session.branches?.name?.toLowerCase() || '';
       const query = searchTerm.toLowerCase();
 
       const matchesSearch = 
         cashierEmail.includes(query) || 
+        cashierFullName.includes(query) ||
         branchName.includes(query) || 
         String(session.z_counter).includes(query) || 
         (session.control_number || '').toLowerCase().includes(query);
@@ -159,14 +161,38 @@ export const ZReadHistory: React.FC = () => {
   // Safe JSON extraction helper
   const getSummaryObject = (session: CashierSession) => {
     if (!session.sales_summary) return null;
+    let summary: any = null;
     if (typeof session.sales_summary === 'string') {
       try {
-        return JSON.parse(session.sales_summary);
+        summary = JSON.parse(session.sales_summary);
       } catch {
         return null;
       }
+    } else {
+      summary = { ...session.sales_summary };
     }
-    return session.sales_summary;
+
+    if (summary) {
+      if (!summary.cashierName && (session.profiles?.full_name || session.profiles?.email)) {
+        summary.cashierName = session.profiles?.full_name || session.profiles?.email?.split('@')[0] || 'Staff';
+      }
+      if (!summary.cashierEmail && session.profiles?.email) {
+        summary.cashierEmail = session.profiles?.email;
+      }
+      if (!summary.controlNumber && session.control_number) {
+        summary.controlNumber = session.control_number;
+      }
+      if (summary.totalPayments === undefined || summary.totalPayments === null) {
+        summary.totalPayments = Number(
+          Number(summary.cashSales || 0) +
+          Number(summary.gcashSales || 0) +
+          Number(summary.mayaSales || 0) +
+          Number(summary.cardSales || 0) +
+          Number(summary.otherSales || 0)
+        );
+      }
+    }
+    return summary;
   };
 
   return (
@@ -287,8 +313,8 @@ export const ZReadHistory: React.FC = () => {
                       <TableCell className="text-xs font-medium">
                         {new Date(session.closed_at).toLocaleString()}
                       </TableCell>
-                      <TableCell className="text-xs font-semibold max-w-[150px] truncate" title={session.profiles?.email}>
-                        {session.profiles?.email}
+                      <TableCell className="text-xs font-semibold max-w-[150px] truncate" title={session.profiles?.full_name ? `${session.profiles.full_name} (${session.profiles.email})` : session.profiles?.email}>
+                        {session.profiles?.full_name || session.profiles?.email}
                       </TableCell>
                       <TableCell className="text-xs font-medium">
                         {session.branches?.name || 'Main Branch'}
@@ -380,6 +406,9 @@ export const ZReadHistory: React.FC = () => {
                     <div className="flex justify-between"><span>Control No:</span><span className="font-bold text-destructive">{selectedSession.control_number}</span></div>
                   )}
                   <div className="flex justify-between"><span>Z-Counter:</span><span className="font-bold text-destructive">#{String(selectedSession.z_counter).padStart(5, '0')}</span></div>
+                  {(summary.cashierName || selectedSession.profiles?.full_name || selectedSession.profiles?.email) && (
+                    <div className="flex justify-between"><span>Cashier:</span><span className="font-bold text-foreground">{summary.cashierName || selectedSession.profiles?.full_name || selectedSession.profiles?.email?.split('@')[0]}</span></div>
+                  )}
                   <div className="flex justify-between"><span>Opened At:</span><span>{new Date(summary.openedAt).toLocaleString()}</span></div>
                   <div className="flex justify-between"><span>Closed At:</span><span>{new Date(summary.closedAt).toLocaleString()}</span></div>
                   <div className="border-t border-dashed my-2" />
@@ -397,6 +426,7 @@ export const ZReadHistory: React.FC = () => {
                     <div className="flex justify-between"><span>Service Charge:</span><span>{formatPHP(summary.serviceChargeTotal)}</span></div>
                   )}
                   <div className="flex justify-between"><span>Transaction Count:</span><span>{summary.transactionCount}</span></div>
+                  <div className="flex justify-between font-bold border-t border-dashed pt-1 mt-1"><span>Net Due / Paid:</span><span>{formatPHP(summary.totalPayments || 0)}</span></div>
                   <div className="border-t border-dashed my-2" />
                   <div className="font-bold text-center">PAYMENT BREAKDOWN</div>
                   <div className="flex justify-between"><span>Cash:</span><span>{formatPHP(summary.cashSales)}</span></div>
@@ -404,6 +434,7 @@ export const ZReadHistory: React.FC = () => {
                   <div className="flex justify-between"><span>Maya:</span><span>{formatPHP(summary.mayaSales)}</span></div>
                   <div className="flex justify-between"><span>Card:</span><span>{formatPHP(summary.cardSales)}</span></div>
                   <div className="flex justify-between"><span>Other:</span><span>{formatPHP(summary.otherSales)}</span></div>
+                  <div className="flex justify-between font-bold border-t border-dashed pt-1 mt-1"><span>Total Payments:</span><span>{formatPHP(summary.totalPayments || 0)}</span></div>
                   <div className="border-t border-dashed my-2" />
                   <div className="font-bold text-center">SALES CHANNEL BREAKDOWN</div>
                   <div className="flex justify-between"><span>Dine-in / Store:</span><span>{formatPHP(summary.dineInSales || 0)}</span></div>
@@ -413,6 +444,7 @@ export const ZReadHistory: React.FC = () => {
                   {summary.otherChannelSales > 0 && (
                     <div className="flex justify-between"><span>Other Channels:</span><span>{formatPHP(summary.otherChannelSales)}</span></div>
                   )}
+                  <div className="flex justify-between font-bold border-t border-dashed pt-1 mt-1"><span>Total Channels:</span><span>{formatPHP(summary.totalPayments || 0)}</span></div>
                   <div className="border-t border-dashed my-2" />
                   <div className="font-bold text-center">VOIDS & REFUNDS</div>
                   <div className="flex justify-between"><span>Void Count:</span><span>{summary.voidCount}</span></div>

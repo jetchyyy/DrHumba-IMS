@@ -549,6 +549,15 @@ export async function printBluetoothXZReport(summary: any, isZRead: boolean, ter
   const CUT = [0x1D, 0x56, 0x42, 0x00];
 
   const formatPHP = (val: number) => 'P' + (val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const totalPayments = Number(
+    summary.totalPayments ?? (
+      Number(summary.cashSales || 0) +
+      Number(summary.gcashSales || 0) +
+      Number(summary.mayaSales || 0) +
+      Number(summary.cardSales || 0) +
+      Number(summary.otherSales || 0)
+    )
+  );
 
   payload.push(...INIT);
   payload.push(...ALIGN_CENTER);
@@ -559,7 +568,14 @@ export async function printBluetoothXZReport(summary: any, isZRead: boolean, ter
   payload.push(...encoder.encode('--------------------------------\n'));
   payload.push(...ALIGN_LEFT);
   payload.push(...encoder.encode(formatKeyValueLine('Status:', (summary.status || '').toUpperCase(), 32) + '\n'));
+  if (summary.controlNumber) {
+    payload.push(...encoder.encode(formatKeyValueLine('Control No:', summary.controlNumber, 32) + '\n'));
+  }
   payload.push(...encoder.encode(formatKeyValueLine('Z-Counter:', `#${String(summary.zCounter || 0).padStart(5, '0')}`, 32) + '\n'));
+  const cashierDisplayName = summary.cashierName || (summary.cashierEmail ? summary.cashierEmail.split('@')[0] : '') || summary.cashier || '';
+  if (cashierDisplayName) {
+    payload.push(...encoder.encode(formatKeyValueLine('Cashier:', cashierDisplayName, 32) + '\n'));
+  }
   payload.push(...encoder.encode(formatKeyValueLine('Opened:', new Date(summary.openedAt).toLocaleString('en-US', { hour12: false }), 32) + '\n'));
   if (isZRead && summary.closedAt) {
     payload.push(...encoder.encode(formatKeyValueLine('Closed:', new Date(summary.closedAt).toLocaleString('en-US', { hour12: false }), 32) + '\n'));
@@ -584,6 +600,9 @@ export async function printBluetoothXZReport(summary: any, isZRead: boolean, ter
     payload.push(...encoder.encode(formatKeyValueLine('Service Chg:', formatPHP(summary.serviceChargeTotal), 32) + '\n'));
   }
   payload.push(...encoder.encode(formatKeyValueLine('Tx Count:', String(summary.transactionCount), 32) + '\n'));
+  payload.push(...BOLD_ON);
+  payload.push(...encoder.encode(formatKeyValueLine('Net Due / Paid:', formatPHP(totalPayments), 32) + '\n'));
+  payload.push(...BOLD_OFF);
 
   payload.push(...encoder.encode('--------------------------------\n'));
   payload.push(...ALIGN_CENTER);
@@ -596,6 +615,9 @@ export async function printBluetoothXZReport(summary: any, isZRead: boolean, ter
   if (summary.mayaSales > 0) payload.push(...encoder.encode(formatKeyValueLine('Maya:', formatPHP(summary.mayaSales), 32) + '\n'));
   if (summary.cardSales > 0) payload.push(...encoder.encode(formatKeyValueLine('Card:', formatPHP(summary.cardSales), 32) + '\n'));
   if (summary.otherSales > 0) payload.push(...encoder.encode(formatKeyValueLine('Other:', formatPHP(summary.otherSales), 32) + '\n'));
+  payload.push(...BOLD_ON);
+  payload.push(...encoder.encode(formatKeyValueLine('Total Payments:', formatPHP(totalPayments), 32) + '\n'));
+  payload.push(...BOLD_OFF);
 
   payload.push(...encoder.encode('--------------------------------\n'));
   payload.push(...ALIGN_CENTER);

@@ -705,6 +705,17 @@ export const XReadDialog: React.FC<XReadDialogProps> = ({
   onPrintXZBluetooth,
   onPrintXZSystem,
 }) => {
+  const totalPayments = sessionSummary
+    ? Number(
+        sessionSummary.totalPayments ?? (
+          Number(sessionSummary.cashSales || 0) +
+          Number(sessionSummary.gcashSales || 0) +
+          Number(sessionSummary.mayaSales || 0) +
+          Number(sessionSummary.cardSales || 0) +
+          Number(sessionSummary.otherSales || 0)
+        )
+      )
+    : 0;
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="sm:max-w-md">
@@ -723,6 +734,9 @@ export const XReadDialog: React.FC<XReadDialogProps> = ({
               <div className="border-t border-dashed my-2" />
               <div className="flex justify-between"><span>Status:</span><span>{sessionSummary.status?.toUpperCase()}</span></div>
               <div className="flex justify-between"><span>Z-Counter:</span><span>#{String(sessionSummary.zCounter || 0).padStart(5, '0')}</span></div>
+              {(sessionSummary.cashierName || sessionSummary.cashierEmail) && (
+                <div className="flex justify-between"><span>Cashier:</span><span className="font-semibold">{sessionSummary.cashierName || sessionSummary.cashierEmail?.split('@')[0]}</span></div>
+              )}
               <div className="flex justify-between"><span>Opened At:</span><span>{new Date(sessionSummary.openedAt).toLocaleString()}</span></div>
               <div className="border-t border-dashed my-2" />
               <div className="font-bold text-center">LIFETIME GRAND TOTALS</div>
@@ -738,6 +752,7 @@ export const XReadDialog: React.FC<XReadDialogProps> = ({
                 <div className="flex justify-between"><span>Service Charge:</span><span>{formatPHP(sessionSummary.serviceChargeTotal)}</span></div>
               )}
               <div className="flex justify-between"><span>Transaction Count:</span><span>{sessionSummary.transactionCount}</span></div>
+              <div className="flex justify-between font-bold border-t border-dashed pt-1 mt-1"><span>Net Due / Paid:</span><span>{formatPHP(totalPayments)}</span></div>
               <div className="border-t border-dashed my-2" />
               <div className="font-bold text-center">PAYMENT BREAKDOWN</div>
               <div className="flex justify-between"><span>Cash:</span><span>{formatPHP(sessionSummary.cashSales)}</span></div>
@@ -745,6 +760,7 @@ export const XReadDialog: React.FC<XReadDialogProps> = ({
               <div className="flex justify-between"><span>Maya:</span><span>{formatPHP(sessionSummary.mayaSales)}</span></div>
               <div className="flex justify-between"><span>Card:</span><span>{formatPHP(sessionSummary.cardSales)}</span></div>
               <div className="flex justify-between"><span>Other:</span><span>{formatPHP(sessionSummary.otherSales)}</span></div>
+              <div className="flex justify-between font-bold border-t border-dashed pt-1 mt-1"><span>Total Payments:</span><span>{formatPHP(totalPayments)}</span></div>
               <div className="border-t border-dashed my-2" />
               <div className="font-bold text-center">SALES CHANNEL BREAKDOWN</div>
               <div className="flex justify-between"><span>Dine-in / Store:</span><span>{formatPHP(sessionSummary.dineInSales || 0)}</span></div>
@@ -754,6 +770,7 @@ export const XReadDialog: React.FC<XReadDialogProps> = ({
               {sessionSummary.otherChannelSales > 0 && (
                 <div className="flex justify-between"><span>Other Channels:</span><span>{formatPHP(sessionSummary.otherChannelSales)}</span></div>
               )}
+              <div className="flex justify-between font-bold border-t border-dashed pt-1 mt-1"><span>Total Channels:</span><span>{formatPHP(totalPayments)}</span></div>
               <div className="border-t border-dashed my-2" />
               <div className="font-bold text-center">VOIDS & REFUNDS</div>
               <div className="flex justify-between"><span>Void Count:</span><span>{sessionSummary.voidCount}</span></div>
@@ -877,6 +894,16 @@ export const ClosedZReportDialog: React.FC<ClosedZReportDialogProps> = ({
 }) => {
   if (!summary) return null;
 
+  const totalPayments = Number(
+    summary.totalPayments ?? (
+      Number(summary.cashSales || 0) +
+      Number(summary.gcashSales || 0) +
+      Number(summary.mayaSales || 0) +
+      Number(summary.cardSales || 0) +
+      Number(summary.otherSales || 0)
+    )
+  );
+
   return (
     <Dialog open={!!summary} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="sm:max-w-2xl p-0 overflow-hidden">
@@ -894,7 +921,13 @@ export const ClosedZReportDialog: React.FC<ClosedZReportDialogProps> = ({
               <div className="text-center text-[10px] text-destructive font-bold">Z-READ CLOSED REPORT</div>
               <div className="border-t border-dashed my-2" />
               <div className="flex justify-between"><span>Status:</span><span className="font-bold text-destructive">{summary.status?.toUpperCase()}</span></div>
+              {summary.controlNumber && (
+                <div className="flex justify-between"><span>Control No:</span><span className="font-bold text-destructive">{summary.controlNumber}</span></div>
+              )}
               <div className="flex justify-between"><span>Z-Counter:</span><span className="font-bold text-destructive">#{String(summary.zCounter || 0).padStart(5, '0')}</span></div>
+              {(summary.cashierName || summary.cashierEmail) && (
+                <div className="flex justify-between"><span>Cashier:</span><span className="font-bold text-foreground">{summary.cashierName || summary.cashierEmail?.split('@')[0]}</span></div>
+              )}
               <div className="flex justify-between"><span>Opened At:</span><span>{new Date(summary.openedAt).toLocaleString()}</span></div>
               <div className="flex justify-between"><span>Closed At:</span><span>{new Date(summary.closedAt).toLocaleString()}</span></div>
               <div className="border-t border-dashed my-2" />
@@ -911,6 +944,7 @@ export const ClosedZReportDialog: React.FC<ClosedZReportDialogProps> = ({
                 <div className="flex justify-between"><span>Service Charge:</span><span>{formatPHP(summary.serviceChargeTotal)}</span></div>
               )}
               <div className="flex justify-between"><span>Transaction Count:</span><span>{summary.transactionCount}</span></div>
+              <div className="flex justify-between font-bold border-t border-dashed pt-1 mt-1"><span>Net Due / Paid:</span><span>{formatPHP(totalPayments)}</span></div>
               <div className="border-t border-dashed my-2" />
               <div className="font-bold text-center">PAYMENT BREAKDOWN</div>
               <div className="flex justify-between"><span>Cash:</span><span>{formatPHP(summary.cashSales)}</span></div>
@@ -918,6 +952,7 @@ export const ClosedZReportDialog: React.FC<ClosedZReportDialogProps> = ({
               <div className="flex justify-between"><span>Maya:</span><span>{formatPHP(summary.mayaSales)}</span></div>
               <div className="flex justify-between"><span>Card:</span><span>{formatPHP(summary.cardSales)}</span></div>
               <div className="flex justify-between"><span>Other:</span><span>{formatPHP(summary.otherSales)}</span></div>
+              <div className="flex justify-between font-bold border-t border-dashed pt-1 mt-1"><span>Total Payments:</span><span>{formatPHP(totalPayments)}</span></div>
               <div className="border-t border-dashed my-2" />
               <div className="font-bold text-center">SALES CHANNEL BREAKDOWN</div>
               <div className="flex justify-between"><span>Dine-in / Store:</span><span>{formatPHP(summary.dineInSales || 0)}</span></div>
@@ -927,6 +962,7 @@ export const ClosedZReportDialog: React.FC<ClosedZReportDialogProps> = ({
               {summary.otherChannelSales > 0 && (
                 <div className="flex justify-between"><span>Other Channels:</span><span>{formatPHP(summary.otherChannelSales)}</span></div>
               )}
+              <div className="flex justify-between font-bold border-t border-dashed pt-1 mt-1"><span>Total Channels:</span><span>{formatPHP(totalPayments)}</span></div>
               <div className="border-t border-dashed my-2" />
               <div className="font-bold text-center">VOIDS &amp; REFUNDS</div>
               <div className="flex justify-between"><span>Void Count:</span><span>{summary.voidCount}</span></div>

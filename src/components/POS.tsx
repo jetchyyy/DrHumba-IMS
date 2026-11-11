@@ -363,7 +363,13 @@ export const POS: React.FC<POSProps> = ({
         p_session_id: activeSession.id
       });
       if (error) throw error;
-      setSessionSummary(data);
+      const cashierName = data?.cashierName || profile?.full_name || profile?.email?.split('@')[0] || 'Staff';
+      const cashierEmail = data?.cashierEmail || profile?.email;
+      setSessionSummary({
+        ...data,
+        cashierName,
+        cashierEmail,
+      });
       setXReadOpen(true);
     } catch (err: any) {
       console.error('Error loading session summary:', err);
@@ -395,9 +401,17 @@ export const POS: React.FC<POSProps> = ({
       });
       if (error) throw error;
 
+      const cashierName = data?.cashierName || profile?.full_name || profile?.email?.split('@')[0] || 'Staff';
+      const cashierEmail = data?.cashierEmail || profile?.email;
+      const enrichedSummary = {
+        ...data,
+        cashierName,
+        cashierEmail,
+      };
+
       showSuccess('Register session closed & Z-Read complete.');
       setZReadOpen(false);
-      setViewingClosedSummary(data);
+      setViewingClosedSummary(enrichedSummary);
       await checkActiveSession();
     } catch (err: any) {
       console.error('Error closing session:', err);
