@@ -11,6 +11,7 @@ import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Badge } from './ui/badge';
 import {
   FileTextIcon as FileText,
   FileTextIcon as Printer,
@@ -32,6 +33,7 @@ interface CashierSession {
   grand_total_end: number;
   sales_summary: any;
   control_number?: string;
+  shift_name?: string | null;
   branches?: { name: string };
   profiles?: { email: string; full_name?: string | null };
 }
@@ -114,6 +116,7 @@ export const ZReadHistory: React.FC = () => {
         cashierEmail.includes(query) || 
         cashierFullName.includes(query) ||
         branchName.includes(query) || 
+        (session.shift_name || '').toLowerCase().includes(query) ||
         String(session.z_counter).includes(query) || 
         (session.control_number || '').toLowerCase().includes(query);
 
@@ -178,6 +181,9 @@ export const ZReadHistory: React.FC = () => {
       }
       if (!summary.cashierEmail && session.profiles?.email) {
         summary.cashierEmail = session.profiles?.email;
+      }
+      if (!summary.shiftName && session.shift_name) {
+        summary.shiftName = session.shift_name;
       }
       if (!summary.controlNumber && session.control_number) {
         summary.controlNumber = session.control_number;
@@ -313,8 +319,13 @@ export const ZReadHistory: React.FC = () => {
                       <TableCell className="text-xs font-medium">
                         {new Date(session.closed_at).toLocaleString()}
                       </TableCell>
-                      <TableCell className="text-xs font-semibold max-w-[150px] truncate" title={session.profiles?.full_name ? `${session.profiles.full_name} (${session.profiles.email})` : session.profiles?.email}>
-                        {session.profiles?.full_name || session.profiles?.email}
+                      <TableCell className="text-xs font-semibold max-w-[150px]" title={session.profiles?.full_name ? `${session.profiles.full_name} (${session.profiles.email})` : session.profiles?.email}>
+                        <div className="truncate">{session.profiles?.full_name || session.profiles?.email}</div>
+                        {session.shift_name && (
+                          <Badge variant="outline" className="mt-0.5 text-[10px] font-bold py-0 h-4 border-indigo-400/40 text-indigo-500 bg-indigo-500/10">
+                            {session.shift_name} Shift
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs font-medium">
                         {session.branches?.name || 'Main Branch'}
@@ -408,6 +419,9 @@ export const ZReadHistory: React.FC = () => {
                   <div className="flex justify-between"><span>Z-Counter:</span><span className="font-bold text-destructive">#{String(selectedSession.z_counter).padStart(5, '0')}</span></div>
                   {(summary.cashierName || selectedSession.profiles?.full_name || selectedSession.profiles?.email) && (
                     <div className="flex justify-between"><span>Cashier:</span><span className="font-bold text-foreground">{summary.cashierName || selectedSession.profiles?.full_name || selectedSession.profiles?.email?.split('@')[0]}</span></div>
+                  )}
+                  {(summary.shiftName || selectedSession.shift_name) && (
+                    <div className="flex justify-between"><span>Shift:</span><span className="font-bold text-foreground">{summary.shiftName || selectedSession.shift_name}</span></div>
                   )}
                   <div className="flex justify-between"><span>Opened At:</span><span>{new Date(summary.openedAt).toLocaleString()}</span></div>
                   <div className="flex justify-between"><span>Closed At:</span><span>{new Date(summary.closedAt).toLocaleString()}</span></div>

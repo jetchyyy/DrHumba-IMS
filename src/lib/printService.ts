@@ -2073,6 +2073,12 @@ export const printXZReport = (report: any, isZRead: boolean, merchantName: strin
               <span>${cashierDisplay}</span>
             </div>
             ` : ''}
+            ${(report.shiftName || report.shift_name) ? `
+            <div class="flex-between">
+              <span>Shift:</span>
+              <span>${report.shiftName || report.shift_name}</span>
+            </div>
+            ` : ''}
             <div class="flex-between">
               <span>Opened At:</span>
               <span>${openedDateStr}</span>

@@ -261,6 +261,7 @@ export const POS: React.FC<POSProps> = ({
   const [sessionLoading, setSessionLoading] = useState(true);
   const [openSessionOpen, setOpenSessionOpen] = useState(false);
   const [openingBalance, setOpeningBalance] = useState('1000');
+  const [shiftName, setShiftName] = useState<string>('Morning');
 
   // X/Z Read report state
   const [xReadOpen, setXReadOpen] = useState(false);
@@ -340,9 +341,11 @@ export const POS: React.FC<POSProps> = ({
   const handleOpenSession = async () => {
     if (!selectedBranch?.id) return;
     try {
+      const selectedShift = tenant?.features?.shift_management ? shiftName : null;
       const { error } = await supabase.rpc('fn_open_cashier_session', {
         p_branch_id: selectedBranch.id,
-        p_opening_balance: Number(openingBalance) || 0
+        p_opening_balance: Number(openingBalance) || 0,
+        p_shift_name: selectedShift,
       });
 
       if (error) throw error;
@@ -365,10 +368,12 @@ export const POS: React.FC<POSProps> = ({
       if (error) throw error;
       const cashierName = data?.cashierName || profile?.full_name || profile?.email?.split('@')[0] || 'Staff';
       const cashierEmail = data?.cashierEmail || profile?.email;
+      const shiftVal = data?.shiftName || activeSession?.shift_name || (tenant?.features?.shift_management ? shiftName : null);
       setSessionSummary({
         ...data,
         cashierName,
         cashierEmail,
+        shiftName: shiftVal,
       });
       setXReadOpen(true);
     } catch (err: any) {
@@ -403,10 +408,12 @@ export const POS: React.FC<POSProps> = ({
 
       const cashierName = data?.cashierName || profile?.full_name || profile?.email?.split('@')[0] || 'Staff';
       const cashierEmail = data?.cashierEmail || profile?.email;
+      const shiftVal = data?.shiftName || activeSession?.shift_name || (tenant?.features?.shift_management ? shiftName : null);
       const enrichedSummary = {
         ...data,
         cashierName,
         cashierEmail,
+        shiftName: shiftVal,
       };
 
       showSuccess('Register session closed & Z-Read complete.');
@@ -2505,6 +2512,9 @@ export const POS: React.FC<POSProps> = ({
         openingBalance={openingBalance}
         setOpeningBalance={setOpeningBalance}
         onOpenSession={handleOpenSession}
+        enableShiftManagement={Boolean(tenant?.features?.shift_management)}
+        shiftName={shiftName}
+        setShiftName={setShiftName}
       />
 
       {/* ─── X-Read Report Dialog ─── */}

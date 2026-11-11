@@ -615,6 +615,9 @@ interface OpenSessionDialogProps {
   openingBalance: string;
   setOpeningBalance: (val: string) => void;
   onOpenSession: () => void;
+  enableShiftManagement?: boolean;
+  shiftName?: string;
+  setShiftName?: (val: string) => void;
 }
 
 export const OpenSessionDialog: React.FC<OpenSessionDialogProps> = ({
@@ -623,6 +626,9 @@ export const OpenSessionDialog: React.FC<OpenSessionDialogProps> = ({
   openingBalance,
   setOpeningBalance,
   onOpenSession,
+  enableShiftManagement = false,
+  shiftName = 'Morning',
+  setShiftName,
 }) => {
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -635,6 +641,33 @@ export const OpenSessionDialog: React.FC<OpenSessionDialogProps> = ({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {enableShiftManagement && (
+            <div className="space-y-2">
+              <Label className="text-xs uppercase font-semibold">Shift Selection *</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {['Morning', 'Mid', 'Night'].map((shift) => (
+                  <Button
+                    key={shift}
+                    type="button"
+                    variant={shiftName === shift ? 'default' : 'outline'}
+                    size="sm"
+                    className={`h-10 text-xs font-bold rounded-xl transition-all ${
+                      shiftName === shift
+                        ? 'shadow-md border-primary ring-2 ring-primary/20'
+                        : 'hover:bg-muted'
+                    }`}
+                    onClick={() => setShiftName?.(shift)}
+                  >
+                    {shift}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Selected shift will be logged with this cash drawer session and printed on X/Z reads.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label className="text-xs uppercase font-semibold">Opening Cash Float (₱) *</Label>
             <Input
@@ -736,6 +769,9 @@ export const XReadDialog: React.FC<XReadDialogProps> = ({
               <div className="flex justify-between"><span>Z-Counter:</span><span>#{String(sessionSummary.zCounter || 0).padStart(5, '0')}</span></div>
               {(sessionSummary.cashierName || sessionSummary.cashierEmail) && (
                 <div className="flex justify-between"><span>Cashier:</span><span className="font-semibold">{sessionSummary.cashierName || sessionSummary.cashierEmail?.split('@')[0]}</span></div>
+              )}
+              {(sessionSummary.shiftName || sessionSummary.shift_name) && (
+                <div className="flex justify-between"><span>Shift:</span><span className="font-semibold">{sessionSummary.shiftName || sessionSummary.shift_name}</span></div>
               )}
               <div className="flex justify-between"><span>Opened At:</span><span>{new Date(sessionSummary.openedAt).toLocaleString()}</span></div>
               <div className="border-t border-dashed my-2" />
@@ -927,6 +963,9 @@ export const ClosedZReportDialog: React.FC<ClosedZReportDialogProps> = ({
               <div className="flex justify-between"><span>Z-Counter:</span><span className="font-bold text-destructive">#{String(summary.zCounter || 0).padStart(5, '0')}</span></div>
               {(summary.cashierName || summary.cashierEmail) && (
                 <div className="flex justify-between"><span>Cashier:</span><span className="font-bold text-foreground">{summary.cashierName || summary.cashierEmail?.split('@')[0]}</span></div>
+              )}
+              {(summary.shiftName || summary.shift_name) && (
+                <div className="flex justify-between"><span>Shift:</span><span className="font-bold text-foreground">{summary.shiftName || summary.shift_name}</span></div>
               )}
               <div className="flex justify-between"><span>Opened At:</span><span>{new Date(summary.openedAt).toLocaleString()}</span></div>
               <div className="flex justify-between"><span>Closed At:</span><span>{new Date(summary.closedAt).toLocaleString()}</span></div>

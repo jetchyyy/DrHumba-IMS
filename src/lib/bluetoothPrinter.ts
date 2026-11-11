@@ -576,6 +576,10 @@ export async function printBluetoothXZReport(summary: any, isZRead: boolean, ter
   if (cashierDisplayName) {
     payload.push(...encoder.encode(formatKeyValueLine('Cashier:', cashierDisplayName, 32) + '\n'));
   }
+  const shiftDisplayName = summary.shiftName || summary.shift_name || '';
+  if (shiftDisplayName) {
+    payload.push(...encoder.encode(formatKeyValueLine('Shift:', shiftDisplayName, 32) + '\n'));
+  }
   payload.push(...encoder.encode(formatKeyValueLine('Opened:', new Date(summary.openedAt).toLocaleString('en-US', { hour12: false }), 32) + '\n'));
   if (isZRead && summary.closedAt) {
     payload.push(...encoder.encode(formatKeyValueLine('Closed:', new Date(summary.closedAt).toLocaleString('en-US', { hour12: false }), 32) + '\n'));
