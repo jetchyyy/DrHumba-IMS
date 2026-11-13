@@ -698,7 +698,7 @@ export const POS: React.FC<POSProps> = ({
 
     const { data: profileData } = await supabase
       .from('profiles')
-      .select('email')
+      .select('full_name, email')
       .eq('id', saleData.cashier_id)
       .single();
 
@@ -728,6 +728,7 @@ export const POS: React.FC<POSProps> = ({
       vat_amount: saleData.vat_amount,
       vat_exempt_sales: saleData.vat_exempt_sales,
       branch_name: (Array.isArray(saleData.branches) ? saleData.branches[0]?.name : (saleData.branches as any)?.name) || selectedBranch?.name || 'Main Branch',
+      cashier_name: profileData?.full_name || profile?.full_name || null,
       cashier_email: profileData?.email || profile?.email || 'System',
       items: (saleData.sale_items || []).map((si: any) => ({
         id: si.id,
@@ -752,7 +753,8 @@ export const POS: React.FC<POSProps> = ({
       id: saleResult.id,
       control_number: saleResult.control_number || (saleResult.id ? String(saleResult.id).substring(0, 8) : 'ORDER'),
       branch_name: saleResult.branch_name,
-      cashier_email: saleResult.cashier_email,
+      cashier_name: saleResult.cashier_name || saleResult.server_name || profile?.full_name || null,
+      cashier_email: saleResult.cashier_email || profile?.email || '',
       total_amount: saleResult.total_amount,
       created_at: saleResult.created_at,
       sale_category: saleResult.sale_category || 'Dine in',
@@ -805,11 +807,12 @@ export const POS: React.FC<POSProps> = ({
     try {
       setIsPrintingKitchenBluetooth(true);
       await ensureBluetoothPrinter();
+      const settings = await settingsService.getSettings();
       // Pass the payload directly — printBluetoothKitchenReceipt accepts both
       // LastSaleResult and KitchenOrderSentPayload shapes (items field is compatible).
       // Previously wrapping in getMappedSale() caused a type mismatch when called
       // from KitchenOrderSentDialog with a KitchenOrderSentPayload.
-      await printBluetoothKitchenReceipt(saleResult);
+      await printBluetoothKitchenReceipt(saleResult, settings.kitchen_receipt);
     } catch (err: any) {
       console.error('Failed to print kitchen receipt via Bluetooth:', err);
       showError(err?.message || 'Failed to print kitchen receipt via Bluetooth.');
@@ -821,7 +824,7 @@ export const POS: React.FC<POSProps> = ({
   const handlePrintKitchenSystem = async (saleResult: any) => {
     try {
       const settings = await settingsService.getSettings();
-      printKitchenReceipt(getMappedSale(saleResult), settings.sales_invoice);
+      printKitchenReceipt(getMappedSale(saleResult), settings.kitchen_receipt);
     } catch (err: any) {
       console.error('Failed to print kitchen receipt via System:', err);
       showError(err?.message || 'Failed to print kitchen receipt via System Drivers.');
@@ -1085,6 +1088,8 @@ export const POS: React.FC<POSProps> = ({
         table_number: activeTable.table_number,
         round_number: nextRound,
         server_name: activeTab.server_name || profile?.full_name || 'Staff',
+        cashier_name: profile?.full_name || profile?.email?.split('@')[0] || 'Staff',
+        cashier_email: profile?.email || '',
         sale_category: `Table ${activeTable.table_number} (Round ${nextRound})`,
         notes: orderKitchenNote.trim() || undefined,
         created_at: new Date().toISOString(),
@@ -1342,6 +1347,7 @@ export const POS: React.FC<POSProps> = ({
             is_vat_exempt: p.is_vat_exempt || false
           })),
           branch_name: selectedBranch.name,
+          cashier_name: profile?.full_name || null,
           cashier_email: profile?.email || 'System',
           total_amount: payableTotal,
           created_at: new Date().toISOString(),
@@ -1464,6 +1470,7 @@ export const POS: React.FC<POSProps> = ({
             is_vat_exempt: item.is_vat_exempt || false
           })),
           branch_name: selectedBranch.name,
+          cashier_name: profile?.full_name || null,
           cashier_email: profile?.email || 'System',
           total_amount: payableTotal,
           created_at: new Date().toISOString(),

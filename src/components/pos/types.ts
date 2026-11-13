@@ -210,6 +210,8 @@ export interface KitchenOrderSentPayload {
   table_number: string;
   round_number: number;
   server_name: string;
+  cashier_name?: string;
+  cashier_email?: string;
   items: Array<{ item_name: string; quantity: number; notes?: string }>;
   notes?: string;
   created_at: string;

@@ -1,4 +1,6 @@
 import type { TransferSlipTemplate, SalesInvoiceTemplate } from './settingsService';
+import { buildKitchenReceiptHtml } from './kitchenReceipt';
+import type { KitchenReceiptTemplate } from './kitchenReceipt';
 
 export const printTransferSlip = (transfer: any, items: any[], template: TransferSlipTemplate) => {
   const printWindow = window.open('', '_blank');
@@ -1003,151 +1005,14 @@ export const printAdjustmentSlip = (adjustment: any, items: any[], template: Tra
   printWindow.document.close();
 };
 
-export const printKitchenReceipt = (sale: any, template: SalesInvoiceTemplate) => {
+export const printKitchenReceipt = (sale: any, template?: Partial<KitchenReceiptTemplate>) => {
   const printWindow = window.open('', '_blank');
   if (!printWindow) {
     alert('Please allow popups to generate the kitchen receipt.');
     return;
   }
 
-  const itemsHtml = sale.items.map((item: any) => {
-    const noteHtml = item.notes ? `
-      <div style="font-size: 0.85em; font-weight: bold; color: #b91c1c; margin-top: 3px; font-style: italic; background-color: #fef2f2; border: 1px dashed #ef4444; padding: 2px 6px; border-radius: 3px;">
-        *** NOTE: ${item.notes} ***
-      </div>
-    ` : '';
-
-    return `
-      <tr style="border-bottom: 1px dashed #cccccc;">
-        <td style="padding: 6px 0; font-weight: bold; font-size: 1.2em;">
-          ${item.quantity} x ${item.item_name || item.name}
-          ${noteHtml}
-        </td>
-      </tr>
-    `;
-  }).join('');
-
-  const orderNoteHtml = (sale.notes || sale.kitchen_notes) ? `
-    <div style="background-color: #fef3c7; border: 2px solid #f59e0b; color: #92400e; padding: 6px 8px; border-radius: 4px; font-weight: bold; font-size: 1.05em; margin: 8px 0; text-transform: uppercase;">
-      ORDER NOTE: ${sale.notes || sale.kitchen_notes}
-    </div>
-  ` : '';
-
-  const dateStr = new Date(sale.created_at || new Date()).toLocaleString();
-
-  // Font sizes and widths
-  const widthStyle = template.paper_width === '58mm' ? '54mm' : '76mm';
-  const fontSizeStyle = template.font_size === 'small' ? '11px' : template.font_size === 'large' ? '14px' : '12px';
-
-  const html = `
-    <html>
-      <head>
-        <title>Kitchen - ${sale.id.substring(0, 8)}</title>
-        <style>
-          @page {
-            margin: 0;
-          }
-          body {
-            font-family: 'Courier New', Courier, monospace;
-            font-size: ${fontSizeStyle};
-            line-height: 1.3;
-            color: #000000;
-            background-color: #ffffff;
-            margin: 0;
-            padding: 8px;
-            width: ${widthStyle};
-          }
-          .thermal-receipt {
-            width: 100%;
-          }
-          .centered {
-            text-align: center;
-          }
-          .bold {
-            font-weight: bold;
-          }
-          .separator {
-            border-top: 1px dashed #000000;
-            margin: 8px 0;
-          }
-          .flex-between {
-            display: flex;
-            justify-content: space-between;
-          }
-          .print-btn {
-            display: block;
-            width: 100%;
-            background-color: #ef4444;
-            color: #ffffff;
-            border: none;
-            padding: 6px 12px;
-            font-size: 11px;
-            font-weight: bold;
-            text-align: center;
-            cursor: pointer;
-            margin-bottom: 15px;
-            border-radius: 4px;
-          }
-          .category-badge {
-            font-size: 1.3em;
-            font-weight: 900;
-            border: 2px solid #000000;
-            padding: 4px;
-            margin-top: 6px;
-            text-align: center;
-            text-transform: uppercase;
-          }
-          @media print {
-            .print-btn {
-              display: none;
-            }
-            body {
-              width: 100%;
-              padding: 0;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <button class="print-btn" onclick="window.print()">Print Kitchen Ticket</button>
-        <div class="thermal-receipt">
-          <div class="centered bold" style="font-size: 1.4em; border: 2px solid #000000; padding: 4px; text-transform: uppercase; margin-bottom: 8px;">
-            KITCHEN ORDER
-          </div>
-          
-          <div style="font-size: 0.95em; font-family: monospace;">
-            <div class="flex-between">
-              <span>Date:</span>
-              <span>${dateStr}</span>
-            </div>
-            <div class="flex-between">
-              <span>Invoice No:</span>
-              <span class="bold">${sale.control_number || (sale.id.substring(0, 8) + '...')}</span>
-            </div>
-          </div>
-
-          ${sale.sale_category ? `<div class="category-badge">${sale.sale_category}</div>` : ''}
-          ${orderNoteHtml}
-
-          <div class="separator"></div>
-
-          <!-- Items list -->
-          <table style="width: 100%; border-collapse: collapse;">
-            <tbody>
-              ${itemsHtml}
-            </tbody>
-          </table>
-
-          <div class="separator"></div>
-          
-          <div class="centered" style="margin-top: 15px; font-size: 10px; color: #333; font-weight: bold;">
-            * End of Kitchen Order *
-          </div>
-        </div>
-      </body>
-    </html>
-  `;
-
+  const html = buildKitchenReceiptHtml(sale, template);
   printWindow.document.write(html);
   printWindow.document.close();
 };

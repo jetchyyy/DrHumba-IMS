@@ -1,3 +1,6 @@
+import { buildKitchenEscPosBytes } from './kitchenReceipt';
+import type { KitchenReceiptTemplate } from './kitchenReceipt';
+
 /**
  * Global State to hold the active device reference once selected.
  * This prevents the user from having to select the printer for every single button click.
@@ -476,66 +479,12 @@ export async function printBluetoothThermalInvoice(sale: any, template: any = {}
 /**
  * Generates ESC/POS byte array for a kitchen receipt and sends it to the printer
  */
-export async function printBluetoothKitchenReceipt(sale: any) {
-  const encoder = new TextEncoder();
-  const payload: number[] = [];
-
-  const INIT = [0x1B, 0x40];
-  const ALIGN_CENTER = [0x1B, 0x61, 0x01];
-  const ALIGN_LEFT = [0x1B, 0x61, 0x00];
-  const BOLD_ON = [0x1B, 0x45, 0x01];
-  const BOLD_OFF = [0x1B, 0x45, 0x00];
-  const CUT = [0x1D, 0x56, 0x42, 0x00];
-
-  payload.push(...INIT);
-  payload.push(...ALIGN_CENTER);
-  payload.push(...BOLD_ON);
-  payload.push(...encoder.encode('*** KITCHEN ORDER ***\n\n'));
-  payload.push(...BOLD_OFF);
-
-  payload.push(...ALIGN_LEFT);
-  const dateStr = new Date(sale.created_at || new Date()).toLocaleString();
-  payload.push(...encoder.encode(`Date: ${dateStr}\n`));
-
-  const invoiceNo = sale.control_number || String(sale.id).substring(0, 8);
-  payload.push(...encoder.encode(`Order #: ${invoiceNo}\n`));
-
-  const saleType = sale.sale_category || 'Dine in';
-  payload.push(...encoder.encode(`Type: ${saleType}\n`));
-
-  if (sale.notes || sale.kitchen_notes) {
-    payload.push(...BOLD_ON);
-    for (const wrapped of wrapText(`ORDER NOTE: ${sale.notes || sale.kitchen_notes}`, 32)) {
-      payload.push(...encoder.encode(wrapped + '\n'));
-    }
-    payload.push(...BOLD_OFF);
-  }
-
-  payload.push(...encoder.encode('--------------------------------\n'));
-
-  payload.push(...BOLD_ON);
-  if (sale.items && Array.isArray(sale.items)) {
-    for (const item of sale.items) {
-      const itemName = item.item_name || item.name || 'Unknown Item';
-      const line = `${item.quantity} x ${itemName}`;
-      for (const wrapped of wrapText(line, 32)) {
-        payload.push(...encoder.encode(wrapped + '\n'));
-      }
-      if (item.notes) {
-        payload.push(...BOLD_OFF);
-        for (const wrapped of wrapText(`  *** NOTE: ${item.notes} ***`, 32)) {
-          payload.push(...encoder.encode(wrapped + '\n'));
-        }
-        payload.push(...BOLD_ON);
-      }
-    }
-  }
-  payload.push(...BOLD_OFF);
-
-  payload.push(...encoder.encode('\n\n\n'));
-  payload.push(...CUT);
-
-  await sendToGlobalThermalPrinter(new Uint8Array(payload));
+export async function printBluetoothKitchenReceipt(
+  sale: any,
+  template?: Partial<KitchenReceiptTemplate>
+) {
+  const bytes = buildKitchenEscPosBytes(sale, template);
+  await sendToGlobalThermalPrinter(bytes);
 }
 
 export async function printBluetoothXZReport(summary: any, isZRead: boolean, terminalName: string) {

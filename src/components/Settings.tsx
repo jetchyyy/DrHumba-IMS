@@ -30,9 +30,16 @@ import {
   settingsService,
   DEFAULT_TRANSFER_SLIP_TEMPLATE,
   DEFAULT_SALES_INVOICE_TEMPLATE,
+  DEFAULT_KITCHEN_RECEIPT_TEMPLATE,
   DEFAULT_PROMOTIONS
 } from '../lib/settingsService';
-import type { TransferSlipTemplate, SalesInvoiceTemplate, CustomerPromotion } from '../lib/settingsService';
+import type {
+  TransferSlipTemplate,
+  SalesInvoiceTemplate,
+  KitchenReceiptTemplate,
+  CustomerPromotion
+} from '../lib/settingsService';
+import { getKitchenReceiptMetrics } from '../lib/kitchenReceipt';
 import { useModal } from '../contexts/ModalContext';
 import { useTenant } from '../contexts/TenantContext';
 
@@ -198,6 +205,7 @@ export const Settings: React.FC = () => {
   // Templates States
   const [transferSlip, setTransferSlip] = useState<TransferSlipTemplate>({ ...DEFAULT_TRANSFER_SLIP_TEMPLATE });
   const [salesInvoice, setSalesInvoice] = useState<SalesInvoiceTemplate>({ ...DEFAULT_SALES_INVOICE_TEMPLATE });
+  const [kitchenReceipt, setKitchenReceipt] = useState<KitchenReceiptTemplate>({ ...DEFAULT_KITCHEN_RECEIPT_TEMPLATE });
   const [promotions, setPromotions] = useState<CustomerPromotion[]>([]);
   const [previewTab, setPreviewTab] = useState<'invoice' | 'kitchen' | 'queue'>('invoice');
 
@@ -205,6 +213,7 @@ export const Settings: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [savingTransfer, setSavingTransfer] = useState(false);
   const [savingInvoice, setSavingInvoice] = useState(false);
+  const [savingKitchen, setSavingKitchen] = useState(false);
   const [savingPromos, setSavingPromos] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -245,6 +254,7 @@ export const Settings: React.FC = () => {
       const settings = await settingsService.getSettings();
       setTransferSlip(settings.transfer_slip);
       setSalesInvoice(settings.sales_invoice);
+      setKitchenReceipt(settings.kitchen_receipt);
       setPromotions(settings.customer_promotions || []);
       await loadTerminalData();
       await loadBranches();
@@ -390,6 +400,24 @@ export const Settings: React.FC = () => {
     }
   };
 
+  const handleSaveKitchenConfig = async () => {
+    setSavingKitchen(true);
+    setError('');
+    setSuccess('');
+    try {
+      const ok = await settingsService.saveSettings('kitchen_receipt', kitchenReceipt, profile?.id || undefined, profile?.tenant_id || undefined);
+      if (ok) {
+        showSuccess('Kitchen Receipt thermal settings updated successfully in Database!');
+      } else {
+        showSuccess('Saved successfully to local browser cache! (Database schema update pending)');
+      }
+    } catch (err: any) {
+      showError(err.message || 'Failed to save kitchen receipt configuration');
+    } finally {
+      setSavingKitchen(false);
+    }
+  };
+
   const handleSavePromosConfig = async () => {
     setSavingPromos(true);
     setError('');
@@ -459,6 +487,95 @@ export const Settings: React.FC = () => {
       showSuccess('Sales Invoice template reset to defaults locally. Save to apply.');
     }
   };
+
+  const handleResetKitchen = async () => {
+    if (await confirm('Reset Kitchen Receipt', 'Reset Kitchen Receipt thermal settings to system defaults?')) {
+      setKitchenReceipt({ ...DEFAULT_KITCHEN_RECEIPT_TEMPLATE });
+      showSuccess('Kitchen Receipt settings reset to defaults locally. Save to apply.');
+    }
+  };
+
+  const kitchenMetrics = getKitchenReceiptMetrics(kitchenReceipt);
+
+  const renderKitchenTicketPreview = () => (
+    <>
+      <div className="text-center font-bold text-[1.2em] border-2 border-slate-950 p-1 uppercase mb-2">
+        {kitchenReceipt.header_title?.trim() || 'KITCHEN ORDER'}
+      </div>
+
+      {(kitchenReceipt.show_branch_name || kitchenReceipt.show_cashier_name || kitchenReceipt.show_date || kitchenReceipt.show_order_number) && (
+        <div className="space-y-0.5 text-[0.85em] text-slate-700">
+          {kitchenReceipt.show_branch_name && (
+            <div className="flex justify-between">
+              <span>Branch:</span>
+              <span className="font-bold">Main Branch</span>
+            </div>
+          )}
+          {kitchenReceipt.show_cashier_name && (
+            <div className="flex justify-between">
+              <span>Cashier:</span>
+              <span className="font-bold">Juan D.</span>
+            </div>
+          )}
+          {kitchenReceipt.show_date && (
+            <div className="flex justify-between">
+              <span>Date:</span>
+              <span>06/06/2026, 11:16 PM</span>
+            </div>
+          )}
+          {kitchenReceipt.show_order_number && (
+            <div className="flex justify-between">
+              <span>Invoice No:</span>
+              <span className="font-bold">TS-2026-00095</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {kitchenReceipt.show_order_type && (
+        <div className="text-center text-[1.2em] font-black border-2 border-slate-950 p-1 my-2 uppercase">
+          DINE IN
+        </div>
+      )}
+
+      {kitchenReceipt.show_notes && (
+        <div className="bg-amber-100 border border-amber-500 text-amber-900 px-1.5 py-1 rounded text-[0.9em] font-bold uppercase my-1.5">
+          ORDER NOTE: Serve appetizers first
+        </div>
+      )}
+
+      <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+
+      {/* Items list */}
+      <table className="w-full border-collapse">
+        <tbody>
+          <tr className="border-b border-slate-300 border-dashed">
+            <td className="py-1.5 font-bold text-[1.15em]">
+              <div>2 x CHEESEBURGER DELUXE</div>
+              {kitchenReceipt.show_notes && (
+                <div className="text-[0.75em] text-red-700 italic mt-0.5">
+                  *** NOTE: No onions ***
+                </div>
+              )}
+            </td>
+          </tr>
+          <tr className="border-b border-slate-300 border-dashed">
+            <td className="py-1.5 font-bold text-[1.15em]">
+              1 x HOUSE ICED TEA
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="border-t border-slate-450 border-dashed my-1.5"></div>
+
+      {kitchenReceipt.footer_text?.trim() && (
+        <div className="text-center mt-2 text-[0.85em] text-slate-800 font-bold whitespace-pre-line">
+          {kitchenReceipt.footer_text}
+        </div>
+      )}
+    </>
+  );
 
   const isEditorRole = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
 
@@ -887,6 +1004,7 @@ WHERE email = 'your-email@example.com';`}</pre>
                     <li>Go to <strong className="text-foreground">Settings → Document Templates</strong> tab.</li>
                     <li><strong className="text-foreground">Transfer Slip</strong> — used for Stock Receiving, Adjustments, and Transfer documents. Set header title, subtitle, logo, and signature labels.</li>
                     <li><strong className="text-foreground">Sales Invoice (Thermal)</strong> — used for POS receipts. Set merchant name, address, TIN, contact, paper size (58mm / 80mm), and footer text.</li>
+                    <li><strong className="text-foreground">Kitchen Receipt (Thermal)</strong> — independently configures kitchen order tickets (58mm / 80mm paper width, font size, visible fields, notes, header/footer, and Bluetooth paper feed lines) for both system and Bluetooth thermal printers.</li>
                     <li>All template changes are saved globally and applied immediately to future print jobs.</li>
                   </ul>
                 </CardContent>
@@ -895,6 +1013,7 @@ WHERE email = 'your-email@example.com';`}</pre>
             </div>
           )}
           {activeSubTab === 'templates' && (
+            <div className="space-y-8">
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
 
               {/* ─── COLUMN 1: TRANSFER SLIP TEMPLATE ─── */}
@@ -1377,8 +1496,12 @@ WHERE email = 'your-email@example.com';`}</pre>
                       <div
                         className="bg-white text-slate-950 p-4 border shadow-2xl transition-all duration-300 font-mono relative select-none"
                         style={{
-                          width: salesInvoice.paper_width === '58mm' ? '192px' : '272px',
-                          fontSize: salesInvoice.font_size === 'small' ? '9px' : salesInvoice.font_size === 'large' ? '12px' : '10px',
+                          width: previewTab === 'kitchen'
+                            ? kitchenMetrics.previewWidthPx
+                            : salesInvoice.paper_width === '58mm' ? '192px' : '272px',
+                          fontSize: previewTab === 'kitchen'
+                            ? kitchenMetrics.previewFontSizePx
+                            : salesInvoice.font_size === 'small' ? '9px' : salesInvoice.font_size === 'large' ? '12px' : '10px',
                           lineHeight: '1.2'
                         }}
                       >
@@ -1491,45 +1614,7 @@ WHERE email = 'your-email@example.com';`}</pre>
                           </>
                         )}
 
-                        {previewTab === 'kitchen' && (
-                          <>
-                            <div className="text-center font-bold text-[12px] border-2 border-slate-950 p-1 uppercase mb-2">
-                              KITCHEN ORDER
-                            </div>
-                            
-                            <div className="space-y-0.5 text-[8px] text-slate-700">
-                              <div className="flex justify-between">
-                                <span>Date:</span>
-                                <span>06/06/2026, 11:16 PM</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Invoice No:</span>
-                                <span className="font-bold">TS-2026-00095</span>
-                              </div>
-                            </div>
-
-                            <div className="text-center text-[12px] font-black border-2 border-slate-950 p-1 my-2 uppercase">
-                              DINE IN
-                            </div>
-
-                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
-
-                            {/* Items list */}
-                            <table className="w-full border-collapse">
-                              <tbody>
-                                <tr className="border-b border-slate-300 border-dashed">
-                                  <td className="py-1.5 font-bold text-[12px]">2 x CHEESEBURGER DELUXE</td>
-                                </tr>
-                              </tbody>
-                            </table>
-
-                            <div className="border-t border-slate-450 border-dashed my-1.5"></div>
-                            
-                            <div className="text-center mt-3 text-[9px] text-slate-800 font-bold">
-                              * End of Kitchen Order *
-                            </div>
-                          </>
-                        )}
+                        {previewTab === 'kitchen' && renderKitchenTicketPreview()}
 
                         {previewTab === 'queue' && (
                           <div className="text-center">
@@ -1575,6 +1660,253 @@ WHERE email = 'your-email@example.com';`}</pre>
                 </Card>
               </div>
 
+            </div>
+
+            {/* ─── KITCHEN RECEIPT (THERMAL) CONFIGURATION & PREVIEW ─── */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+              <Card>
+                <CardHeader className="border-b pb-4">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-bold uppercase tracking-wider flex items-center space-x-2">
+                      <FileText className="w-4 h-4 text-amber-500" />
+                      <span>Kitchen Receipt (Thermal) Configuration</span>
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleResetKitchen}
+                      className="h-8 w-8 text-muted-foreground hover:text-white"
+                      title="Reset to Defaults"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <CardDescription className="text-xs">
+                    Configure paper width, font size, visible fields, and paper feed independently for your kitchen thermal printer (System &amp; Bluetooth ESC/POS).
+                  </CardDescription>
+                </CardHeader>
+
+                <CardContent className="p-6 space-y-5">
+                  {!isEditorRole && (
+                    <div className="text-[11px] text-amber-500 bg-amber-500/10 p-2 rounded border border-amber-500/20">
+                      ⚠️ Note: Only admins/managers can save configurations to the cloud. Others can edit and save locally in their browser.
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    {/* Header Title */}
+                    <div className="space-y-2">
+                      <Label htmlFor="kr_header_title" className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+                        Kitchen Ticket Header Title
+                      </Label>
+                      <Input
+                        id="kr_header_title"
+                        type="text"
+                        value={kitchenReceipt.header_title}
+                        onChange={(e) => setKitchenReceipt(prev => ({ ...prev, header_title: e.target.value }))}
+                        placeholder="e.g. KITCHEN ORDER"
+                      />
+                    </div>
+
+                    {/* Paper Width & Font Size */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+                          Thermal Paper Width
+                        </Label>
+                        <Select
+                          value={kitchenReceipt.paper_width}
+                          onValueChange={(v: '58mm' | '80mm') => setKitchenReceipt(prev => ({ ...prev, paper_width: v }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="58mm" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="58mm">58mm (32 chars)</SelectItem>
+                            <SelectItem value="80mm">80mm (48 chars)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+                          Ticket Font Size
+                        </Label>
+                        <Select
+                          value={kitchenReceipt.font_size}
+                          onValueChange={(v: 'small' | 'medium' | 'large') => setKitchenReceipt(prev => ({ ...prev, font_size: v }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="medium" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="small">Small (Compact)</SelectItem>
+                            <SelectItem value="medium">Medium (Standard)</SelectItem>
+                            <SelectItem value="large">Large (Tall Print)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+                          Cut Feed Lines (BT)
+                        </Label>
+                        <Select
+                          value={String(kitchenReceipt.feed_lines)}
+                          onValueChange={(v) => setKitchenReceipt(prev => ({ ...prev, feed_lines: Number(v) }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="3 lines" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">0 lines</SelectItem>
+                            <SelectItem value="1">1 line</SelectItem>
+                            <SelectItem value="2">2 lines</SelectItem>
+                            <SelectItem value="3">3 lines (Default)</SelectItem>
+                            <SelectItem value="4">4 lines</SelectItem>
+                            <SelectItem value="5">5 lines</SelectItem>
+                            <SelectItem value="6">6 lines</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Ticket Field Visibility */}
+                    <div className="space-y-2.5 pt-2 pb-2 border-t border-b border-border/50">
+                      <Label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">
+                        Ticket Details to Include
+                      </Label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="kr_show_branch_name"
+                            checked={kitchenReceipt.show_branch_name}
+                            onCheckedChange={(checked) => setKitchenReceipt(prev => ({ ...prev, show_branch_name: checked === true }))}
+                          />
+                          <Label htmlFor="kr_show_branch_name" className="text-xs select-none cursor-pointer">
+                            Show Branch Name
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="kr_show_cashier_name"
+                            checked={kitchenReceipt.show_cashier_name}
+                            onCheckedChange={(checked) => setKitchenReceipt(prev => ({ ...prev, show_cashier_name: checked === true }))}
+                          />
+                          <Label htmlFor="kr_show_cashier_name" className="text-xs select-none cursor-pointer">
+                            Show Cashier Name
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="kr_show_date"
+                            checked={kitchenReceipt.show_date}
+                            onCheckedChange={(checked) => setKitchenReceipt(prev => ({ ...prev, show_date: checked === true }))}
+                          />
+                          <Label htmlFor="kr_show_date" className="text-xs select-none cursor-pointer">
+                            Show Date &amp; Time
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="kr_show_order_number"
+                            checked={kitchenReceipt.show_order_number}
+                            onCheckedChange={(checked) => setKitchenReceipt(prev => ({ ...prev, show_order_number: checked === true }))}
+                          />
+                          <Label htmlFor="kr_show_order_number" className="text-xs select-none cursor-pointer">
+                            Show Order / Invoice #
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="kr_show_order_type"
+                            checked={kitchenReceipt.show_order_type}
+                            onCheckedChange={(checked) => setKitchenReceipt(prev => ({ ...prev, show_order_type: checked === true }))}
+                          />
+                          <Label htmlFor="kr_show_order_type" className="text-xs select-none cursor-pointer">
+                            Show Order Type / Table
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="kr_show_notes"
+                            checked={kitchenReceipt.show_notes}
+                            onCheckedChange={(checked) => setKitchenReceipt(prev => ({ ...prev, show_notes: checked === true }))}
+                          />
+                          <Label htmlFor="kr_show_notes" className="text-xs select-none cursor-pointer">
+                            Show Order &amp; Item Kitchen Notes
+                          </Label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Footer text */}
+                    <div className="space-y-2">
+                      <Label htmlFor="kr_footer_text" className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+                        Footer Text
+                      </Label>
+                      <Textarea
+                        id="kr_footer_text"
+                        rows={2}
+                        value={kitchenReceipt.footer_text}
+                        onChange={(e) => setKitchenReceipt(prev => ({ ...prev, footer_text: e.target.value }))}
+                        placeholder="* End of Kitchen Order *"
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <Button
+                    onClick={handleSaveKitchenConfig}
+                    disabled={savingKitchen}
+                    className="w-full font-bold shadow"
+                  >
+                    <Save className="w-4 h-4 mr-1.5" />
+                    {savingKitchen ? 'Saving configuration...' : 'Save Kitchen Receipt Settings'}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* KITCHEN RECEIPT LIVE PREVIEW */}
+              <Card className="bg-muted/5">
+                <CardHeader className="p-4 border-b bg-muted/30 flex flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center space-x-1.5">
+                    <Eye className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Kitchen Receipt Live Preview</span>
+                  </CardTitle>
+                  <Badge variant="outline" className="text-[10px] font-mono">
+                    {kitchenReceipt.paper_width} • {kitchenReceipt.font_size.toUpperCase()} • {kitchenMetrics.escPosLineChars} chars
+                  </Badge>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <div className="flex flex-col items-center">
+                    <div
+                      className="bg-white text-slate-950 p-4 border shadow-2xl transition-all duration-300 font-mono relative select-none"
+                      style={{
+                        width: kitchenMetrics.previewWidthPx,
+                        fontSize: kitchenMetrics.previewFontSizePx,
+                        lineHeight: '1.25'
+                      }}
+                    >
+                      {renderKitchenTicketPreview()}
+
+                      {kitchenReceipt.feed_lines > 0 && (
+                        <div className="text-center text-[7px] text-slate-400 mt-3 pt-1 border-t border-slate-100">
+                          +{kitchenReceipt.feed_lines} feed {kitchenReceipt.feed_lines === 1 ? 'line' : 'lines'} before cut (Bluetooth)
+                        </div>
+                      )}
+
+                      {/* Thermal receipt jagged bottom decoration */}
+                      <div className="absolute left-0 right-0 -bottom-2 h-2 overflow-hidden flex">
+                        {Array.from({ length: 30 }).map((_, i) => (
+                          <div key={i} className="w-2 h-2 bg-slate-950 rotate-45 transform origin-top-left -mt-1 border-r border-b border-slate-800"></div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
             </div>
           )}
 

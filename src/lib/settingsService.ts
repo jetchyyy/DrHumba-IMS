@@ -1,4 +1,12 @@
 import { supabase } from './supabase';
+import {
+  DEFAULT_KITCHEN_RECEIPT_TEMPLATE,
+  resolveKitchenReceiptTemplate,
+} from './kitchenReceipt';
+import type { KitchenReceiptTemplate } from './kitchenReceipt';
+
+export { DEFAULT_KITCHEN_RECEIPT_TEMPLATE, resolveKitchenReceiptTemplate };
+export type { KitchenReceiptTemplate };
 
 export interface TransferSlipTemplate {
   header_title: string;
@@ -32,6 +40,7 @@ export interface CustomerPromotion {
 export interface SystemSettings {
   transfer_slip: TransferSlipTemplate;
   sales_invoice: SalesInvoiceTemplate;
+  kitchen_receipt: KitchenReceiptTemplate;
   customer_promotions: CustomerPromotion[];
 }
 
@@ -83,6 +92,7 @@ export const settingsService = {
     const settings: SystemSettings = {
       transfer_slip: { ...DEFAULT_TRANSFER_SLIP_TEMPLATE },
       sales_invoice: { ...DEFAULT_SALES_INVOICE_TEMPLATE },
+      kitchen_receipt: { ...DEFAULT_KITCHEN_RECEIPT_TEMPLATE },
       customer_promotions: [...DEFAULT_PROMOTIONS],
     };
 
@@ -102,6 +112,8 @@ export const settingsService = {
             settings.transfer_slip = { ...DEFAULT_TRANSFER_SLIP_TEMPLATE, ...row.value };
           } else if (row.key === 'sales_invoice') {
             settings.sales_invoice = { ...DEFAULT_SALES_INVOICE_TEMPLATE, ...row.value };
+          } else if (row.key === 'kitchen_receipt') {
+            settings.kitchen_receipt = resolveKitchenReceiptTemplate(row.value);
           } else if (row.key === 'customer_promotions') {
             settings.customer_promotions = Array.isArray(row.value) ? row.value : [...DEFAULT_PROMOTIONS];
           }
@@ -117,6 +129,7 @@ export const settingsService = {
             const parsed = JSON.parse(local);
             if (parsed.transfer_slip) settings.transfer_slip = { ...settings.transfer_slip, ...parsed.transfer_slip };
             if (parsed.sales_invoice) settings.sales_invoice = { ...settings.sales_invoice, ...parsed.sales_invoice };
+            if (parsed.kitchen_receipt) settings.kitchen_receipt = resolveKitchenReceiptTemplate(parsed.kitchen_receipt);
             if (parsed.customer_promotions) settings.customer_promotions = parsed.customer_promotions;
           } catch (e) {
             console.error('Failed to parse localStorage settings:', e);
@@ -131,6 +144,7 @@ export const settingsService = {
           const parsed = JSON.parse(local);
           if (parsed.transfer_slip) settings.transfer_slip = { ...settings.transfer_slip, ...parsed.transfer_slip };
           if (parsed.sales_invoice) settings.sales_invoice = { ...settings.sales_invoice, ...parsed.sales_invoice };
+          if (parsed.kitchen_receipt) settings.kitchen_receipt = resolveKitchenReceiptTemplate(parsed.kitchen_receipt);
           if (parsed.customer_promotions) settings.customer_promotions = parsed.customer_promotions;
         } catch (e) {
           console.error('Failed to parse localStorage settings:', e);
@@ -142,7 +156,7 @@ export const settingsService = {
   },
 
   async saveSettings(
-    key: 'transfer_slip' | 'sales_invoice' | 'customer_promotions', 
+    key: 'transfer_slip' | 'sales_invoice' | 'kitchen_receipt' | 'customer_promotions', 
     value: any, 
     userId?: string, 
     tenantId?: string

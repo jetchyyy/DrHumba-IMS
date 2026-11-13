@@ -30,6 +30,8 @@ interface KitchenReceipt {
     control_number: string;
     sale_category?: string;
     cashier_id?: string;
+    cashier_name?: string | null;
+    cashier_email?: string | null;
     created_at: string;
     sale_items?: {
       id: string;
@@ -130,6 +132,35 @@ export const KitchenReceipts: React.FC = () => {
           sales: saleObj || null
         };
       });
+
+      const cashierIds = Array.from(
+        new Set(
+          mappedData
+            .map((r: any) => r.sales?.cashier_id)
+            .filter((id: any): id is string => Boolean(id))
+        )
+      );
+
+      if (cashierIds.length > 0) {
+        const { data: cashierProfiles } = await supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', cashierIds);
+
+        if (cashierProfiles && cashierProfiles.length > 0) {
+          const profileById = new Map(cashierProfiles.map((p: any) => [p.id, p]));
+          mappedData.forEach((row: any) => {
+            if (row.sales?.cashier_id) {
+              const cp = profileById.get(row.sales.cashier_id);
+              if (cp) {
+                row.sales.cashier_name = cp.full_name || null;
+                row.sales.cashier_email = cp.email || null;
+              }
+            }
+          });
+        }
+      }
+
       setReceipts(mappedData);
     } catch (err: any) {
       console.error('Failed to load kitchen receipts:', err);
@@ -173,6 +204,9 @@ export const KitchenReceipts: React.FC = () => {
       const saleForPrinting = {
         id: receipt.sale_id,
         control_number: receipt.sales?.control_number,
+        branch_name: receipt.branches?.name,
+        cashier_name: receipt.sales?.cashier_name || null,
+        cashier_email: receipt.sales?.cashier_email || null,
         created_at: receipt.sales?.created_at,
         sale_category: receipt.sales?.sale_category,
         notes: (receipt.sales as any)?.notes,
@@ -183,7 +217,7 @@ export const KitchenReceipts: React.FC = () => {
         }))
       };
 
-      printKitchenReceipt(saleForPrinting, settings.sales_invoice);
+      printKitchenReceipt(saleForPrinting, settings.kitchen_receipt);
     } catch (err: any) {
       console.error('Print failure:', err);
       showError('Failed to trigger receipt printing.');
