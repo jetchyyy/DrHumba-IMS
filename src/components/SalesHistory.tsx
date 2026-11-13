@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useBusinessVocab } from '../hooks/useBusinessVocab';
 import { useTenant } from '../contexts/TenantContext';
 import { CountdownTimerIcon as History, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, CalendarIcon as Calendar, BackpackIcon as ShoppingBag, ValueIcon as DollarSign, EyeOpenIcon as Eye, ActivityLogIcon as TrendingUp, FileTextIcon as Printer, FileTextIcon as FileIcon } from '@radix-ui/react-icons';
+import { Banknote, Smartphone } from 'lucide-react';
 import { settingsService, DEFAULT_SALES_INVOICE_TEMPLATE, DEFAULT_TRANSFER_SLIP_TEMPLATE } from '../lib/settingsService';
 import { printEndOfDayReport, printEndOfDayPDFReport } from '../lib/printService';
 import { printBluetoothThermalInvoice, ensureBluetoothPrinter, printBluetoothEODReport } from '../lib/bluetoothPrinter';
@@ -78,16 +79,23 @@ const PAYMENT_LABELS: Record<string, string> = {
 const formatPHP = (amount: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(amount);
 
+const isDeliveryCategory = (category: string | null | undefined) => {
+  const cat = (category || '').toLowerCase();
+  return cat.includes('grab') || cat.includes('foodpanda') || cat.includes('food panda');
+};
+
 type EodSale = Pick<SaleRecord, 'id' | 'created_at' | 'branch_id' | 'cashier_id' | 'status' | 'total_amount' | 'payment_method' | 'sale_category'>;
 
 interface SalesStats {
   count: number;
   revenue: number;
+  cash: number;
+  gcash: number;
   foodpanda: number;
   grab: number;
 }
 
-const EMPTY_STATS: SalesStats = { count: 0, revenue: 0, foodpanda: 0, grab: 0 };
+const EMPTY_STATS: SalesStats = { count: 0, revenue: 0, cash: 0, gcash: 0, foodpanda: 0, grab: 0 };
 
 // PostgREST returns at most 1000 rows per request, so summary rows are fetched in chunks
 const STATS_CHUNK = 1000;
@@ -202,6 +210,7 @@ export const SalesHistory: React.FC = () => {
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
   const [saleCategoryFilter, setSaleCategoryFilter] = useState<string>('all');
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>('all');
 
   useEffect(() => {
     setSelectedSubStoreId('All');
@@ -218,7 +227,7 @@ export const SalesHistory: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, itemsPerPage, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter]);
+  }, [debouncedSearch, itemsPerPage, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter, paymentMethodFilter]);
 
   const getCategoryBadge = (category: string | null) => {
     const cat = (category || vocab.defaultSaleCategory).toLowerCase();
@@ -413,9 +422,7 @@ export const SalesHistory: React.FC = () => {
         stat.netAmt = stat.salesAmt - stat.refundsAmt;
       };
 
-      const isDeliveryPlatform = (s.sale_category || '').toLowerCase().includes('grab') ||
-                                 (s.sale_category || '').toLowerCase().includes('foodpanda') ||
-                                 (s.sale_category || '').toLowerCase().includes('food panda');
+      const isDeliveryPlatform = isDeliveryCategory(s.sale_category);
 
       const method = (s.payment_method || 'cash').toLowerCase();
       if (isDeliveryPlatform) {
@@ -609,6 +616,19 @@ export const SalesHistory: React.FC = () => {
         : query.ilike('sale_category', category);
     }
 
+    // Delivery platform orders are settled via app even when payment_method defaults to 'cash'
+    if (paymentMethodFilter === 'other') {
+      query = query.or(
+        'payment_method.eq.other,sale_category.ilike.*foodpanda*,sale_category.ilike."*food panda*",sale_category.ilike.*grab*'
+      );
+    } else if (paymentMethodFilter !== 'all') {
+      query = query
+        .eq('payment_method', paymentMethodFilter)
+        .or(
+          'sale_category.is.null,and(sale_category.not.ilike.*foodpanda*,sale_category.not.ilike."*food panda*",sale_category.not.ilike.*grab*)'
+        );
+    }
+
     const now = new Date();
     let from: Date | undefined;
     let to: Date | undefined;
@@ -690,10 +710,10 @@ export const SalesHistory: React.FC = () => {
     if (!profile) return;
     const request = ++statsRequest.current;
     try {
-      const rows: { total_amount: number; sale_category: string | null; status: string }[] = [];
+      const rows: { total_amount: number; sale_category: string | null; status: string; payment_method: string | null }[] = [];
       for (let offset = 0; ; offset += STATS_CHUNK) {
         const { data, error } = await applySaleFilters(
-          supabase.from('sales').select('id, total_amount, sale_category, status')
+          supabase.from('sales').select('id, total_amount, sale_category, status, payment_method')
         )
           .order('created_at', { ascending: false })
           .order('id', { ascending: true })
@@ -706,11 +726,17 @@ export const SalesHistory: React.FC = () => {
 
       const isCompletedIn = (s: typeof rows[number], ...needles: string[]) =>
         s.status === 'completed' && !!s.sale_category && needles.some(n => s.sale_category!.toLowerCase().includes(n));
+      const isCompletedPayment = (s: typeof rows[number], method: string) =>
+        s.status === 'completed' &&
+        !isDeliveryCategory(s.sale_category) &&
+        (s.payment_method || 'cash').toLowerCase() === method;
       const sum = (list: typeof rows) => list.reduce((total, s) => total + Number(s.total_amount), 0);
 
       setStats({
         count: rows.length,
         revenue: sum(rows),
+        cash: sum(rows.filter(s => isCompletedPayment(s, 'cash'))),
+        gcash: sum(rows.filter(s => isCompletedPayment(s, 'gcash'))),
         foodpanda: sum(rows.filter(s => isCompletedIn(s, 'foodpanda', 'food panda'))),
         grab: sum(rows.filter(s => isCompletedIn(s, 'grab'))),
       });
@@ -748,12 +774,12 @@ export const SalesHistory: React.FC = () => {
   useEffect(() => {
     if (profilesLoaded) loadStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter]);
+  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter, paymentMethodFilter]);
 
   useEffect(() => {
     if (profilesLoaded) loadPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter, currentPage, itemsPerPage]);
+  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter, paymentMethodFilter, currentPage, itemsPerPage]);
 
   const openSheet = (sale: SaleRecord) => {
     setSelectedSale(sale);
@@ -1021,6 +1047,8 @@ export const SalesHistory: React.FC = () => {
   const totalRevenue = stats.revenue;
   const totalTransactions = stats.count;
   const avgOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
+  const cashRevenue = stats.cash;
+  const gcashRevenue = stats.gcash;
   const foodpandaRevenue = stats.foodpanda;
   const grabRevenue = stats.grab;
 
@@ -1053,7 +1081,7 @@ export const SalesHistory: React.FC = () => {
       </div>
 
       {/* Top Level Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <Card className="glass-dark border-border/50">
           <CardContent className="p-6 flex items-center space-x-4">
             <div className="p-3 bg-emerald-500/10 rounded-lg text-emerald-500 border border-emerald-500/20">
@@ -1086,6 +1114,33 @@ export const SalesHistory: React.FC = () => {
             <div>
               <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider block">Average Ticket Size</span>
               <span className="text-2xl font-bold">{formatPHP(avgOrderValue)}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Payment & Channel Breakdown Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        <Card className="glass-dark border-green-500/30 bg-green-500/5">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-green-500/10 rounded-lg text-green-600 border border-green-500/20">
+              <Banknote className="w-5 h-5 text-green-600 dark:text-green-400" />
+            </div>
+            <div>
+              <span className="text-xs text-green-600 dark:text-green-400 font-bold uppercase tracking-wider block">Cash Sales</span>
+              <span className="text-2xl font-bold text-green-600 dark:text-green-400">{formatPHP(cashRevenue)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-dark border-blue-500/30 bg-blue-500/5">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-blue-500/10 rounded-lg text-blue-600 border border-blue-500/20">
+              <Smartphone className="w-5 h-5 text-blue-500" />
+            </div>
+            <div>
+              <span className="text-xs text-blue-600 dark:text-blue-400 font-bold uppercase tracking-wider block">GCash Sales</span>
+              <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatPHP(gcashRevenue)}</span>
             </div>
           </CardContent>
         </Card>
@@ -1188,6 +1243,23 @@ export const SalesHistory: React.FC = () => {
                   {vocab.saleCategories.map(cat => (
                     <SelectItem key={cat.value} value={cat.value.toLowerCase()}>{cat.label}</SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-muted-foreground font-medium">Payment:</span>
+              <Select value={paymentMethodFilter} onValueChange={setPaymentMethodFilter}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="All Methods" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Methods</SelectItem>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="gcash">GCash</SelectItem>
+                  <SelectItem value="maya">Maya</SelectItem>
+                  <SelectItem value="card">Card</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1357,6 +1429,11 @@ export const SalesHistory: React.FC = () => {
                               Less: {formatPHP(sale.discount_amount || 0)} ({(sale.discount_type || 'SC').toUpperCase()})
                             </div>
                           )}
+                          <div className="text-[10px] font-medium text-muted-foreground">
+                            {isDeliveryCategory(sale.sale_category)
+                              ? 'Platform Paid'
+                              : (PAYMENT_LABELS[(sale.payment_method || 'cash').toLowerCase()] || sale.payment_method || 'Cash')}
+                          </div>
                         </TableCell>
                         <TableCell className="text-center">
                           <Badge variant={
