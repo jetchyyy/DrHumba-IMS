@@ -76,6 +76,18 @@ const PAYMENT_LABELS: Record<string, string> = {
   other: 'Other',
 };
 
+type ShiftOption = {
+  id: string;
+  branch_id: string;
+  cashier_id: string;
+  opened_at: string;
+  closed_at: string | null;
+  status: string;
+  shift_name: string | null;
+  branches?: { name: string } | null;
+  profiles?: { email: string | null; full_name: string | null } | null;
+};
+
 const formatPHP = (amount: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(amount);
 
@@ -211,10 +223,75 @@ export const SalesHistory: React.FC = () => {
   const [endDate, setEndDate] = useState<Date | undefined>();
   const [saleCategoryFilter, setSaleCategoryFilter] = useState<string>('all');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>('all');
+  // Count by shift: take every cashier shift that OPENED in the date range and include its sales
+  // from open to close, so totals equal the sum of those Z-reads (night-shift sales after midnight
+  // stay with the shift). Calendar mode is the plain midnight-to-midnight filter.
+  const [countBy, setCountBy] = useState<'calendar' | 'shift'>('calendar');
+  const [shiftOptions, setShiftOptions] = useState<ShiftOption[]>([]);
+  const [shiftsLoading, setShiftsLoading] = useState(false);
+  const [selectedShiftId, setSelectedShiftId] = useState('all');
+  const countByShift = countBy === 'shift' && dateFilter !== 'all';
+
+  const getDateRange = () => {
+    const now = new Date();
+    let from: Date | undefined;
+    let to: Date | undefined;
+    if (dateFilter === 'today') {
+      from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (dateFilter === 'week') {
+      from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (dateFilter === 'month') {
+      from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (dateFilter === 'custom') {
+      if (startDate) {
+        from = new Date(startDate);
+        from.setHours(0, 0, 0, 0);
+      }
+      if (endDate) {
+        to = new Date(endDate);
+        to.setHours(23, 59, 59, 999);
+      }
+    }
+    return { from, to };
+  };
 
   useEffect(() => {
     setSelectedSubStoreId('All');
   }, [selectedBranchId]);
+
+  useEffect(() => {
+    if (!countByShift || !profile) {
+      setShiftOptions([]);
+      return;
+    }
+    let cancelled = false;
+    setShiftsLoading(true);
+    const { from, to } = getDateRange();
+    let query = supabase
+      .from('cashier_sessions')
+      .select('id, branch_id, cashier_id, opened_at, closed_at, status, shift_name, branches (name), profiles (email, full_name)')
+      .order('opened_at', { ascending: true });
+    if (from) query = query.gte('opened_at', from.toISOString());
+    if (to) query = query.lte('opened_at', to.toISOString());
+    if (!isAdminRole && profile.branch_id) {
+      query = query.eq('branch_id', profile.branch_id);
+    } else if (selectedBranchId !== 'All') {
+      query = query.eq('branch_id', selectedBranchId);
+    }
+    query.then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        console.error('Error fetching cashier shifts:', error);
+        showError(`Couldn't load cashier shifts: ${error.message}`);
+      }
+      const list = (data || []) as unknown as ShiftOption[];
+      setShiftOptions(list);
+      setSelectedShiftId(prev => (list.some(s => s.id === prev) ? prev : 'all'));
+      setShiftsLoading(false);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countByShift, dateFilter, startDate, endDate, selectedBranchId, profile]);
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -227,7 +304,7 @@ export const SalesHistory: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, itemsPerPage, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter, paymentMethodFilter]);
+  }, [debouncedSearch, itemsPerPage, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, countBy, shiftsLoading, shiftOptions, selectedShiftId, saleCategoryFilter, paymentMethodFilter]);
 
   const getCategoryBadge = (category: string | null) => {
     const cat = (category || vocab.defaultSaleCategory).toLowerCase();
@@ -629,27 +706,21 @@ export const SalesHistory: React.FC = () => {
         );
     }
 
-    const now = new Date();
-    let from: Date | undefined;
-    let to: Date | undefined;
-    if (dateFilter === 'today') {
-      from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    } else if (dateFilter === 'week') {
-      from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    } else if (dateFilter === 'month') {
-      from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    } else if (dateFilter === 'custom') {
-      if (startDate) {
-        from = new Date(startDate);
-        from.setHours(0, 0, 0, 0);
-      }
-      if (endDate) {
-        to = new Date(endDate);
-        to.setHours(23, 59, 59, 999);
-      }
+    if (countByShift) {
+      // Same window each Z-read uses: the shift's cashier (and branch), opened_at..closed_at
+      const shifts = selectedShiftId === 'all' ? shiftOptions : shiftOptions.filter(s => s.id === selectedShiftId);
+      if (shiftsLoading || shifts.length === 0) return query.eq('id', '00000000-0000-0000-0000-000000000000');
+      const branchFiltered = (!isAdminRole && profile?.branch_id) || selectedBranchId !== 'All';
+      query = query.or(shifts.map(s =>
+        `and(${branchFiltered ? '' : `branch_id.eq.${s.branch_id},`}cashier_id.eq.${s.cashier_id},` +
+        `created_at.gte.${new Date(s.opened_at).toISOString()},` +
+        `created_at.lte.${new Date(s.closed_at || Date.now()).toISOString()})`
+      ).join(','));
+    } else {
+      const { from, to } = getDateRange();
+      if (from) query = query.gte('created_at', from.toISOString());
+      if (to) query = query.lte('created_at', to.toISOString());
     }
-    if (from) query = query.gte('created_at', from.toISOString());
-    if (to) query = query.lte('created_at', to.toISOString());
 
     if (debouncedSearch) {
       const term = debouncedSearch.toLowerCase();
@@ -774,12 +845,12 @@ export const SalesHistory: React.FC = () => {
   useEffect(() => {
     if (profilesLoaded) loadStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter, paymentMethodFilter]);
+  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, countBy, shiftsLoading, shiftOptions, selectedShiftId, saleCategoryFilter, paymentMethodFilter]);
 
   useEffect(() => {
     if (profilesLoaded) loadPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, saleCategoryFilter, paymentMethodFilter, currentPage, itemsPerPage]);
+  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, countBy, shiftsLoading, shiftOptions, selectedShiftId, saleCategoryFilter, paymentMethodFilter, currentPage, itemsPerPage]);
 
   const openSheet = (sale: SaleRecord) => {
     setSelectedSale(sale);
@@ -1279,8 +1350,55 @@ export const SalesHistory: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-muted-foreground font-medium">Count By:</span>
+              <Select value={countBy} onValueChange={(v: any) => setCountBy(v)} disabled={dateFilter === 'all'}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="calendar">Calendar Date</SelectItem>
+                  <SelectItem value="shift">Shift (Z-Read)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
+
+        {countByShift && (
+          <Card className="bg-muted/30">
+            <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
+              <span className="text-muted-foreground shrink-0">Shift:</span>
+              <Select value={selectedShiftId} onValueChange={setSelectedShiftId}>
+                <SelectTrigger className="w-full sm:w-[420px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    {shiftsLoading
+                      ? 'Loading shifts…'
+                      : shiftOptions.length
+                        ? `All shifts opened in this range (${shiftOptions.length})`
+                        : 'No cashier shifts opened in this range'}
+                  </SelectItem>
+                  {shiftOptions.map(s => {
+                    const cashier = s.profiles?.full_name?.trim() || s.profiles?.email?.split('@')[0] || 'Staff';
+                    const opened = format(new Date(s.opened_at), 'MMM d, h:mm a');
+                    const closed = s.closed_at ? format(new Date(s.closed_at), 'MMM d, h:mm a') : 'Open';
+                    return (
+                      <SelectItem key={s.id} value={s.id}>
+                        {cashier}{s.shift_name ? ` (${s.shift_name})` : ''} · {opened} → {closed}
+                        {selectedBranchId === 'All' && s.branches?.name ? ` · ${s.branches.name}` : ''}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">Totals equal the sum of these Z-reads, including night-shift sales after midnight.{dateFilter === 'today' ? ' A shift still open counts up to now.' : ''}</span>
+            </CardContent>
+          </Card>
+        )}
 
         {dateFilter === 'custom' && (
           <Card className="bg-muted/30">
