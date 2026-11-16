@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
+import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
-import { ExclamationTriangleIcon as ShieldAlert, CubeIcon as Package, ShadowOuterIcon as Layers, BarChartIcon as BarChart3, GroupIcon as Users } from '@radix-ui/react-icons';
+import { ExclamationTriangleIcon as ShieldAlert } from '@radix-ui/react-icons';
+import { OdysseyHeader, OdysseyFooter } from './odyssey/OdysseyChrome';
+import { ReceiptText, ArrowRightLeft, ChartColumn, Users, Check, ShieldCheck, WifiOff, Store, ArrowRight } from 'lucide-react';
 
 // 1. Tenant Suspended Screen
 export const TenantSuspendedPage: React.FC<{ tenantName: string }> = ({ tenantName }) => {
@@ -43,7 +45,7 @@ export const TenantNotFoundPage: React.FC = () => {
             </p>
           </div>
           <Button 
-            className="w-full bg-primary hover:bg-primary/95 text-white font-bold" 
+            className="w-full bg-primary hover:bg-primary/95 text-primary-foreground font-bold" 
             onClick={() => {
               // Redirect to main domain /apply page
               const mainDomain = import.meta.env.VITE_MAIN_DOMAIN || 'localhost:5173';
@@ -165,7 +167,7 @@ export const SaaSLandingPage: React.FC = () => {
       featuresList = [
         '1 Branch Location',
         'Up to 2 Staff Accounts',
-        'Online POS Checkout Only',
+        'Online Checkout Only',
         'Basic Inventory (30 Items Max)',
         '30-Day Data Retention'
       ];
@@ -173,7 +175,7 @@ export const SaaSLandingPage: React.FC = () => {
       featuresList = [
         '1 Branch Location',
         `Up to ${p.max_users} Staff Accounts`,
-        'Offline Store-and-Forward POS',
+        'Offline Store-and-Forward Sales',
         'Device Terminal Binding',
         'Direct Stock Receiving',
         '10-Year Data Retention (BIR Compliant)'
@@ -182,7 +184,7 @@ export const SaaSLandingPage: React.FC = () => {
       featuresList = [
         `Up to ${p.max_branches} Branch Locations`,
         `Up to ${p.max_users} Staff Accounts`,
-        'Offline POS & Device Binding',
+        'Offline Sales & Device Binding',
         'Compliance Audit Logs (Immutable)',
         'Consecutive Invoice Series',
         'Shift Control (X & Z-Read Reports)',
@@ -208,19 +210,19 @@ export const SaaSLandingPage: React.FC = () => {
     {
       name: 'Free Trial',
       price: 'Free',
-      features: ['1 Branch Location', 'Up to 2 Staff Accounts', 'Online POS Checkout Only', 'Basic Inventory (30 Items Max)', '30-Day Data Retention'],
+      features: ['1 Branch Location', 'Up to 2 Staff Accounts', 'Online Checkout Only', 'Basic Inventory (30 Items Max)', '30-Day Data Retention'],
       popular: false,
     },
     {
       name: 'Starter',
       price: '₱999',
-      features: ['1 Branch Location', 'Up to 3 Staff Accounts', 'Offline Store-and-Forward POS', 'Device Terminal Binding', 'Direct Stock Receiving', '10-Year Data Retention (BIR Compliant)'],
+      features: ['1 Branch Location', 'Up to 3 Staff Accounts', 'Offline Store-and-Forward Sales', 'Device Terminal Binding', 'Direct Stock Receiving', '10-Year Data Retention (BIR Compliant)'],
       popular: false,
     },
     {
       name: 'Professional',
       price: '₱2,499',
-      features: ['Up to 3 Branch Locations', 'Up to 10 Staff Accounts', 'Offline POS & Device Binding', 'Compliance Audit Logs (Immutable)', 'Consecutive Invoice Series', 'Shift Control (X & Z-Read Reports)', 'Menu Recipes & Deductions'],
+      features: ['Up to 3 Branch Locations', 'Up to 10 Staff Accounts', 'Offline Sales & Device Binding', 'Compliance Audit Logs (Immutable)', 'Consecutive Invoice Series', 'Shift Control (X & Z-Read Reports)', 'Menu Recipes & Deductions'],
       popular: true,
     },
     {
@@ -232,163 +234,204 @@ export const SaaSLandingPage: React.FC = () => {
   ];
 
   const coreFeatures = [
-    { title: 'Point of Sale (POS)', desc: 'Fast, secure cashier terminal with dynamic ingredient recipe deduction.', icon: Package },
-    { title: 'Multi-Branch Transfers', desc: 'Transfer stock between warehouses and retail branches with verification flows.', icon: Layers },
-    { title: 'Advanced Analytics', desc: 'Monitor top-selling categories, stock valuation, and operational profit.', icon: BarChart3 },
-    { title: 'Staff Roster & Roles', desc: 'Permission-based access control with audit trails and custom allowed tabs.', icon: Users },
+    { title: 'Sales and checkout', desc: 'A cashier screen that keeps recording sales when the internet drops, and deducts ingredients by recipe.', icon: ReceiptText },
+    { title: 'Inventory and transfers', desc: 'Receive stock, move it between branches, and see every adjustment with who made it.', icon: ArrowRightLeft },
+    { title: 'Reports you can act on', desc: 'Sales by shift, top items and stock value, ready for the end-of-day count.', icon: ChartColumn },
+    { title: 'Staff and permissions', desc: 'Give each role only the screens it needs. Every change is logged.', icon: Users },
   ];
 
+  const steps = [
+    { n: '1', title: 'Apply', desc: 'Tell us about your business and pick a plan.' },
+    { n: '2', title: 'Set up', desc: 'Add branches, menu items and staff accounts.' },
+    { n: '3', title: 'Start selling', desc: 'Record your first sale and track stock from day one.' },
+  ];
+
+  const goApply = () => { window.location.pathname = '/apply'; };
+  const goPricing = () => document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
+
   return (
-    <div className="min-h-screen bg-slate-950 text-white selection:bg-pink-500/30 selection:text-white">
-      {/* Background decoration */}
-      <div className="absolute top-0 left-0 w-full h-[600px] bg-gradient-to-b from-pink-900/10 to-transparent pointer-events-none" />
-      <div className="absolute top-1/4 right-0 w-96 h-96 bg-purple-900/10 rounded-full blur-3xl pointer-events-none" />
+    <div className="font-odyssey min-h-screen bg-[#F9F8F3] text-[#152839] antialiased selection:bg-[#FF6F07]/25">
+      <OdysseyHeader>
+        <nav className="hidden md:flex items-center gap-8 text-[15px] font-medium text-[#45546A]">
+          <a href="#features" className="hover:text-[#152839] transition-colors">Features</a>
+          <a href="#how" className="hover:text-[#152839] transition-colors">How it works</a>
+          <a href="#pricing" className="hover:text-[#152839] transition-colors">Pricing</a>
+        </nav>
+        <button
+          onClick={goApply}
+          className="h-10 px-4 sm:px-5 rounded-lg bg-[#152839] text-[#F9F8F3] text-[15px] font-semibold hover:bg-[#1f3a52] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6F07] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F9F8F3]"
+        >
+          Start free trial
+        </button>
+      </OdysseyHeader>
 
-      {/* Header */}
-      <header className="relative z-10 max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-pink-500 to-purple-600 flex items-center justify-center shadow-lg shadow-pink-500/20">
-            <Package className="w-5 h-5 text-white" />
+      {/* Hero */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-14 pb-16 md:pt-20 md:pb-24 grid md:grid-cols-12 gap-10 items-center">
+        <div className="md:col-span-7 space-y-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#B8470A]">Inventory Management System by ODYSSEY</p>
+          <h1 className="font-odyssey-display font-bold text-[36px] leading-[44px] sm:text-[44px] sm:leading-[52px] tracking-[-0.01em] max-w-xl">
+            One system for every branch you run.
+          </h1>
+          <p className="text-[18px] leading-[29px] text-[#45546A] max-w-xl">
+            Sell, count stock and close the day in one place. Built for restaurants and retail stores
+            in the Philippines, with BIR-ready receipts and reports.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <button
+              onClick={goApply}
+              className="h-12 px-6 rounded-lg bg-[#152839] text-[#F9F8F3] font-semibold text-[15px] inline-flex items-center justify-center gap-2 hover:bg-[#1f3a52] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6F07] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F9F8F3]"
+            >
+              Start free trial <ArrowRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={goPricing}
+              className="h-12 px-6 rounded-lg border-2 border-[#152839] text-[#152839] font-semibold text-[15px] hover:bg-[#152839]/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6F07] focus-visible:ring-offset-2"
+            >
+              See pricing
+            </button>
           </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">ERP<span className="text-pink-500">SaaS</span></h1>
-            <p className="text-[9px] uppercase tracking-wider text-slate-500">Smart Operations</p>
+          <ul className="flex flex-wrap gap-x-6 gap-y-2 pt-2 text-sm text-[#5F6A7C]">
+            <li className="inline-flex items-center gap-2"><WifiOff className="w-4 h-4 text-[#152839]" /> Works offline</li>
+            <li className="inline-flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-[#152839]" /> Audit trail on every change</li>
+            <li className="inline-flex items-center gap-2"><Store className="w-4 h-4 text-[#152839]" /> Up to 10 branches</li>
+          </ul>
+        </div>
+
+        {/* Ody + illustrative interface in a counter frame */}
+        <div className="md:col-span-5 flex justify-center md:justify-end">
+          <div className="flex items-end">
+            <img
+              src="/odyssey/ody-systems-happy.webp"
+              alt="Ody, the ODYSSEY guide"
+              className="relative z-10 w-24 sm:w-32 h-auto -mr-4 sm:-mr-6 mb-[-12px] select-none pointer-events-none shrink-0"
+              draggable={false}
+            />
+            <div className="w-[260px] sm:w-[320px] rounded-[28px] bg-[#152839] p-[10px] shadow-[0_24px_60px_-28px_rgba(21,40,57,0.55)]">
+              <div className="rounded-[20px] border-[3px] border-[#FF6F07] bg-white p-5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5F6A7C]">Today · Main branch</p>
+                <div className="grid grid-cols-3 gap-2 mt-3">
+                  <div className="rounded-xl bg-[#ECE7DE] p-3"><p className="font-odyssey-display font-bold text-xl">86</p><p className="text-xs text-[#45546A]">Orders</p></div>
+                  <div className="rounded-xl bg-[#ECE7DE] p-3"><p className="font-odyssey-display font-bold text-xl">₱42k</p><p className="text-xs text-[#45546A]">Sales</p></div>
+                  <div className="rounded-xl bg-[#152839] text-[#F9F8F3] p-3"><p className="font-odyssey-display font-bold text-xl text-[#FF6F07]">3</p><p className="text-xs">Low stock</p></div>
+                </div>
+                <div className="flex items-end gap-1.5 h-20 mt-4" aria-hidden="true">
+                  {[38, 52, 44, 68, 58, 86, 62].map((h, i) => (
+                    <div key={i} className={`flex-1 rounded-t-md ${i === 5 ? 'bg-[#FF6F07]' : 'bg-[#152839]'}`} style={{ height: `${h}%` }} />
+                  ))}
+                </div>
+                <p className="text-[11px] text-[#5F6A7C] mt-3">Illustrative interface, sample data</p>
+              </div>
+            </div>
           </div>
-        </div>
-
-        <div className="flex items-center space-x-4">
-          <Button 
-            className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-bold"
-            onClick={() => { window.location.pathname = '/apply'; }}
-          >
-            Apply Now
-          </Button>
-        </div>
-      </header>
-
-      {/* Hero Section */}
-      <section className="relative z-10 max-w-5xl mx-auto px-6 pt-20 pb-24 text-center space-y-8">
-        <div className="inline-flex items-center space-x-2 bg-slate-900 border border-slate-800 rounded-full px-4 py-1.5 text-xs text-pink-400 font-medium">
-          <span>✨ Standardizing Restaurant & Inventory Systems</span>
-        </div>
-        <h1 className="text-5xl md:text-6xl font-black tracking-tight leading-tight max-w-4xl mx-auto">
-          The Intelligent Multi-Tenant <span className="bg-clip-text text-transparent bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500">ERP & POS</span> System.
-        </h1>
-        <p className="text-lg text-slate-400 max-w-2xl mx-auto font-medium">
-          Scale your business across multiple branch locations with real-time stock transfer flows, granular permissions, receipt auditing, and POS integration.
-        </p>
-        <div className="flex flex-col sm:flex-row justify-center items-center gap-4 pt-4">
-          <Button 
-            size="lg" 
-            className="w-full sm:w-auto h-13 px-8 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-bold text-base shadow-lg shadow-pink-500/20 rounded-xl"
-            onClick={() => { window.location.pathname = '/apply'; }}
-          >
-            Start Free Trial
-          </Button>
-          <Button 
-            size="lg" 
-            variant="outline" 
-            className="w-full sm:w-auto h-13 px-8 border-slate-800 bg-slate-900/50 hover:bg-slate-900 text-white hover:text-white rounded-xl"
-            onClick={() => {
-              const el = document.getElementById('pricing');
-              el?.scrollIntoView({ behavior: 'smooth' });
-            }}
-          >
-            View Pricing
-          </Button>
         </div>
       </section>
 
-      {/* Features Grid */}
-      <section className="max-w-7xl mx-auto px-6 py-20 border-t border-slate-900">
-        <div className="text-center space-y-4 mb-16">
-          <h2 className="text-3xl font-bold tracking-tight">Full-Stack ERP Capabilities</h2>
-          <p className="text-slate-400 max-w-xl mx-auto">All of our core management modules are dynamically enabled depending on your business requirements.</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {coreFeatures.map((f, i) => {
-            const Icon = f.icon;
-            return (
-              <Card key={i} className="bg-slate-900/60 border-slate-800/80 shadow-xl hover:border-slate-700 transition-all duration-300">
-                <CardHeader className="space-y-3 pb-3">
-                  <div className="w-10 h-10 rounded-lg bg-pink-500/10 flex items-center justify-center border border-pink-500/20 text-pink-500">
-                    <Icon className="w-5 h-5" />
+      {/* Features */}
+      <section id="features" className="bg-white border-y border-[#DCE1E8]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 md:py-20">
+          <div className="max-w-2xl mb-12">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#B8470A]">What you get</p>
+            <h2 className="font-odyssey-display font-medium text-[26px] leading-[34px] mt-2">Everything the shop floor and the back office share.</h2>
+            <p className="text-[16px] leading-[26px] text-[#45546A] mt-3">Turn modules on as you need them. Your data stays in one place as you add branches.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {coreFeatures.map((f) => {
+              const Icon = f.icon;
+              return (
+                <div key={f.title} className="rounded-2xl border border-[#DCE1E8] bg-[#F9F8F3] p-6">
+                  <div className="w-11 h-11 rounded-xl bg-white border border-[#DCE1E8] flex items-center justify-center">
+                    <Icon className="w-6 h-6 text-[#152839]" strokeWidth={2} />
                   </div>
-                  <CardTitle className="text-lg font-bold text-white">{f.title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-slate-400 leading-relaxed">{f.desc}</p>
-                </CardContent>
-              </Card>
+                  <h3 className="font-odyssey-display font-medium text-[20px] leading-[28px] mt-4">{f.title}</h3>
+                  <p className="text-sm leading-[22px] text-[#45546A] mt-2">{f.desc}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* How it works: linked steps, last step in orange */}
+      <section id="how" className="max-w-6xl mx-auto px-4 sm:px-6 py-16 md:py-20">
+        <div className="max-w-2xl mb-10">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#B8470A]">How it works</p>
+          <h2 className="font-odyssey-display font-medium text-[26px] leading-[34px] mt-2">Up and running in three steps.</h2>
+        </div>
+        <ol className="grid md:grid-cols-3 gap-4 md:gap-0">
+          {steps.map((st, i) => {
+            const last = i === steps.length - 1;
+            return (
+              <li
+                key={st.n}
+                className={`p-6 border-[3px] border-[#152839] rounded-2xl md:rounded-none ${i === 0 ? 'md:rounded-l-2xl' : ''} ${last ? 'md:rounded-r-2xl bg-[#FF6F07]' : 'bg-white'} ${i > 0 ? 'md:-ml-[3px]' : ''}`}
+              >
+                <span className="font-odyssey-display font-bold text-sm text-[#152839]">Step {st.n}</span>
+                <h3 className="font-odyssey-display font-medium text-[20px] leading-[28px] mt-1">{st.title}</h3>
+                <p className={`text-sm leading-[22px] mt-1 ${last ? 'text-[#152839]' : 'text-[#45546A]'}`}>{st.desc}</p>
+              </li>
             );
           })}
-        </div>
+        </ol>
       </section>
 
-      {/* Pricing Grid */}
-      <section id="pricing" className="max-w-7xl mx-auto px-6 py-20 border-t border-slate-900">
-        <div className="text-center space-y-4 mb-16">
-          <h2 className="text-3xl font-bold tracking-tight">Flexible SaaS Subscription Plans</h2>
-          <p className="text-slate-400 max-w-xl mx-auto">Select a subscription structure fitting your operation scale. Upgrade or downgrade anytime.</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-          {displayPlans.map((p, i) => (
-            <Card 
-              key={i} 
-              className={`bg-slate-900/80 border-slate-800/80 shadow-2xl relative overflow-hidden flex flex-col justify-between ${
-                p.popular ? 'border-pink-500/50 shadow-pink-500/5' : ''
-              }`}
-            >
-              {p.popular && (
-                <div className="absolute top-0 right-0 bg-pink-500 text-white font-bold text-[9px] uppercase tracking-wider px-3 py-1 rounded-bl">
-                  Most Popular
+      {/* Pricing */}
+      <section id="pricing" className="bg-[#ECE7DE]/60 border-t border-[#DCE1E8]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 md:py-20">
+          <div className="max-w-2xl mb-12">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#B8470A]">Pricing</p>
+            <h2 className="font-odyssey-display font-medium text-[26px] leading-[34px] mt-2">Plans that grow with your branches.</h2>
+            <p className="text-[16px] leading-[26px] text-[#45546A] mt-3">Monthly pricing in pesos. Change plans when your needs change.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {displayPlans.map((p) => (
+              <div
+                key={p.name}
+                className={`rounded-2xl p-6 flex flex-col ${p.popular ? 'bg-[#152839] text-[#F9F8F3] ring-[3px] ring-[#FF6F07]' : 'bg-white border border-[#DCE1E8]'}`}
+              >
+                <div className="min-h-[22px]">
+                  {p.popular && (
+                    <span className="inline-block text-[11px] font-semibold rounded-full bg-[#FF6F07] text-[#152839] px-2.5 py-0.5">Most popular</span>
+                  )}
                 </div>
-              )}
-              
-              <CardHeader className="pb-4">
-                <CardDescription className="text-xs uppercase tracking-wider text-pink-400 font-semibold">{p.name}</CardDescription>
-                <div className="flex items-baseline space-x-1 mt-2">
-                  <span className="text-4xl font-extrabold text-white">{p.price}</span>
-                  <span className="text-slate-500 text-xs font-semibold">/month</span>
+                <p className={`text-xs font-semibold uppercase tracking-[0.12em] mt-2 ${p.popular ? 'text-[#F9F8F3]' : 'text-[#45546A]'}`}>{p.name}</p>
+                <div className="flex items-baseline gap-1 mt-3">
+                  <span className="font-odyssey-display font-bold text-[34px] leading-[42px]">{p.price}</span>
+                  {p.price !== 'Free' && <span className={`text-sm ${p.popular ? 'text-[#DCE1E8]' : 'text-[#5F6A7C]'}`}>/month</span>}
                 </div>
-              </CardHeader>
-
-              <CardContent className="flex-1 pb-6">
-                <ul className="space-y-3">
-                  {p.features.map((feat, idx) => (
-                    <li key={idx} className="flex items-center space-x-2 text-xs text-slate-300">
-                      <svg className="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                      </svg>
+                <ul className="space-y-2.5 mt-5 flex-1">
+                  {p.features.map((feat) => (
+                    <li key={feat} className={`flex items-start gap-2 text-sm leading-[22px] ${p.popular ? 'text-[#F9F8F3]' : 'text-[#45546A]'}`}>
+                      <Check className={`w-4 h-4 mt-[3px] shrink-0 ${p.popular ? 'text-[#FF6F07]' : 'text-[#152839]'}`} strokeWidth={2.5} />
                       <span>{feat}</span>
                     </li>
                   ))}
                 </ul>
-              </CardContent>
-
-              <div className="p-6 pt-0 mt-auto">
-                <Button 
-                  className={`w-full font-bold h-11 rounded-lg ${
-                    p.popular 
-                      ? 'bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white' 
-                      : 'bg-slate-800 hover:bg-slate-700 text-white'
+                <button
+                  onClick={goApply}
+                  className={`mt-6 h-11 rounded-lg font-semibold text-[15px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6F07] focus-visible:ring-offset-2 ${
+                    p.popular
+                      ? 'bg-[#FF6F07] text-[#152839] hover:bg-[#ff8530] focus-visible:ring-offset-[#152839]'
+                      : 'bg-[#152839] text-[#F9F8F3] hover:bg-[#1f3a52]'
                   }`}
-                  onClick={() => { window.location.pathname = '/apply'; }}
                 >
-                  Choose Plan
-                </Button>
+                  Choose {p.name}
+                </button>
               </div>
-            </Card>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="bg-slate-950 py-12 px-6 border-t border-slate-900 text-center text-xs text-slate-500 relative z-10">
-        <p>© {new Date().getFullYear()} ERPSaaS. All rights reserved. Built for oddysey.com / odcph.com systems.</p>
-      </footer>
+      <OdysseyFooter
+        cta={
+          <button
+            onClick={goApply}
+            className="h-11 px-5 rounded-lg bg-[#FF6F07] text-[#152839] font-semibold text-[15px] hover:bg-[#ff8530] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F9F8F3] focus-visible:ring-offset-2 focus-visible:ring-offset-[#152839]"
+          >
+            Start free trial
+          </button>
+        }
+      />
     </div>
   );
 };

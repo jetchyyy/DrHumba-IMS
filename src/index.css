@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Poppins:wght@500;700&family=Inter:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -220,3 +220,39 @@
   animation: slideDown 0.3s ease-out forwards;
 }
 
+
+/* ── ODYSSEY brand theme (non-main tenants + erp.odysseyph.com root) ──
+   Applied by TenantContext via the `odyssey` class on <html>. Main tenant
+   (Dr. Humba / Jacaya) never gets this class. Brand bible v1.0:
+   Navy #152839 · Voyage Orange #FF6F07 · Warm White #F9F8F3.
+   Orange buttons carry navy text, never white. */
+@layer base {
+  html.odyssey,
+  html.odyssey.dark {
+    --primary: 25 100% 51%;            /* Voyage Orange */
+    --primary-foreground: 208 46% 15%; /* Odyssey Navy */
+    --ring: 25 100% 51%;
+  }
+  html.odyssey.light {
+    --background: 50 33% 96%;          /* Warm White */
+    --foreground: 208 46% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 208 46% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 208 46% 15%;
+    --primary: 208 46% 15%;            /* Navy on light surfaces */
+    --primary-foreground: 50 33% 96%;
+    --secondary: 39 27% 90%;           /* Sand */
+    --secondary-foreground: 208 46% 15%;
+    --muted: 39 27% 90%;
+    --muted-foreground: 216 21% 34%;   /* Slate */
+    --accent: 39 27% 90%;
+    --accent-foreground: 208 46% 15%;
+    --border: 215 21% 89%;             /* Mist */
+    --input: 215 21% 89%;
+    --ring: 25 100% 51%;
+  }
+}
+
+.font-odyssey-display { font-family: 'Poppins', system-ui, Arial, sans-serif; }
+.font-odyssey { font-family: 'Inter', system-ui, Arial, sans-serif; }

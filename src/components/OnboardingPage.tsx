@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/card';
+import { OdysseyHeader, OdysseyFooter } from './odyssey/OdysseyChrome';
+import { ODYSSEY_LINKS } from './odyssey/brand';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -41,6 +42,7 @@ export const OnboardingPage: React.FC = () => {
   const [receiptBase64, setReceiptBase64] = useState<string | null>(null);
   const [receiptFileName, setReceiptFileName] = useState('');
   const [qrCodes, setQrCodes] = useState<QRCodeConfig[]>([]);
+  const [agreed, setAgreed] = useState(false);
   const [activeQrIndex, setActiveQrIndex] = useState(0);
 
   // Helper to resolve dynamically configured plan prices with hardcoded fallbacks
@@ -87,6 +89,10 @@ export const OnboardingPage: React.FC = () => {
     };
     fetchInitialData();
   }, []);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [step]);
 
   // Validate Subdomain Availability
   const handleCheckSubdomain = async () => {
@@ -153,6 +159,11 @@ export const OnboardingPage: React.FC = () => {
 
   const handleSubmitApplication = async () => {
     setErrorMsg('');
+
+    if (!agreed) {
+      setErrorMsg('Please agree to the Terms & Conditions and Data Privacy notice to continue.');
+      return;
+    }
     
     let cleanRef = 'FREE';
     let cleanReceipt = 'FREE';
@@ -223,428 +234,355 @@ export const OnboardingPage: React.FC = () => {
     }
   };
 
+  const domain = import.meta.env.VITE_MAIN_DOMAIN || 'odysseyph.com';
+  const inputCls = "h-11 bg-white border-[#DCE1E8] text-[#152839] placeholder:text-[#5F6A7C] rounded-lg focus-visible:ring-2 focus-visible:ring-[#FF6F07] focus-visible:ring-offset-0 focus-visible:border-[#152839]";
+  const labelCls = "text-sm font-medium text-[#152839]";
+  const navyBtn = "h-11 px-5 rounded-lg bg-[#152839] text-[#F9F8F3] hover:bg-[#1f3a52] font-semibold text-[15px] border-0 focus-visible:ring-2 focus-visible:ring-[#FF6F07] focus-visible:ring-offset-2";
+  const outlineBtn = "h-11 px-5 rounded-lg border-2 border-[#152839] bg-transparent text-[#152839] hover:bg-[#152839]/5 hover:text-[#152839] font-semibold text-[15px]";
+  const stepLabels = ['Business', 'Plan', 'Payment', 'Done'];
+  const businessTypes = [
+    { checked: isRestaurant, set: setIsRestaurant, title: 'Restaurant and food service', desc: 'Ingredient tracking, recipes and table service.' },
+    { checked: isRetail, set: setIsRetail, title: 'Retail store and parts sales', desc: 'Barcode scanning, stock control and a spare parts catalog.' },
+    { checked: isService, set: setIsService, title: 'Service and repair shop', desc: 'Labor and maintenance services catalog with no inventory impact.' },
+  ];
+  const planOptions = [
+    { id: 'free', name: 'Free Trial', limit: '1 branch · 2 users · Online checkout (100 sales a month)' },
+    { id: 'starter', name: 'Starter', limit: '1 branch · 3 users · Offline sales and device binding' },
+    { id: 'professional', name: 'Professional', limit: '3 branches · 10 users · Recipes, transfers and audit logs' },
+    { id: 'enterprise', name: 'Enterprise', limit: '10 branches · 30 users · Advanced analytics and priority support' },
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4 selection:bg-pink-500/30 selection:text-white">
-      {/* Background radial effects */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(244,63,94,0.08),transparent_50%)] pointer-events-none" />
+    <div className="font-odyssey min-h-screen bg-[#F9F8F3] text-[#152839] antialiased flex flex-col">
+      <OdysseyHeader>
+        <a href="/" className="text-[15px] font-medium text-[#45546A] hover:text-[#152839]">Back to home</a>
+      </OdysseyHeader>
 
-      <Card className="w-full max-w-xl shadow-[0_20px_50px_rgba(244,63,94,0.15)] bg-slate-900/90 border-slate-800 backdrop-blur-xl relative z-10 overflow-hidden">
-        {/* Top Gradient Ribbon */}
-        <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500"></div>
+      <main className="flex-1 w-full max-w-xl mx-auto px-4 sm:px-6 py-10">
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#B8470A]">Inventory Management System by ODYSSEY</p>
+        <h1 className="font-odyssey-display font-bold text-[30px] leading-[38px] sm:text-[34px] sm:leading-[42px] mt-2">
+          {step === 1 && 'Create your workspace'}
+          {step === 2 && 'Choose a plan'}
+          {step === 3 && 'Confirm and pay'}
+          {step === 4 && 'Application submitted'}
+        </h1>
+        <p className="text-[16px] leading-[26px] text-[#45546A] mt-2">
+          {step === 1 && 'Tell us your business name and pick the web address your team will use.'}
+          {step === 2 && 'Pick the plan that fits your number of branches and staff. You can change it later.'}
+          {step === 3 && (selectedPlan === 'free' ? 'No payment is needed for the free trial.' : 'Pay with GCash or Maya, then enter the last 5 digits of the reference number.')}
+          {step === 4 && 'We have your details. Here is what happens next.'}
+        </p>
 
-        {/* Step Indicator Header */}
-        <CardHeader className="text-center pt-8 border-b border-slate-800/80">
-          <div className="flex justify-center items-center space-x-2 text-xs font-semibold text-pink-500 uppercase tracking-widest mb-2">
-            <span>Step {step} of 4</span>
-          </div>
-          <CardTitle className="text-2xl font-black text-white tracking-tight">
-            {step === 1 && "Create Your Store Workspace"}
-            {step === 2 && "Select Subscription Plan"}
-            {step === 3 && "Secure Payment Deposit"}
-            {step === 4 && "Application Submitted"}
-          </CardTitle>
-          <CardDescription className="text-slate-400">
-            {step === 1 && "Provide your store name and desired subdomain domain."}
-            {step === 2 && "Choose a workspace scope matching your business size."}
-            {step === 3 && "Scan GCash or Maya to pay. Enter the last 5 reference digits."}
-            {step === 4 && "Your subscription is currently being verified."}
-          </CardDescription>
-        </CardHeader>
+        {/* Linked step indicator: shared walls, current step in orange */}
+        <ol className="grid grid-cols-4 mt-6" aria-label={`Step ${step} of 4`}>
+          {stepLabels.map((label, i) => {
+            const n = i + 1;
+            const state = n < step ? 'done' : n === step ? 'current' : 'todo';
+            return (
+              <li
+                key={label}
+                aria-current={state === 'current' ? 'step' : undefined}
+                className={`h-10 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-semibold border-2 border-[#152839] ${i > 0 ? '-ml-[2px]' : 'rounded-l-lg'} ${i === 3 ? 'rounded-r-lg' : ''} ${
+                  state === 'current' ? 'bg-[#FF6F07] text-[#152839]' : state === 'done' ? 'bg-[#152839] text-[#F9F8F3]' : 'bg-white text-[#45546A]'
+                }`}
+              >
+                {state === 'done' ? <CheckIcon className="w-4 h-4" /> : <span>{n}</span>}
+                <span className="hidden sm:inline">{label}</span>
+              </li>
+            );
+          })}
+        </ol>
 
-        <CardContent className="p-8">
-          {errorMsg && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl text-xs font-medium mb-6">
-              {errorMsg}
-            </div>
-          )}
-
-          {/* STEP 1: BUSINESS SETUP */}
-          {step === 1 && (
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="biz-name" className="text-xs font-bold uppercase tracking-wider text-slate-400">Business Name</Label>
-                <Input
-                  id="biz-name"
-                  type="text"
-                  value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                  placeholder="e.g. Odyssey Burgers"
-                  className="bg-slate-950 border-slate-800 text-white h-11 focus-visible:ring-pink-500 focus-visible:border-pink-500 rounded-xl"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="subdomain" className="text-xs font-bold uppercase tracking-wider text-slate-400">Workspace Subdomain</Label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Input
-                      id="subdomain"
-                      type="text"
-                      value={subdomain}
-                      onChange={(e) => {
-                        setSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
-                        setSubdomainAvailable(null);
-                      }}
-                      placeholder="odyssey"
-                      className="bg-slate-950 border-slate-800 text-white h-11 focus-visible:ring-pink-500 focus-visible:border-pink-500 rounded-xl pr-28"
-                    />
-                    <span className="absolute right-3 top-3 text-xs text-slate-500 font-semibold select-none">
-                      .{import.meta.env.VITE_MAIN_DOMAIN || 'odcph.com'}
-                    </span>
-                  </div>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={handleCheckSubdomain}
-                    disabled={subdomainChecking || !subdomain}
-                    className="h-11 px-4 border-slate-800 bg-slate-950 text-xs font-bold rounded-xl text-slate-300 hover:text-white"
-                  >
-                    {subdomainChecking ? <Spinner className="w-4 h-4 animate-spin" /> : "Check"}
-                  </Button>
+        <div className="mt-6 rounded-[22px] bg-[#152839] p-[6px]">
+          <div className="rounded-[17px] border-[3px] border-[#FF6F07] bg-white">
+            <div className="p-6 sm:p-8">
+              {errorMsg && (
+                <div role="alert" className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-sm font-medium mb-6">
+                  {errorMsg}
                 </div>
-                {subdomainAvailable === true && (
-                  <p className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1 mt-1">
-                    <CheckIcon className="w-3.5 h-3.5" /> Subdomain is available!
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1.5 pt-2">
-                <Label htmlFor="admin-email" className="text-xs font-bold uppercase tracking-wider text-slate-400">Admin Email Account</Label>
-                <Input
-                  id="admin-email"
-                  type="email"
-                  value={adminEmail}
-                  onChange={(e) => setAdminEmail(e.target.value)}
-                  placeholder="admin@odysseyburgers.com"
-                  className="bg-slate-950 border-slate-800 text-white h-11 focus-visible:ring-pink-500 focus-visible:border-pink-500 rounded-xl"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="admin-pass" className="text-xs font-bold uppercase tracking-wider text-slate-400">Admin Account Password</Label>
-                <Input
-                  id="admin-pass"
-                  type="password"
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="bg-slate-950 border-slate-800 text-white h-11 focus-visible:ring-pink-500 focus-visible:border-pink-500 rounded-xl"
-                />
-              </div>
-
-              <div className="space-y-2 pt-4 border-t border-slate-800/80">
-                <Label className="text-xs font-bold uppercase tracking-wider text-slate-300">Business Model Tiers</Label>
-                <p className="text-[10px] text-slate-400">Select what features your shop will support. You can select multiple.</p>
-                <div className="grid grid-cols-1 gap-2.5 mt-2">
-                  <label className="flex items-center gap-3 p-3 bg-slate-950/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 select-none transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={isRestaurant}
-                      onChange={(e) => setIsRestaurant(e.target.checked)}
-                      className="rounded bg-slate-950 border-slate-800 text-pink-500 focus:ring-pink-500/20"
-                    />
-                    <div>
-                      <span className="text-xs font-bold block text-slate-100">Restaurant & F&B Features</span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">Ingredients tracking, recipes management, table service POS.</span>
-                    </div>
-                  </label>
-
-                  <label className="flex items-center gap-3 p-3 bg-slate-950/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 select-none transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={isRetail}
-                      onChange={(e) => setIsRetail(e.target.checked)}
-                      className="rounded bg-slate-950 border-slate-800 text-pink-500 focus:ring-pink-500/20"
-                    />
-                    <div>
-                      <span className="text-xs font-bold block text-slate-100">Retail Store & Parts Sales</span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">Direct 1-to-1 barcode scanning & stock control, spare parts catalog.</span>
-                    </div>
-                  </label>
-
-                  <label className="flex items-center gap-3 p-3 bg-slate-950/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 select-none transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={isService}
-                      onChange={(e) => setIsService(e.target.checked)}
-                      className="rounded bg-slate-950 border-slate-800 text-pink-500 focus:ring-pink-500/20"
-                    />
-                    <div>
-                      <span className="text-xs font-bold block text-slate-100">Service & Repair Shop</span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">Labor costs catalog, maintenance services catalog (zero inventory impact).</span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 2: PLANS SELECTION */}
-          {step === 2 && (
-            <div className="space-y-6">
-              {/* Billing Cycle Switch */}
-              <div className="flex justify-center bg-slate-950 p-1 border border-slate-850 rounded-xl max-w-xs mx-auto">
-                <button
-                  type="button"
-                  onClick={() => setBillingCycle('monthly')}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
-                    billingCycle === 'monthly' ? 'bg-pink-500 text-white shadow' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Monthly
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBillingCycle('yearly')}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
-                    billingCycle === 'yearly' ? 'bg-pink-500 text-white shadow' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Yearly (Save 15%)
-                </button>
-              </div>
-
-              {/* Pricing Cards */}
-              <div className="grid grid-cols-1 gap-4">
-                {[
-                  { id: 'free', name: 'Free Trial', limit: '1 Branch • 2 Users • Online POS (100 Sales/mo limit)' },
-                  { id: 'starter', name: 'Starter Plan', limit: '1 Branch • 3 Users • Offline POS & Terminal Binding' },
-                  { id: 'professional', name: 'Professional Plan', limit: '3 Branches • 10 Users • Recipes, Transfers & Compliance Audits' },
-                  { id: 'enterprise', name: 'Enterprise Plan', limit: '10 Branches • 30 Users • Advanced Analytics & Premium Support' },
-                ].map((plan) => {
-                  const price = getPlanPrice(plan.id, billingCycle);
-                  return (
-                    <div
-                      key={plan.id}
-                      onClick={() => setSelectedPlan(plan.id as any)}
-                      className={`p-4 border rounded-xl cursor-pointer flex justify-between items-center transition-all ${
-                        selectedPlan === plan.id
-                          ? 'border-pink-500 bg-pink-500/5'
-                          : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
-                      }`}
-                    >
-                      <div>
-                        <h4 className="text-sm font-bold">{plan.name}</h4>
-                        <p className="text-[10px] text-slate-400 mt-1">{plan.limit}</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-sm font-extrabold text-pink-400">{price.toLocaleString()} PHP</span>
-                        <span className="text-[9px] text-slate-500 block">/{billingCycle === 'monthly' ? 'mo' : 'yr'}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* STEP 3: PAYMENT & SUBMISSION */}
-          {step === 3 && (
-            <div className="space-y-6">
-              {selectedPlan === 'free' ? (
-                <div className="bg-slate-950 p-6 border border-slate-800 rounded-xl text-center space-y-3">
-                  <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center mx-auto text-xl font-bold">✓</div>
-                  <h3 className="font-bold text-sm text-slate-200">No Payment Required</h3>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    You have selected the **Free Trial Plan**. Your portal will be created immediately upon superadmin validation.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div className="bg-slate-950 p-4 border border-slate-800 rounded-xl space-y-4">
-                    <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-                      <span className="text-xs text-slate-400 font-semibold">Total Invoice Amount:</span>
-                      <span className="text-lg font-black text-pink-400">
-                        {getPlanPrice(selectedPlan, billingCycle).toLocaleString()} PHP
-                      </span>
-                    </div>
-
-                    {qrCodes.length === 0 ? (
-                      <p className="text-xs text-slate-500 text-center py-4">No active payment channels loaded. Please upload receipt and enter transaction ID.</p>
-                    ) : (
-                      <div className="space-y-4">
-                        {/* Method Tabs */}
-                        <div className="flex gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
-                          {qrCodes.map((qc, idx) => (
-                            <button
-                              key={idx}
-                              type="button"
-                              onClick={() => setActiveQrIndex(idx)}
-                              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                                activeQrIndex === idx ? 'bg-pink-500/10 text-pink-400 border border-pink-500/20' : 'text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              {qc.payment_method}
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* QR Code details */}
-                        <div className="flex flex-col sm:flex-row items-center gap-6 py-2">
-                          <div className="w-32 h-32 bg-white rounded-lg p-2 flex-shrink-0 flex items-center justify-center shadow-lg">
-                            <img 
-                              src={qrCodes[activeQrIndex].qr_code_url} 
-                              alt="QR Code" 
-                              className="w-full h-full object-contain" 
-                              onError={(e) => {
-                                e.currentTarget.src = "https://placehold.co/150?text=Scan+To+Pay";
-                              }}
-                            />
-                          </div>
-                          <div className="space-y-2 text-center sm:text-left">
-                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Account Details</h4>
-                            <p className="text-sm font-semibold">{qrCodes[activeQrIndex].payment_method}</p>
-                            <p className="text-xs text-slate-300">Name: <span className="font-semibold">{qrCodes[activeQrIndex].account_name}</span></p>
-                            <p className="text-xs text-slate-300">Number: <span className="font-mono font-semibold bg-slate-900 border px-1.5 py-0.5 rounded">{qrCodes[activeQrIndex].account_number}</span></p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Reference and Proof Upload */}
-                  <div className="space-y-4">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="payment-ref" className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                        Last 5 Digits of Reference Number *
-                      </Label>
-                      <Input
-                        id="payment-ref"
-                        type="text"
-                        maxLength={5}
-                        value={paymentReference}
-                        onChange={(e) => setPaymentReference(e.target.value.replace(/\D/g, ''))}
-                        placeholder="e.g. 54321"
-                        className="bg-slate-950 border-slate-800 text-white h-11 focus-visible:ring-pink-500 focus-visible:border-pink-500 rounded-xl font-mono text-center text-lg tracking-widest"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Upload Receipt Screenshot *</Label>
-                      <div className="relative h-24 border-2 border-dashed border-slate-800 rounded-xl hover:border-pink-500/50 hover:bg-pink-500/5 transition-all flex flex-col items-center justify-center cursor-pointer group">
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          onChange={handleReceiptUpload} 
-                          className="absolute inset-0 opacity-0 cursor-pointer" 
-                        />
-                        <Upload className="w-5 h-5 text-slate-500 group-hover:text-pink-400 transition-colors" />
-                        <span className="text-xs text-slate-400 group-hover:text-slate-300 mt-2 font-medium">
-                          {receiptFileName || "Click to browse files (PNG, JPG)"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </>
               )}
-            </div>
-          )}
 
-          {/* STEP 4: SUBMITTED CONFIRMATION */}
-          {step === 4 && (
-            <div className="text-center py-8 space-y-6">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
-                <CheckIcon className="w-8 h-8" />
-              </div>
-              
-              {selectedPlan === 'free' ? (
-                <div className="space-y-4">
+              {/* STEP 1: BUSINESS SETUP */}
+              {step === 1 && (
+                <div className="space-y-5">
                   <div className="space-y-2">
-                    <h3 className="text-lg font-bold text-white font-black">Portal Activated Instantly!</h3>
-                    <p className="text-sm text-slate-400 leading-relaxed max-w-md mx-auto">
-                      Your free trial workspace is ready! You can access your store portal at:
-                    </p>
+                    <Label htmlFor="biz-name" className={labelCls}>Business name</Label>
+                    <Input id="biz-name" type="text" value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="e.g. Odyssey Burgers" className={inputCls} />
                   </div>
-                  <div className="bg-slate-950 p-4 border border-slate-800 rounded-2xl font-mono text-xs select-all text-pink-400 font-bold max-w-sm mx-auto">
-                    {`http://${subdomain.toLowerCase()}.${import.meta.env.VITE_MAIN_DOMAIN || 'localhost:5173'}`}
+
+                  <div className="space-y-2">
+                    <Label htmlFor="subdomain" className={labelCls}>Workspace address</Label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1 min-w-0">
+                        <Input
+                          id="subdomain"
+                          type="text"
+                          value={subdomain}
+                          onChange={(e) => {
+                            setSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
+                            setSubdomainAvailable(null);
+                          }}
+                          placeholder="yourstore"
+                          className={`${inputCls} pr-28`}
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-[#5F6A7C] select-none truncate max-w-[45%]">.{domain}</span>
+                      </div>
+                      <Button type="button" variant="outline" onClick={handleCheckSubdomain} disabled={subdomainChecking || !subdomain} className={`${outlineBtn} px-4`}>
+                        {subdomainChecking ? <Spinner className="w-4 h-4 animate-spin" /> : 'Check'}
+                      </Button>
+                    </div>
+                    {subdomainAvailable === true && (
+                      <p className="text-sm text-emerald-700 font-medium flex items-center gap-1.5">
+                        <CheckIcon className="w-4 h-4" /> {subdomain}.{domain} is available.
+                      </p>
+                    )}
+                    <p className="text-xs text-[#5F6A7C]">Lowercase letters, numbers and dashes. At least 3 characters.</p>
                   </div>
-                  <div className="space-y-2 pt-2">
-                    <p className="text-[11px] text-slate-500">
-                      Login using admin email: <strong className="text-slate-300 font-semibold">{adminEmail}</strong>
-                    </p>
-                    <a
-                      href={`http://${subdomain.toLowerCase()}.${import.meta.env.VITE_MAIN_DOMAIN || 'localhost:5173'}/login`}
-                      className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs tracking-wider shadow-lg shadow-pink-500/20 transition-all"
-                    >
-                      Login to Workspace
-                    </a>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="admin-email" className={labelCls}>Admin email</Label>
+                    <Input id="admin-email" type="email" autoComplete="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} placeholder="you@yourbusiness.com" className={inputCls} />
                   </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <h3 className="text-lg font-bold text-white">Application Successfully Queued</h3>
-                  <p className="text-sm text-slate-400 leading-relaxed max-w-md mx-auto">
-                    Our systems have received your registration under subdomain <strong>{subdomain.toLowerCase()}.{import.meta.env.VITE_MAIN_DOMAIN || 'odcph.com'}</strong>.
-                    We are currently verifying reference <strong>{paymentReference}</strong>. Once approved, you can access your portal immediately.
-                  </p>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="admin-pass" className={labelCls}>Admin password</Label>
+                    <Input id="admin-pass" type="password" autoComplete="new-password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="At least 6 characters" className={inputCls} />
+                  </div>
+
+                  <fieldset className="space-y-3 pt-5 border-t border-[#DCE1E8]">
+                    <legend className="text-sm font-medium text-[#152839]">Type of business</legend>
+                    <p className="text-sm text-[#45546A] -mt-1">Choose all that apply. This turns on the matching modules.</p>
+                    <div className="grid gap-2.5">
+                      {businessTypes.map((bt) => (
+                        <label
+                          key={bt.title}
+                          className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer select-none transition-colors ${bt.checked ? 'border-[#152839] bg-[#F9F8F3]' : 'border-[#DCE1E8] bg-white hover:border-[#5F6A7C]'}`}
+                        >
+                          <input type="checkbox" checked={bt.checked} onChange={(e) => bt.set(e.target.checked)} className="mt-0.5 w-4 h-4 accent-[#152839]" />
+                          <span>
+                            <span className="text-sm font-semibold block">{bt.title}</span>
+                            <span className="text-sm text-[#45546A] block mt-0.5">{bt.desc}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
                 </div>
               )}
 
-              {selectedPlan !== 'free' && (
-                <Button 
-                  variant="outline" 
-                  onClick={() => { window.location.pathname = '/'; }}
-                  className="border-slate-800 bg-slate-900/50 hover:bg-slate-950 font-bold rounded-xl"
-                >
-                  Back to Homepage
-                </Button>
+              {/* STEP 2: PLANS SELECTION */}
+              {step === 2 && (
+                <div className="space-y-6">
+                  <div className="flex bg-[#ECE7DE] p-1 rounded-lg max-w-xs mx-auto" role="radiogroup" aria-label="Billing cycle">
+                    {(['monthly', 'yearly'] as const).map((cycle) => (
+                      <button
+                        key={cycle}
+                        type="button"
+                        role="radio"
+                        aria-checked={billingCycle === cycle}
+                        onClick={() => setBillingCycle(cycle)}
+                        className={`flex-1 py-2 text-sm font-semibold rounded-md transition-colors ${billingCycle === cycle ? 'bg-[#152839] text-[#F9F8F3]' : 'text-[#45546A] hover:text-[#152839]'}`}
+                      >
+                        {cycle === 'monthly' ? 'Monthly' : 'Yearly (save 15%)'}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="grid gap-3" role="radiogroup" aria-label="Plan">
+                    {planOptions.map((plan) => {
+                      const price = getPlanPrice(plan.id, billingCycle);
+                      const selected = selectedPlan === plan.id;
+                      return (
+                        <button
+                          key={plan.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => setSelectedPlan(plan.id as any)}
+                          className={`text-left p-4 rounded-lg border-2 flex justify-between items-center gap-4 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6F07] ${selected ? 'border-[#152839] bg-[#F9F8F3]' : 'border-[#DCE1E8] bg-white hover:border-[#5F6A7C]'}`}
+                        >
+                          <span className="flex items-start gap-3">
+                            <span className={`mt-1 w-4 h-4 rounded-full border-2 border-[#152839] flex items-center justify-center shrink-0`}>
+                              {selected && <span className="w-2 h-2 rounded-full bg-[#FF6F07]" />}
+                            </span>
+                            <span>
+                              <span className="font-odyssey-display font-medium text-[17px] block">{plan.name}</span>
+                              <span className="text-sm text-[#45546A] block mt-0.5">{plan.limit}</span>
+                            </span>
+                          </span>
+                          <span className="text-right shrink-0">
+                            <span className="font-odyssey-display font-bold text-lg block">{price === 0 ? 'Free' : `₱${price.toLocaleString()}`}</span>
+                            {price !== 0 && <span className="text-xs text-[#5F6A7C]">/{billingCycle === 'monthly' ? 'month' : 'year'}</span>}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 3: PAYMENT & SUBMISSION */}
+              {step === 3 && (
+                <div className="space-y-6">
+                  {selectedPlan === 'free' ? (
+                    <div className="bg-[#F9F8F3] p-6 border border-[#DCE1E8] rounded-lg text-center space-y-3">
+                      <div className="w-12 h-12 rounded-full bg-[#152839] text-[#F9F8F3] flex items-center justify-center mx-auto">
+                        <CheckIcon className="w-6 h-6" />
+                      </div>
+                      <h3 className="font-odyssey-display font-medium text-[18px]">No payment needed</h3>
+                      <p className="text-sm text-[#45546A] leading-[22px]">
+                        You chose the Free Trial. We create your workspace once our team approves the application.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="bg-[#F9F8F3] p-4 sm:p-5 border border-[#DCE1E8] rounded-lg space-y-4">
+                        <div className="flex justify-between items-center border-b border-[#DCE1E8] pb-3">
+                          <span className="text-sm text-[#45546A] font-medium">Amount due</span>
+                          <span className="font-odyssey-display font-bold text-xl">₱{getPlanPrice(selectedPlan, billingCycle).toLocaleString()}</span>
+                        </div>
+
+                        {qrCodes.length === 0 ? (
+                          <p className="text-sm text-[#45546A] text-center py-4">Payment channels could not be loaded. You can still upload your receipt and enter the reference digits below.</p>
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="flex gap-2 overflow-x-auto" role="tablist">
+                              {qrCodes.map((qc, idx) => (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  role="tab"
+                                  aria-selected={activeQrIndex === idx}
+                                  onClick={() => setActiveQrIndex(idx)}
+                                  className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-colors ${activeQrIndex === idx ? 'bg-[#152839] text-[#F9F8F3]' : 'text-[#45546A] hover:text-[#152839] bg-white border border-[#DCE1E8]'}`}
+                                >
+                                  {qc.payment_method}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex flex-col sm:flex-row items-center gap-6">
+                              <div className="w-36 h-36 bg-white rounded-lg p-2 border border-[#DCE1E8] shrink-0 flex items-center justify-center">
+                                <img
+                                  src={qrCodes[activeQrIndex].qr_code_url}
+                                  alt={`${qrCodes[activeQrIndex].payment_method} QR code`}
+                                  className="w-full h-full object-contain"
+                                  onError={(e) => { e.currentTarget.src = "https://placehold.co/150?text=Scan+To+Pay"; }}
+                                />
+                              </div>
+                              <div className="space-y-1.5 text-center sm:text-left">
+                                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#5F6A7C]">Account details</p>
+                                <p className="font-semibold">{qrCodes[activeQrIndex].payment_method}</p>
+                                <p className="text-sm text-[#45546A]">Name: <span className="font-semibold text-[#152839]">{qrCodes[activeQrIndex].account_name}</span></p>
+                                <p className="text-sm text-[#45546A]">Number: <span className="font-mono font-semibold text-[#152839] bg-white border border-[#DCE1E8] px-1.5 py-0.5 rounded">{qrCodes[activeQrIndex].account_number}</span></p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-5">
+                        <div className="space-y-2">
+                          <Label htmlFor="payment-ref" className={labelCls}>Last 5 digits of the reference number</Label>
+                          <Input
+                            id="payment-ref"
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={5}
+                            value={paymentReference}
+                            onChange={(e) => setPaymentReference(e.target.value.replace(/\D/g, ''))}
+                            placeholder="e.g. 54321"
+                            className={`${inputCls} font-mono text-center text-lg tracking-widest`}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="receipt-file" className={labelCls}>Screenshot of your receipt</Label>
+                          <div className="relative h-24 border-2 border-dashed border-[#DCE1E8] rounded-lg hover:border-[#152839] hover:bg-[#F9F8F3] transition-colors flex flex-col items-center justify-center cursor-pointer group">
+                            <input id="receipt-file" type="file" accept="image/*" onChange={handleReceiptUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+                            <Upload className="w-5 h-5 text-[#5F6A7C] group-hover:text-[#152839]" />
+                            <span className="text-sm text-[#45546A] mt-2 font-medium px-4 truncate max-w-full">{receiptFileName || 'Choose an image (PNG or JPG, under 2 MB)'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  <label className="flex items-start gap-3 pt-5 border-t border-[#DCE1E8] cursor-pointer select-none">
+                    <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-1 w-4 h-4 accent-[#152839] shrink-0" />
+                    <span className="text-sm text-[#45546A] leading-[22px]">
+                      I have read and agree to the{' '}
+                      <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-[#B8470A] font-medium underline underline-offset-2">Terms &amp; Conditions</a>{' '}
+                      and the{' '}
+                      <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-[#B8470A] font-medium underline underline-offset-2">Data Privacy notice</a>, and I consent to ODYSSEY processing the details above to review my application, in line with the Data Privacy Act of 2012.
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {/* STEP 4: SUBMITTED CONFIRMATION */}
+              {step === 4 && (
+                <div className="text-center py-4 space-y-6">
+                  <img src="/odyssey/ody-systems-happy.webp" alt="" className="w-24 h-auto mx-auto select-none" draggable={false} />
+                  {selectedPlan === 'free' ? (
+                    <div className="space-y-4">
+                      <h2 className="font-odyssey-display font-medium text-[22px] leading-[30px]">Your application is in.</h2>
+                      <p className="text-[16px] leading-[26px] text-[#45546A] max-w-md mx-auto">Once our team approves it, your workspace will be at:</p>
+                      <div className="bg-[#F9F8F3] p-4 border border-[#DCE1E8] rounded-lg font-mono text-sm select-all font-semibold max-w-sm mx-auto break-all">
+                        {`https://${subdomain.toLowerCase()}.${domain}`}
+                      </div>
+                      <p className="text-sm text-[#45546A]">You will sign in with <strong className="text-[#152839]">{adminEmail}</strong>.</p>
+                      <p className="text-sm text-[#5F6A7C]">
+                        Questions? Email <a href={`mailto:${ODYSSEY_LINKS.helloEmail}`} className="text-[#B8470A] font-medium underline underline-offset-2">{ODYSSEY_LINKS.helloEmail}</a>.
+                      </p>
+                      <Button variant="outline" onClick={() => { window.location.pathname = '/'; }} className={`${outlineBtn} mt-2`}>
+                        Back to home
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <h2 className="font-odyssey-display font-medium text-[22px] leading-[30px]">Your application is in.</h2>
+                      <p className="text-[16px] leading-[26px] text-[#45546A] max-w-md mx-auto">
+                        We are checking payment reference <strong className="text-[#152839]">{paymentReference}</strong> for{' '}
+                        <strong className="text-[#152839]">{subdomain.toLowerCase()}.{domain}</strong>. Once it is approved, you can sign in right away.
+                      </p>
+                      <p className="text-sm text-[#5F6A7C]">
+                        Questions? Email <a href={`mailto:${ODYSSEY_LINKS.helloEmail}`} className="text-[#B8470A] font-medium underline underline-offset-2">{ODYSSEY_LINKS.helloEmail}</a>.
+                      </p>
+                      <Button variant="outline" onClick={() => { window.location.pathname = '/'; }} className={`${outlineBtn} mt-2`}>
+                        Back to home
+                      </Button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </CardContent>
 
-        {step < 4 && (
-          <CardFooter className="p-8 border-t border-slate-800/80 flex justify-between bg-slate-900/30">
-            {step > 1 ? (
-              <Button 
-                type="button" 
-                variant="outline" 
-                onClick={() => setStep(step - 1)}
-                className="border-slate-800 text-slate-300 hover:text-white rounded-xl"
-              >
-                Back
-              </Button>
-            ) : (
-              <Button 
-                type="button" 
-                variant="ghost" 
-                onClick={() => { window.location.pathname = '/'; }}
-                className="text-slate-500 hover:text-white"
-              >
-                Cancel
-              </Button>
-            )}
-
-            {step < 3 ? (
-              <Button 
-                type="button" 
-                onClick={nextStep}
-                className="bg-pink-500 hover:bg-pink-600 text-white font-bold rounded-xl"
-              >
-                Continue
-                <ChevronRight className="w-4 h-4 ml-1.5" />
-              </Button>
-            ) : (
-              <Button 
-                type="button" 
-                onClick={handleSubmitApplication}
-                disabled={loading}
-                className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-bold rounded-xl"
-              >
-                {loading ? (
-                  <span className="flex items-center gap-1.5">
-                    <Spinner className="w-4 h-4 animate-spin" />
-                    Submitting...
-                  </span>
+            {step < 4 && (
+              <div className="px-6 sm:px-8 py-5 border-t border-[#DCE1E8] flex justify-between gap-3 bg-[#F9F8F3] rounded-b-[14px]">
+                {step > 1 ? (
+                  <Button type="button" variant="outline" onClick={() => setStep(step - 1)} className={outlineBtn}>Back</Button>
                 ) : (
-                  "Submit Payment"
+                  <Button type="button" variant="ghost" onClick={() => { window.location.pathname = '/'; }} className="h-11 px-4 text-[#45546A] hover:text-[#152839] hover:bg-transparent font-semibold">Cancel</Button>
                 )}
-              </Button>
+
+                {step < 3 ? (
+                  <Button type="button" onClick={nextStep} className={navyBtn}>
+                    Continue <ChevronRight className="w-4 h-4 ml-1" />
+                  </Button>
+                ) : (
+                  <Button type="button" onClick={handleSubmitApplication} disabled={loading || !agreed} className={navyBtn}>
+                    {loading ? (
+                      <span className="flex items-center gap-1.5"><Spinner className="w-4 h-4 animate-spin" /> Submitting...</span>
+                    ) : selectedPlan === 'free' ? 'Submit application' : 'Submit payment'}
+                  </Button>
+                )}
+              </div>
             )}
-          </CardFooter>
-        )}
-      </Card>
+          </div>
+        </div>
+      </main>
+
+      <OdysseyFooter />
     </div>
   );
 };
