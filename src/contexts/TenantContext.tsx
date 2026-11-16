@@ -149,7 +149,12 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const favicon = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
     const appleIcon = document.querySelector("link[rel='apple-touch-icon']") as HTMLLinkElement;
 
-    if (isDrHumba) {
+    // ODYSSEY brand theme for every non-main tenant and the root domain.
+    // The main tenant (Dr. Humba / Jacaya: single mode, or subdomain null) keeps its own theme.
+    const isMainTenant = isDrHumba || (!!tenant && tenant.subdomain === null);
+    root.classList.toggle('odyssey', !isMainTenant);
+
+    if (isMainTenant) {
       // Dr. Humba Pink theme (HSL 336 80% 57%)
       root.style.setProperty('--primary', '336 80% 57%');
       root.style.setProperty('--primary-foreground', '0 0% 100%');
@@ -158,10 +163,10 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (favicon) favicon.href = "/drhumbalogo.jpg";
       if (appleIcon) appleIcon.href = "/drhumbalogo-192.png";
     } else {
-      // General SaaS Tenant Indigo theme (HSL 250 84% 54%)
-      root.style.setProperty('--primary', '250 84% 54%');
-      root.style.setProperty('--primary-foreground', '0 0% 100%');
-      
+      // ODYSSEY theme: primary comes from html.odyssey tokens in index.css
+      root.style.removeProperty('--primary');
+      root.style.removeProperty('--primary-foreground');
+
       if (tenant) {
         document.title = `${tenant.name} - Inventory System`;
         const logoUrl = tenant.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png";
@@ -169,11 +174,9 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (appleIcon) appleIcon.href = logoUrl;
       } else {
         // SaaS Landing Page / Root Domain
-        const appName = import.meta.env.VITE_DEFAULT_APP_NAME || "ERPSaaS";
-        document.title = `${appName} - Smart Operations ERP`;
-        const defaultLogo = import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png";
-        if (favicon) favicon.href = defaultLogo;
-        if (appleIcon) appleIcon.href = defaultLogo;
+        document.title = "Inventory Management System by ODYSSEY";
+        if (favicon) { favicon.type = "image/svg+xml"; favicon.href = "/odyssey/monogram.svg"; }
+        if (appleIcon) appleIcon.href = "/odyssey/monogram.svg";
       }
     }
 

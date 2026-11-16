@@ -7,6 +7,7 @@ import { supabase } from './lib/supabase';
 import { useTenant } from './contexts/TenantContext';
 import { TenantSuspendedPage, TenantNotFoundPage, UnauthorizedTenantPage, PlatformAdminTenantMismatchPage, SaaSLandingPage } from './components/SaaSCommon';
 import { OnboardingPage } from './components/OnboardingPage';
+import { TermsPage, PrivacyPage } from './components/odyssey/LegalPages';
 import { SuperAdminDashboard } from './components/SuperAdminDashboard';
 import { Sidebar, MobileHeader, MobileBottomNav } from './components/Sidebar';
 import { OfflineBanner } from './components/OfflineBanner';
@@ -121,7 +122,7 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const isCustomerPath = window.location.pathname === '/customer-display';
     const isQueuePath = window.location.pathname === '/queue-tv';
-    const isSaaSRoute = ['/apply', '/odc'].includes(window.location.pathname);
+    const isSaaSRoute = ['/apply', '/odc', '/terms', '/privacy'].includes(window.location.pathname);
     if (window.location.pathname !== '/' && !isCustomerPath && !isQueuePath && !isSaaSRoute) {
       setIs404(true);
     }
@@ -201,6 +202,14 @@ const AppContent: React.FC = () => {
     return <SplashScreen />;
   }
 
+  // 0. ODYSSEY legal pages (root domain and every non-main tenant subdomain)
+  if (!isSingleTenantMode && window.location.pathname === '/terms') {
+    return <TermsPage />;
+  }
+  if (!isSingleTenantMode && window.location.pathname === '/privacy') {
+    return <PrivacyPage />;
+  }
+
   // 1. Tenant Error Handlers
   if (tenantError === 'not_found') {
     return <TenantNotFoundPage />;
@@ -261,116 +270,112 @@ const AppContent: React.FC = () => {
     const showDrHumbaTheme = isSingleTenantMode || (tenant && tenant.subdomain === null);
 
     if (!showDrHumbaTheme) {
-      // ── SaaS Tenant / Superadmin Console: Premium Dark/Indigo Glassmorphic Splash Screen ──
+      // ── Non-main tenants + Superadmin console: ODYSSEY brand sign-in ──
+      const isConsole = window.location.pathname === '/odc';
+      const brandLogo = isConsole ? '/odyssey/monogram.svg' : (tenant?.logo_url || '/odyssey/monogram.svg');
+      const inputCls = "h-12 bg-white border-[#DCE1E8] text-[#152839] placeholder:text-[#5F6A7C] rounded-lg focus-visible:ring-2 focus-visible:ring-[#FF6F07] focus-visible:ring-offset-0 focus-visible:border-[#152839]";
       return (
-        <div className="min-h-screen relative overflow-hidden bg-slate-950 flex items-center justify-center p-4 text-white selection:bg-indigo-500/30">
-          {/* Background radial effects */}
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(99,102,241,0.08),transparent_50%)] pointer-events-none" />
-
-          {/* Background shapes */}
-          <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-500/10 rounded-full filter blur-3xl animate-blob"></div>
-          <div className="absolute top-[20%] right-[-10%] w-80 h-80 bg-purple-500/10 rounded-full filter blur-3xl animate-blob animation-delay-2000"></div>
-          <div className="absolute bottom-[-20%] left-[20%] w-80 h-80 bg-blue-500/10 rounded-full filter blur-3xl animate-blob animation-delay-4000"></div>
-
-          <Card className="w-full max-w-md shadow-[0_20px_50px_rgba(99,102,241,0.15)] bg-slate-900/90 border-slate-800 backdrop-blur-xl border-2 relative z-10 overflow-hidden text-white">
-            {/* Card top decorative accent */}
-            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
-            
-            <CardHeader className="text-center space-y-4 pt-8">
-              <div className="mx-auto w-32 h-32 bg-slate-950 rounded-full p-2 shadow-xl border-4 border-slate-850 relative group overflow-hidden flex items-center justify-center">
-                <div className="absolute inset-0 bg-indigo-500/10 opacity-0 group-hover:opacity-100 transition-opacity z-10"></div>
-                <img src={window.location.pathname === '/odc' ? (import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png") : (tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || "/saaslogo.png")} alt="Logo" className="w-full h-full object-cover rounded-full transform group-hover:scale-105 transition-transform duration-300" />
-              </div>
-              <div>
-                <CardTitle className="text-3xl font-black text-white tracking-tight uppercase">
-                  {window.location.pathname === '/odc' ? "SaaS Superadmin" : (tenant?.name || "Workspace")}
-                </CardTitle>
-                <CardDescription className="text-sm font-semibold text-indigo-400 uppercase tracking-widest mt-1">
-                  {window.location.pathname === '/odc' ? "Console Administration" : "Management System"}
-                </CardDescription>
-              </div>
-            </CardHeader>
-
-            <CardContent className="px-8 pb-8">
-              {authError && (
-                <Alert variant="destructive" className="mb-6 border-red-950/30 bg-red-950/20 text-red-400">
-                  <AlertDescription className="font-medium text-sm">{authError}</AlertDescription>
-                </Alert>
-              )}
-              {authSuccess && (
-                <Alert className="mb-6 border-indigo-500/30 bg-indigo-950/20 text-indigo-400">
-                  <AlertDescription className="font-medium text-sm">{authSuccess}</AlertDescription>
-                </Alert>
-              )}
-
-              <form onSubmit={handleSignIn} className="space-y-5">
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Email Address</Label>
-                  <div className="relative group">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Mail className="h-5 w-5 text-indigo-450 group-focus-within:text-indigo-400 transition-colors" />
-                    </div>
-                    <Input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder={tenant?.subdomain ? `admin@${tenant.subdomain}.com` : "admin@domain.com"}
-                      className="pl-10 h-12 bg-slate-950 border-slate-850 text-white placeholder-slate-600 focus-visible:ring-indigo-500 focus-visible:border-indigo-500 rounded-xl transition-all shadow-inner focus-within:border-slate-700"
-                    />
+        <div className="font-odyssey min-h-screen bg-[#F9F8F3] text-[#152839] flex flex-col items-center justify-center px-4 py-10 antialiased">
+          <div className="w-full max-w-md">
+            <div className="rounded-[24px] bg-[#152839] p-[8px] shadow-[0_24px_60px_-30px_rgba(21,40,57,0.6)]">
+              <div className="rounded-[18px] border-[3px] border-[#FF6F07] bg-white px-6 sm:px-8 pt-8 pb-8">
+                <div className="flex flex-col items-center text-center">
+                  <div className={`w-20 h-20 rounded-full flex items-center justify-center overflow-hidden ${isConsole || !tenant?.logo_url ? 'bg-[#F9F8F3] p-3' : 'bg-white border border-[#DCE1E8]'}`}>
+                    <img src={brandLogo} alt={isConsole ? 'ODYSSEY' : `${tenant?.name || 'Workspace'} logo`} className={isConsole || !tenant?.logo_url ? 'w-full h-auto' : 'w-full h-full object-cover'} />
                   </div>
+                  <h1 className="font-odyssey-display font-bold text-[26px] leading-[34px] mt-4">
+                    {isConsole ? 'ODYSSEY Console' : (tenant?.name || 'Workspace')}
+                  </h1>
+                  <p className="text-sm text-[#45546A] mt-1">
+                    {isConsole ? 'Platform administration' : 'Sign in to your workspace'}
+                  </p>
                 </div>
 
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Password</Label>
-                  <div className="relative group">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Key className="h-5 w-5 text-indigo-450 group-focus-within:text-indigo-400 transition-colors" />
+                {authError && (
+                  <Alert variant="destructive" className="mt-6 border-red-200 bg-red-50 text-red-800">
+                    <AlertDescription className="font-medium text-sm">{authError}</AlertDescription>
+                  </Alert>
+                )}
+                {authSuccess && (
+                  <Alert className="mt-6 border-[#DCE1E8] bg-[#ECE7DE] text-[#152839]">
+                    <AlertDescription className="font-medium text-sm">{authSuccess}</AlertDescription>
+                  </Alert>
+                )}
+
+                <form onSubmit={handleSignIn} className="space-y-5 mt-7">
+                  <div className="space-y-2">
+                    <Label htmlFor="odc-email" className="text-sm font-medium text-[#152839]">Email address</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[#5F6A7C] pointer-events-none" />
+                      <Input
+                        id="odc-email"
+                        type="email"
+                        required
+                        autoComplete="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder={tenant?.subdomain ? `admin@${tenant.subdomain}.com` : "admin@domain.com"}
+                        className={`pl-10 ${inputCls}`}
+                      />
                     </div>
-                    <Input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="pl-10 pr-10 h-12 bg-slate-950 border-slate-850 text-white placeholder-slate-600 focus-visible:ring-indigo-500 focus-visible:border-indigo-500 rounded-xl transition-all shadow-inner focus-within:border-slate-700"
-                    />
-                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="odc-password" className="text-sm font-medium text-[#152839]">Password</Label>
+                    <div className="relative">
+                      <Key className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[#5F6A7C] pointer-events-none" />
+                      <Input
+                        id="odc-password"
+                        type={showPassword ? "text" : "password"}
+                        required
+                        autoComplete="current-password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className={`pl-10 pr-11 ${inputCls}`}
+                      />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="text-slate-500 hover:text-indigo-400 focus:outline-none transition-colors"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5F6A7C] hover:text-[#152839] focus:outline-none"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
                         tabIndex={-1}
                       >
                         {showPassword ? <EyeOpenIcon className="h-5 w-5" /> : <EyeClosedIcon className="h-5 w-5" />}
                       </button>
                     </div>
                   </div>
-                </div>
 
-                <Button
-                  type="submit"
-                  className="w-full h-12 text-base font-bold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg hover:shadow-indigo-500/20 rounded-xl transition-all active:scale-[0.98] border-0"
-                  disabled={authLoading}
-                >
-                  {authLoading ? (
-                    <span className="flex items-center gap-2">
-                      <RefreshCw className="w-5 h-5 animate-spin" />
-                      Authenticating...
-                    </span>
-                  ) : (
-                    "Access Platform"
-                  )}
-                </Button>
-              </form>
-            </CardContent>
-            
-            <div className="bg-slate-950/60 py-4 px-8 border-t border-slate-850 text-center">
-               <p className="text-xs font-medium text-slate-550">
-                 © {new Date().getFullYear()} {tenant?.name || "ERPSaaS"}. All rights reserved.
-               </p>
+                  <Button
+                    type="submit"
+                    className="w-full h-12 text-[15px] font-semibold bg-[#152839] text-[#F9F8F3] hover:bg-[#1f3a52] rounded-lg border-0 focus-visible:ring-2 focus-visible:ring-[#FF6F07] focus-visible:ring-offset-2"
+                    disabled={authLoading}
+                  >
+                    {authLoading ? (
+                      <span className="flex items-center gap-2">
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                        Signing in...
+                      </span>
+                    ) : (
+                      "Sign in"
+                    )}
+                  </Button>
+                </form>
+              </div>
             </div>
-          </Card>
+
+            <div className="flex items-center justify-center gap-2 mt-8 text-xs text-[#5F6A7C]">
+              <span>Powered by</span>
+              <a href={`https://${import.meta.env.VITE_MAIN_DOMAIN || 'erp.odysseyph.com'}`} aria-label="ODYSSEY">
+                <img src="/odyssey/logo-horizontal.svg" alt="ODYSSEY" className="h-6 w-auto" />
+              </a>
+            </div>
+            <div className="flex items-center justify-center gap-4 mt-3 text-xs text-[#45546A]">
+              <a href="/terms" className="hover:text-[#152839] underline-offset-4 hover:underline">Terms &amp; Conditions</a>
+              <span aria-hidden="true">·</span>
+              <a href="/privacy" className="hover:text-[#152839] underline-offset-4 hover:underline">Data Privacy</a>
+            </div>
+          </div>
         </div>
       );
     }
