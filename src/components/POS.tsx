@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import {
@@ -145,6 +145,11 @@ export const POS: React.FC<POSProps> = ({
   // Payment dialog
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
+  // Synchronous guard against double taps (state updates are async).
+  const submittingRef = useRef(false);
+  // One ID per payment of the current cart. Reused on retry so the server can
+  // return the already-recorded sale instead of creating a duplicate.
+  const checkoutClientRefRef = useRef<string | null>(null);
   const [lastSaleResult, setLastSaleResult] = useState<LastSaleResult | null>(null);
   const [isPrintingReceiptBluetooth, setIsPrintingReceiptBluetooth] = useState(false);
   const [isPrintingKitchenBluetooth, setIsPrintingKitchenBluetooth] = useState(false);
@@ -177,6 +182,11 @@ export const POS: React.FC<POSProps> = ({
   const [terminalConfig, setTerminalConfig] = useState<TerminalConfig | null>(null);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // A different cart is a different order: start a fresh payment ID.
+  useEffect(() => {
+    checkoutClientRefRef.current = null;
+  }, [cart]);
 
   const loadOfflineData = async () => {
     try {
@@ -1267,7 +1277,10 @@ export const POS: React.FC<POSProps> = ({
     payableTotalArg?: number
   ) => {
     if (!selectedBranch) return;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setCheckingOut(true);
+    let awaitingServer = false;
 
     try {
       // Resolve final subStoreId (dialog selection overrides header selection)
@@ -1277,7 +1290,12 @@ export const POS: React.FC<POSProps> = ({
         : discountedItems.reduce((acc, p) => acc + ((p.vatable_sales || 0) + (p.vat_amount || 0) + (p.vat_exempt_sales || 0) - (p.discount_amount || 0)), 0);
 
       if (isOnline) {
-        const { data: saleId, error } = await supabase.rpc('fn_process_sale', {
+        if (!checkoutClientRefRef.current) {
+          checkoutClientRefRef.current = crypto.randomUUID();
+        }
+        awaitingServer = true;
+        const { data: saleId, error } = await supabase.rpc('fn_process_sale_idempotent', {
+          p_client_ref: checkoutClientRefRef.current,
           p_branch_id: selectedBranch.id,
           p_items: discountedItems.map(p => ({
             menu_item_id: p.menu_item_id,
@@ -1303,6 +1321,8 @@ export const POS: React.FC<POSProps> = ({
         });
 
         if (error) throw error;
+        awaitingServer = false;
+        checkoutClientRefRef.current = null;
 
         const change = method === 'cash' && tendered ? tendered - payableTotal : 0;
 
@@ -1493,8 +1513,16 @@ export const POS: React.FC<POSProps> = ({
       }
     } catch (err: any) {
       console.error('POS Checkout failed:', err);
-      showError(err.message || 'Rolled back — insufficient ingredient stock.');
+      // Server-side errors carry a Postgres error code; a missing code means the
+      // request or its response was lost, so the sale may already be recorded.
+      const isConnectionError = awaitingServer && !err?.code;
+      showError(
+        isConnectionError
+          ? 'Connection problem — the sale may have gone through. Tap Confirm again to retry safely (it will not be charged twice).'
+          : err.message || 'Checkout failed.'
+      );
     } finally {
+      submittingRef.current = false;
       setCheckingOut(false);
     }
   };
