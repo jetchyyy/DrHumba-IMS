@@ -30,7 +30,7 @@ const InlineSwitch: React.FC<{ checked: boolean; onChange: (checked: boolean) =>
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
-        checked ? 'bg-pink-500' : 'bg-slate-800'
+        checked ? 'bg-[#152839]' : 'bg-[#5F6A7C]/50'
       }`}
     >
       <span
@@ -46,7 +46,7 @@ interface TenantRecord {
   id: string;
   name: string;
   subdomain: string | null;
-  plan_type: 'starter' | 'professional' | 'enterprise';
+  plan_type: 'free' | 'starter' | 'professional' | 'enterprise';
   billing_cycle: 'monthly' | 'yearly';
   status: 'pending' | 'active' | 'suspended';
   max_branches: number;
@@ -64,7 +64,7 @@ interface ApplicationRecord {
   business_name: string;
   subdomain: string;
   admin_email: string;
-  plan_type: 'starter' | 'professional' | 'enterprise';
+  plan_type: 'free' | 'starter' | 'professional' | 'enterprise';
   billing_cycle: 'monthly' | 'yearly';
   payment_reference: string;
   payment_receipt_url: string;
@@ -148,7 +148,7 @@ export const SuperAdminDashboard: React.FC = () => {
   const [resettingTenant, setResettingTenant] = useState<TenantRecord | null>(null);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
-  const [editPlan, setEditPlan] = useState<'starter' | 'professional' | 'enterprise'>('starter');
+  const [editPlan, setEditPlan] = useState<'free' | 'starter' | 'professional' | 'enterprise'>('starter');
   const [editCycle, setEditCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [editStatus, setEditStatus] = useState<'active' | 'suspended'>('active');
   const [editMaxBranches, setEditMaxBranches] = useState(3);
@@ -207,6 +207,18 @@ export const SuperAdminDashboard: React.FC = () => {
     users: 'Staff Management Tab',
     settings: 'Settings Panels'
   };
+
+  // The console uses the ODYSSEY light theme; dialogs render in a portal, so set it on <html>.
+  useEffect(() => {
+    const root = document.documentElement;
+    const hadDark = root.classList.contains('dark');
+    root.classList.add('light');
+    root.classList.remove('dark');
+    return () => {
+      root.classList.remove('light');
+      if (hadDark) root.classList.add('dark');
+    };
+  }, []);
 
   useEffect(() => {
     // Flag this session as a Platform Admin context
@@ -664,172 +676,137 @@ export const SuperAdminDashboard: React.FC = () => {
     }
   };
 
+  const pendingCount = applications.filter(a => a.status === 'pending').length;
+  const navItems: { id: typeof activeSection; label: string; icon: React.ElementType }[] = [
+    { id: 'overview', label: 'Overview', icon: OverviewIcon },
+    { id: 'tenants', label: 'Tenants', icon: TenantsIcon },
+    { id: 'applications', label: 'Applications', icon: ApplicationsIcon },
+    { id: 'qrcodes', label: 'Payment QR codes', icon: SettingsIcon },
+    { id: 'plans', label: 'Subscription plans', icon: OverviewIcon },
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col md:flex-row selection:bg-pink-500/30 selection:text-white">
-      {/* Platform Superadmin Sidebar */}
-      <aside className="w-full md:w-64 border-b md:border-b-0 md:border-r border-slate-900 bg-slate-950 shrink-0 p-6 flex flex-col gap-8 justify-between">
-        <div className="space-y-8">
-          {/* Platform Identity */}
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-pink-500 to-indigo-600 flex items-center justify-center font-bold text-white shadow-lg">
-              Ω
-            </div>
-            <div>
-              <h2 className="text-sm font-bold tracking-tight">SaaS Superadmin</h2>
-              <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">ODC Platform CMS</p>
-            </div>
+    <div className="font-odyssey min-h-screen bg-[#F9F8F3] text-[#152839] antialiased flex flex-col md:flex-row selection:bg-[#FF6F07]/25">
+      {/* ODYSSEY Console sidebar */}
+      <aside className="w-full md:w-64 md:min-h-screen bg-[#152839] text-[#F9F8F3] shrink-0 p-5 md:p-6 flex flex-col gap-6 md:gap-8 justify-between md:sticky md:top-0 md:h-screen">
+        <div className="space-y-6 md:space-y-8">
+          <div className="space-y-2">
+            <img src="/odyssey/logo-horizontal-reverse.svg" alt="ODYSSEY" className="h-7 w-auto" />
+            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#DCE1E8]">
+              <span aria-hidden="true" className="w-4 h-[2px] bg-[#FF6F07]" /> Console
+            </p>
           </div>
 
-          {/* Navigation Items */}
-          <nav className="flex flex-col gap-1.5">
-            <Button
-              variant={activeSection === 'overview' ? 'default' : 'ghost'}
-              onClick={() => setActiveSection('overview')}
-              className={`w-full justify-start h-10 px-3 rounded-lg font-bold text-xs ${
-                activeSection === 'overview' ? 'bg-pink-500 hover:bg-pink-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-900/50'
-              }`}
-            >
-              <OverviewIcon className="mr-3 h-4 w-4" />
-              SaaS Overview
-            </Button>
-
-            <Button
-              variant={activeSection === 'tenants' ? 'default' : 'ghost'}
-              onClick={() => setActiveSection('tenants')}
-              className={`w-full justify-start h-10 px-3 rounded-lg font-bold text-xs ${
-                activeSection === 'tenants' ? 'bg-pink-500 hover:bg-pink-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-900/50'
-              }`}
-            >
-              <TenantsIcon className="mr-3 h-4 w-4" />
-              Tenant Registry
-            </Button>
-
-            <Button
-              variant={activeSection === 'applications' ? 'default' : 'ghost'}
-              onClick={() => setActiveSection('applications')}
-              className={`w-full justify-start h-10 px-3 rounded-lg font-bold text-xs relative ${
-                activeSection === 'applications' ? 'bg-pink-500 hover:bg-pink-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-900/50'
-              }`}
-            >
-              <ApplicationsIcon className="mr-3 h-4 w-4" />
-              Applications Queue
-              {applications.filter(a => a.status === 'pending').length > 0 && (
-                <span className="absolute right-3 bg-pink-500 text-white font-extrabold text-[9px] w-5 h-5 flex items-center justify-center rounded-full border border-slate-950">
-                  {applications.filter(a => a.status === 'pending').length}
-                </span>
-              )}
-            </Button>
-
-            <Button
-              variant={activeSection === 'qrcodes' ? 'default' : 'ghost'}
-              onClick={() => setActiveSection('qrcodes')}
-              className={`w-full justify-start h-10 px-3 rounded-lg font-bold text-xs ${
-                activeSection === 'qrcodes' ? 'bg-pink-500 hover:bg-pink-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-900/50'
-              }`}
-            >
-              <SettingsIcon className="mr-3 h-4 w-4" />
-              Payment QR CMS
-            </Button>
-
-            <Button
-              variant={activeSection === 'plans' ? 'default' : 'ghost'}
-              onClick={() => setActiveSection('plans')}
-              className={`w-full justify-start h-10 px-3 rounded-lg font-bold text-xs ${
-                activeSection === 'plans' ? 'bg-pink-500 hover:bg-pink-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-900/50'
-              }`}
-            >
-              <OverviewIcon className="mr-3 h-4 w-4" />
-              Subscription Plans CMS
-            </Button>
+          <nav aria-label="Console sections" className="flex md:flex-col gap-1 overflow-x-auto -mx-1 px-1 md:mx-0 md:px-0">
+            {navItems.map(({ id, label, icon: Icon }) => {
+              const active = activeSection === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveSection(id)}
+                  aria-current={active ? 'page' : undefined}
+                  className={`relative shrink-0 flex items-center gap-3 h-10 px-3 rounded-lg text-sm font-medium whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6F07] ${
+                    active ? 'bg-[#F9F8F3]/10 text-[#F9F8F3]' : 'text-[#DCE1E8] hover:text-[#F9F8F3] hover:bg-[#F9F8F3]/5'
+                  }`}
+                >
+                  {active && <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-[#FF6F07]" />}
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="flex-1 text-left">{label}</span>
+                  {id === 'applications' && pendingCount > 0 && (
+                    <span className="min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full bg-[#FF6F07] text-[#152839] text-[11px] font-semibold" aria-label={`${pendingCount} pending`}>
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </nav>
         </div>
 
-        {/* Footer Admin Controls */}
-        <div className="space-y-4 pt-4 border-t border-slate-900">
+        <div className="space-y-4 pt-4 border-t border-[#5F6A7C]/40">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center border font-bold text-xs text-pink-400">
-              AD
+            <div className="w-8 h-8 rounded-full bg-[#F9F8F3] text-[#152839] flex items-center justify-center font-semibold text-xs shrink-0">
+              {(profile?.email || 'AD').slice(0, 2).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold truncate">{profile?.email}</p>
-              <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">System Operator</p>
+              <p className="text-xs font-medium truncate">{profile?.email}</p>
+              <p className="text-[11px] text-[#DCE1E8]">Platform admin</p>
             </div>
           </div>
-
-          <Button
-            variant="outline"
-            size="sm"
+          <button
+            type="button"
             onClick={signOut}
-            className="w-full text-xs font-bold border-slate-900 bg-slate-950 text-slate-400 hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30 rounded-lg"
+            className="w-full h-9 inline-flex items-center justify-center gap-2 rounded-lg border border-[#5F6A7C] text-sm font-medium text-[#DCE1E8] hover:text-[#F9F8F3] hover:border-[#F9F8F3] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6F07]"
           >
-            <LogOutIcon className="mr-2 h-4 w-4" />
-            Platform Logout
-          </Button>
+            <LogOutIcon className="h-4 w-4" />
+            Sign out
+          </button>
         </div>
       </aside>
 
       {/* Main Panel Content */}
-      <main className="flex-1 p-6 md:p-8 overflow-y-auto max-h-screen">
+      <main className="flex-1 min-w-0 p-4 sm:p-6 md:p-10">
         {/* SECTION 1: OVERVIEW STATISTICS */}
         {activeSection === 'overview' && (
           <div className="space-y-8">
             <div>
-              <h2 className="text-3xl font-black tracking-tight">ODC Platform Overview</h2>
-              <p className="text-slate-400 text-xs mt-1">Global statistics, subscription yields, and registry status of your tenant businesses.</p>
+              <h2 className="text-3xl font-odyssey-display font-bold tracking-tight">Platform overview</h2>
+              <p className="text-[#45546A] text-xs mt-1">Global statistics, subscription yields, and registry status of your tenant businesses.</p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              <Card className="bg-slate-900/60 border-slate-800 text-white shadow-xl">
+              <Card className="bg-white border-[#DCE1E8] text-[#152839] shadow-sm">
                 <CardHeader className="pb-2">
-                  <CardDescription className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Active Store Tenants</CardDescription>
-                  <CardTitle className="text-3xl font-black mt-1">
+                  <CardDescription className="text-[10px] uppercase tracking-wider text-[#5F6A7C] font-bold">Active Store Tenants</CardDescription>
+                  <CardTitle className="text-3xl font-odyssey-display font-bold mt-1">
                     {tenants.filter(t => t.status === 'active' && t.subdomain !== null).length}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-[10px] text-slate-400">Excludes system tenant accounts.</p>
+                  <p className="text-[10px] text-[#45546A]">Excludes system tenant accounts.</p>
                 </CardContent>
               </Card>
 
-              <Card className="bg-slate-900/60 border-slate-800 text-white shadow-xl">
+              <Card className="bg-white border-[#DCE1E8] text-[#152839] shadow-sm">
                 <CardHeader className="pb-2">
-                  <CardDescription className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Pending Applications</CardDescription>
-                  <CardTitle className="text-3xl font-black text-pink-400 mt-1">
+                  <CardDescription className="text-[10px] uppercase tracking-wider text-[#5F6A7C] font-bold">Pending Applications</CardDescription>
+                  <CardTitle className="text-3xl font-odyssey-display font-bold text-[#B8470A] mt-1">
                     {applications.filter(a => a.status === 'pending').length}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-[10px] text-slate-400">Awaiting payment verification.</p>
+                  <p className="text-[10px] text-[#45546A]">Awaiting payment verification.</p>
                 </CardContent>
               </Card>
 
-              <Card className="bg-slate-900/60 border-slate-800 text-white shadow-xl">
+              <Card className="bg-white border-[#DCE1E8] text-[#152839] shadow-sm">
                 <CardHeader className="pb-2">
-                  <CardDescription className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Approx. Monthly MRR</CardDescription>
-                  <CardTitle className="text-3xl font-black text-emerald-400 mt-1">
+                  <CardDescription className="text-[10px] uppercase tracking-wider text-[#5F6A7C] font-bold">Approx. Monthly MRR</CardDescription>
+                  <CardTitle className="text-3xl font-odyssey-display font-bold text-emerald-700 mt-1">
                     {tenants
                       .filter(t => t.status === 'active' && t.subdomain !== null)
                       .reduce((sum, t) => {
-                        const price = t.plan_type === 'starter' ? 999 : t.plan_type === 'professional' ? 2499 : 7499;
+                        const price = t.plan_type === 'free' ? 0 : t.plan_type === 'starter' ? 999 : t.plan_type === 'professional' ? 2499 : 7499;
                         return sum + (t.billing_cycle === 'monthly' ? price : price / 12);
                       }, 0)
                       .toLocaleString(undefined, { maximumFractionDigits: 0 })} PHP
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-[10px] text-slate-400">Based on dynamic cycle valuations.</p>
+                  <p className="text-[10px] text-[#45546A]">Based on dynamic cycle valuations.</p>
                 </CardContent>
               </Card>
 
-              <Card className="bg-slate-900/60 border-slate-800 text-white shadow-xl">
+              <Card className="bg-white border-[#DCE1E8] text-[#152839] shadow-sm">
                 <CardHeader className="pb-2">
-                  <CardDescription className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Suspended Accounts</CardDescription>
-                  <CardTitle className="text-3xl font-black mt-1">
+                  <CardDescription className="text-[10px] uppercase tracking-wider text-[#5F6A7C] font-bold">Suspended Accounts</CardDescription>
+                  <CardTitle className="text-3xl font-odyssey-display font-bold mt-1">
                     {tenants.filter(t => t.status === 'suspended').length}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-[10px] text-slate-400">Portals blocked from logging in.</p>
+                  <p className="text-[10px] text-[#45546A]">Portals blocked from logging in.</p>
                 </CardContent>
               </Card>
             </div>
@@ -841,54 +818,54 @@ export const SuperAdminDashboard: React.FC = () => {
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black tracking-tight">Active Tenant Organizations</h2>
-                <p className="text-slate-400 text-xs mt-1">Manage active plan scopes, edit branch/user limits, or suspend portal instances.</p>
+                <h2 className="text-2xl font-odyssey-display font-bold tracking-tight">Active Tenant Organizations</h2>
+                <p className="text-[#45546A] text-xs mt-1">Manage active plan scopes, edit branch/user limits, or suspend portal instances.</p>
               </div>
 
               <Button 
                 onClick={() => setIsManualModalOpen(true)}
-                className="bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs h-10 px-4 rounded-xl flex items-center gap-1.5 self-start sm:self-auto"
+                className="bg-[#152839] hover:bg-[#1f3a52] text-[#F9F8F3] font-bold text-xs h-10 px-4 rounded-xl flex items-center gap-1.5 self-start sm:self-auto"
               >
                 <PlusIcon className="w-4 h-4" />
                 Manual Onboard Tenant
               </Button>
             </div>
 
-            <Card className="bg-slate-900/40 border-slate-800/80">
+            <Card className="bg-white border-[#DCE1E8]">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-slate-800 hover:bg-slate-900/20">
-                    <TableHead className="text-slate-400">Tenant Name</TableHead>
-                    <TableHead className="text-slate-400">Subdomain</TableHead>
-                    <TableHead className="text-slate-400">Business Model</TableHead>
-                    <TableHead className="text-slate-400">Plan & Billing</TableHead>
-                    <TableHead className="text-slate-400 text-center">Quotas (Branches/Users)</TableHead>
-                    <TableHead className="text-slate-400 text-center">Table Service</TableHead>
-                    <TableHead className="text-slate-400 text-center">Shift Control</TableHead>
-                    <TableHead className="text-slate-400 text-center">Status</TableHead>
-                    <TableHead className="text-slate-400 text-right">Actions</TableHead>
+                  <TableRow className="border-[#DCE1E8] hover:bg-[#F9F8F3]">
+                    <TableHead className="text-[#45546A]">Tenant Name</TableHead>
+                    <TableHead className="text-[#45546A]">Subdomain</TableHead>
+                    <TableHead className="text-[#45546A]">Business Model</TableHead>
+                    <TableHead className="text-[#45546A]">Plan & Billing</TableHead>
+                    <TableHead className="text-[#45546A] text-center">Quotas (Branches/Users)</TableHead>
+                    <TableHead className="text-[#45546A] text-center">Table Service</TableHead>
+                    <TableHead className="text-[#45546A] text-center">Shift Control</TableHead>
+                    <TableHead className="text-[#45546A] text-center">Status</TableHead>
+                    <TableHead className="text-[#45546A] text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center text-slate-500 py-12">Loading tenant registries...</TableCell>
+                      <TableCell colSpan={9} className="text-center text-[#5F6A7C] py-12">Loading tenant registries...</TableCell>
                     </TableRow>
                   ) : tenants.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center text-slate-500 py-12">No tenants found.</TableCell>
+                      <TableCell colSpan={9} className="text-center text-[#5F6A7C] py-12">No tenants found.</TableCell>
                     </TableRow>
                   ) : (
                     tenants.map(t => (
-                      <TableRow key={t.id} className="border-slate-850 hover:bg-slate-900/30">
-                        <TableCell className="font-bold text-white py-4">{t.name}</TableCell>
+                      <TableRow key={t.id} className="border-[#DCE1E8] hover:bg-[#F9F8F3]">
+                        <TableCell className="font-bold text-[#152839] py-4">{t.name}</TableCell>
                         <TableCell className="font-mono text-xs">
                           {t.subdomain ? (
                             <a 
                               href={getTenantPortalUrl(t.subdomain)} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="text-pink-400 hover:text-pink-300 underline inline-flex items-center gap-1.5"
+                              className="text-[#B8470A] hover:text-[#B8470A] underline inline-flex items-center gap-1.5"
                             >
                               {t.subdomain}.{import.meta.env.VITE_MAIN_DOMAIN || 'odcph.com'}
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -896,37 +873,37 @@ export const SuperAdminDashboard: React.FC = () => {
                               </svg>
                             </a>
                           ) : (
-                            <span className="text-slate-500">Primary (Internal)</span>
+                            <span className="text-[#5F6A7C]">Primary (Internal)</span>
                           )}
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1 max-w-[150px]">
                             {t.is_restaurant && (
-                              <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-emerald-500/20 text-emerald-400 bg-emerald-500/5">
+                              <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-emerald-500/20 text-emerald-700 bg-emerald-500/5">
                                 Food F&B
                               </Badge>
                             )}
                             {t.is_retail && (
-                              <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-blue-500/20 text-blue-400 bg-blue-500/5">
+                              <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-blue-500/20 text-blue-700 bg-blue-500/5">
                                 Retail
                               </Badge>
                             )}
                             {t.is_service && (
-                              <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-purple-500/20 text-purple-400 bg-purple-500/5">
+                              <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-purple-500/20 text-purple-700 bg-purple-500/5">
                                 Service
                               </Badge>
                             )}
                             {!t.is_restaurant && !t.is_retail && !t.is_service && (
-                              <span className="text-[10px] text-slate-500">None</span>
+                              <span className="text-[10px] text-[#5F6A7C]">None</span>
                             )}
                           </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-0.5">
-                            <Badge variant="outline" className="w-fit text-[9px] uppercase tracking-wider border-pink-500/30 text-pink-400 bg-pink-500/5">
+                            <Badge variant="outline" className="w-fit text-[9px] uppercase tracking-wider border-[#FF6F07]/50 text-[#B8470A] bg-[#FF6F07]/10">
                               {t.plan_type}
                             </Badge>
-                            <span className="text-[10px] text-slate-500 capitalize">{t.billing_cycle}</span>
+                            <span className="text-[10px] text-[#5F6A7C] capitalize">{t.billing_cycle}</span>
                           </div>
                         </TableCell>
                         <TableCell className="text-center text-xs font-semibold">
@@ -939,11 +916,11 @@ export const SuperAdminDashboard: React.FC = () => {
                             title={`Click to ${t.features?.table_management ? 'disable' : 'enable'} Table Service for ${t.name}`}
                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
                               t.features?.table_management
-                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
-                                : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700'
+                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/20'
+                                : 'bg-white border-[#DCE1E8] text-[#5F6A7C] hover:text-[#152839] hover:border-[#DCE1E8]'
                             }`}
                           >
-                            <span className={`w-1.5 h-1.5 rounded-full ${t.features?.table_management ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                            <span className={`w-1.5 h-1.5 rounded-full ${t.features?.table_management ? 'bg-emerald-400' : 'bg-[#5F6A7C]'}`} />
                             {t.features?.table_management ? 'Enabled' : 'Disabled'}
                           </button>
                         </TableCell>
@@ -954,11 +931,11 @@ export const SuperAdminDashboard: React.FC = () => {
                             title={`Click to ${t.features?.shift_management ? 'disable' : 'enable'} Shift Control for ${t.name}`}
                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
                               t.features?.shift_management
-                                ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20'
-                                : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700'
+                                ? 'bg-[#152839]/5 border-[#152839]/30 text-[#152839] hover:bg-[#152839]/10'
+                                : 'bg-white border-[#DCE1E8] text-[#5F6A7C] hover:text-[#152839] hover:border-[#DCE1E8]'
                             }`}
                           >
-                            <span className={`w-1.5 h-1.5 rounded-full ${t.features?.shift_management ? 'bg-indigo-400' : 'bg-slate-600'}`} />
+                            <span className={`w-1.5 h-1.5 rounded-full ${t.features?.shift_management ? 'bg-[#FF6F07]' : 'bg-[#5F6A7C]'}`} />
                             {t.features?.shift_management ? 'Enabled' : 'Disabled'}
                           </button>
                         </TableCell>
@@ -985,7 +962,7 @@ export const SuperAdminDashboard: React.FC = () => {
                                   showError('Failed to switch tenant: ' + error.message);
                                 }
                               }}
-                              className="text-[10px] font-bold text-sky-400 hover:text-white hover:bg-sky-500/10 rounded-lg h-7 px-2"
+                              className="text-[10px] font-bold text-sky-400 hover:text-[#152839] hover:bg-sky-500/10 rounded-lg h-7 px-2"
                             >
                               Enter Tenant
                             </Button>
@@ -993,7 +970,7 @@ export const SuperAdminDashboard: React.FC = () => {
                               variant="ghost" 
                               size="sm"
                               onClick={() => openEditTenantModal(t)}
-                              className="text-[10px] font-bold text-pink-400 hover:text-white hover:bg-pink-500/10 rounded-lg h-7 px-2"
+                              className="text-[10px] font-bold text-[#B8470A] hover:text-[#152839] hover:bg-[#FF6F07]/10 rounded-lg h-7 px-2"
                             >
                               Edit Config
                             </Button>
@@ -1001,7 +978,7 @@ export const SuperAdminDashboard: React.FC = () => {
                               variant="ghost" 
                               size="sm"
                               onClick={() => handleExportTenant(t)}
-                              className="text-xs font-bold text-emerald-400 hover:text-white hover:bg-emerald-500/10 rounded-lg p-1.5 h-7"
+                              className="text-xs font-bold text-emerald-700 hover:text-[#152839] hover:bg-emerald-500/10 rounded-lg p-1.5 h-7"
                               title="Export Tenant Data"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -1016,7 +993,7 @@ export const SuperAdminDashboard: React.FC = () => {
                                 setResetConfirmText('');
                                 setIsResetModalOpen(true);
                               }}
-                              className="text-xs font-bold text-amber-400 hover:text-white hover:bg-amber-500/10 rounded-lg p-1.5 h-7"
+                              className="text-xs font-bold text-amber-700 hover:text-[#152839] hover:bg-amber-500/10 rounded-lg p-1.5 h-7"
                               title="Reset Transactional Data"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -1032,10 +1009,10 @@ export const SuperAdminDashboard: React.FC = () => {
                                   setDeleteConfirmText('');
                                   setIsDeleteModalOpen(true);
                                 }}
-                                className="text-xs font-bold text-red-450 hover:text-white hover:bg-red-500/10 rounded-lg p-1.5 h-7"
+                                className="text-xs font-bold text-red-700 hover:text-[#152839] hover:bg-red-500/10 rounded-lg p-1.5 h-7"
                                 title="Delete Tenant Data"
                               >
-                                <TrashIcon className="w-3.5 h-3.5 text-red-400 hover:text-red-300" />
+                                <TrashIcon className="w-3.5 h-3.5 text-red-700 hover:text-red-800" />
                               </Button>
                             )}
                           </div>
@@ -1053,45 +1030,45 @@ export const SuperAdminDashboard: React.FC = () => {
         {activeSection === 'applications' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-black tracking-tight">Pending Onboarding Applications</h2>
-              <p className="text-slate-400 text-xs mt-1">Review self-registered tenant application details, verify GCash/Maya reference codes, and approve store portals.</p>
+              <h2 className="text-2xl font-odyssey-display font-bold tracking-tight">Pending Onboarding Applications</h2>
+              <p className="text-[#45546A] text-xs mt-1">Review self-registered tenant application details, verify GCash/Maya reference codes, and approve store portals.</p>
             </div>
 
-            <Card className="bg-slate-900/40 border-slate-800/80">
+            <Card className="bg-white border-[#DCE1E8]">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-slate-800 hover:bg-slate-900/20">
-                    <TableHead className="text-slate-400">Business Name</TableHead>
-                    <TableHead className="text-slate-400">Subdomain</TableHead>
-                    <TableHead className="text-slate-400">Business Model</TableHead>
-                    <TableHead className="text-slate-400">Plan Option</TableHead>
-                    <TableHead className="text-slate-400">Contact Email</TableHead>
-                    <TableHead className="text-slate-400 text-center">Ref (Last 5)</TableHead>
-                    <TableHead className="text-slate-400 text-center">Receipt</TableHead>
-                    <TableHead className="text-slate-400 text-right">Approve / Reject</TableHead>
+                  <TableRow className="border-[#DCE1E8] hover:bg-[#F9F8F3]">
+                    <TableHead className="text-[#45546A]">Business Name</TableHead>
+                    <TableHead className="text-[#45546A]">Subdomain</TableHead>
+                    <TableHead className="text-[#45546A]">Business Model</TableHead>
+                    <TableHead className="text-[#45546A]">Plan Option</TableHead>
+                    <TableHead className="text-[#45546A]">Contact Email</TableHead>
+                    <TableHead className="text-[#45546A] text-center">Ref (Last 5)</TableHead>
+                    <TableHead className="text-[#45546A] text-center">Receipt</TableHead>
+                    <TableHead className="text-[#45546A] text-right">Approve / Reject</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-slate-500 py-12">Loading applications...</TableCell>
+                      <TableCell colSpan={8} className="text-center text-[#5F6A7C] py-12">Loading applications...</TableCell>
                     </TableRow>
                   ) : applications.filter(a => a.status === 'pending').length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-slate-500 py-12">No pending applications in queue.</TableCell>
+                      <TableCell colSpan={8} className="text-center text-[#5F6A7C] py-12">No pending applications in queue.</TableCell>
                     </TableRow>
                   ) : (
                     applications
                       .filter(a => a.status === 'pending')
                       .map(app => (
-                        <TableRow key={app.id} className="border-slate-850 hover:bg-slate-900/30">
-                          <TableCell className="font-bold text-white py-4">{app.business_name}</TableCell>
+                        <TableRow key={app.id} className="border-[#DCE1E8] hover:bg-[#F9F8F3]">
+                          <TableCell className="font-bold text-[#152839] py-4">{app.business_name}</TableCell>
                           <TableCell className="font-mono text-xs">
                             <a 
                               href={getTenantPortalUrl(app.subdomain)} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="text-pink-400 hover:text-pink-300 underline inline-flex items-center gap-1.5"
+                              className="text-[#B8470A] hover:text-[#B8470A] underline inline-flex items-center gap-1.5"
                             >
                               {app.subdomain}.{import.meta.env.VITE_MAIN_DOMAIN || 'odcph.com'}
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1102,30 +1079,30 @@ export const SuperAdminDashboard: React.FC = () => {
                           <TableCell>
                             <div className="flex flex-wrap gap-1 max-w-[150px]">
                               {app.is_restaurant && (
-                                <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-emerald-500/20 text-emerald-450 bg-emerald-500/5">
+                                <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-emerald-500/20 text-emerald-700 bg-emerald-500/5">
                                   Food F&B
                                 </Badge>
                               )}
                               {app.is_retail && (
-                                <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-blue-500/20 text-blue-400 bg-blue-500/5">
+                                <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-blue-500/20 text-blue-700 bg-blue-500/5">
                                   Retail
                                 </Badge>
                               )}
                               {app.is_service && (
-                                <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-purple-500/20 text-purple-400 bg-purple-500/5">
+                                <Badge variant="outline" className="text-[9px] uppercase tracking-wider border-purple-500/20 text-purple-700 bg-purple-500/5">
                                   Service
                                 </Badge>
                               )}
                               {!app.is_restaurant && !app.is_retail && !app.is_service && (
-                                <span className="text-[10px] text-slate-500">None</span>
+                                <span className="text-[10px] text-[#5F6A7C]">None</span>
                               )}
                             </div>
                           </TableCell>
                           <TableCell className="capitalize text-xs font-semibold">
                             {app.plan_type} ({app.billing_cycle})
                           </TableCell>
-                          <TableCell className="text-xs text-slate-400">{app.admin_email}</TableCell>
-                          <TableCell className="text-center font-mono font-bold text-pink-400 text-sm">
+                          <TableCell className="text-xs text-[#45546A]">{app.admin_email}</TableCell>
+                          <TableCell className="text-center font-mono font-bold text-[#B8470A] text-sm">
                             {app.payment_reference}
                           </TableCell>
                           <TableCell className="text-center">
@@ -1136,7 +1113,7 @@ export const SuperAdminDashboard: React.FC = () => {
                                 setSelectedReceiptUrl(app.payment_receipt_url);
                                 setIsReceiptModalOpen(true);
                               }}
-                              className="h-8 w-8 text-slate-400 hover:text-white hover:bg-slate-900"
+                              className="h-8 w-8 text-[#45546A] hover:text-[#152839] hover:bg-[#F9F8F3]"
                               title="View Proof of Payment Screenshot"
                             >
                               <EyeOpenIcon className="w-4 h-4" />
@@ -1148,7 +1125,7 @@ export const SuperAdminDashboard: React.FC = () => {
                                 size="sm"
                                 disabled={submitting}
                                 onClick={() => handleApproveApplication(app.id, app.business_name)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-8 px-2.5 rounded-lg flex items-center gap-1"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-[#F9F8F3] font-bold text-xs h-8 px-2.5 rounded-lg flex items-center gap-1"
                               >
                                 Approve
                               </Button>
@@ -1177,13 +1154,13 @@ export const SuperAdminDashboard: React.FC = () => {
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black tracking-tight">Onboarding Payment Methods CMS</h2>
-                <p className="text-slate-400 text-xs mt-1">Configure active payment QR codes and instruction accounts displayed during application.</p>
+                <h2 className="text-2xl font-odyssey-display font-bold tracking-tight">Onboarding Payment Methods CMS</h2>
+                <p className="text-[#45546A] text-xs mt-1">Configure active payment QR codes and instruction accounts displayed during application.</p>
               </div>
 
               <Button 
                 onClick={() => setIsQrModalOpen(true)}
-                className="bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs h-10 px-4 rounded-xl flex items-center gap-1.5 self-start sm:self-auto"
+                className="bg-[#152839] hover:bg-[#1f3a52] text-[#F9F8F3] font-bold text-xs h-10 px-4 rounded-xl flex items-center gap-1.5 self-start sm:self-auto"
               >
                 <PlusIcon className="w-4 h-4" />
                 Add Payment Channel
@@ -1192,31 +1169,31 @@ export const SuperAdminDashboard: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {loading ? (
-                <p className="text-slate-500 text-xs">Loading payment methods...</p>
+                <p className="text-[#5F6A7C] text-xs">Loading payment methods...</p>
               ) : qrCodes.length === 0 ? (
-                <p className="text-slate-500 text-xs col-span-full">No payment methods configured. Click Add to create one.</p>
+                <p className="text-[#5F6A7C] text-xs col-span-full">No payment methods configured. Click Add to create one.</p>
               ) : (
                 qrCodes.map(qc => (
-                  <Card key={qc.id} className="bg-slate-900 border-slate-800 relative overflow-hidden flex flex-col justify-between">
+                  <Card key={qc.id} className="bg-white border-[#DCE1E8] relative overflow-hidden flex flex-col justify-between">
                     <CardHeader className="pb-3 flex flex-row justify-between items-start">
                       <div>
-                        <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-wider bg-pink-500/10 text-pink-400 border-pink-500/20">
+                        <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-wider bg-[#FF6F07]/10 text-[#B8470A] border-[#FF6F07]/50">
                           {qc.payment_method}
                         </Badge>
-                        <CardTitle className="text-sm font-bold text-white mt-1.5 truncate">{qc.account_name}</CardTitle>
-                        <CardDescription className="text-xs text-slate-400 font-mono mt-0.5">{qc.account_number}</CardDescription>
+                        <CardTitle className="text-sm font-bold text-[#152839] mt-1.5 truncate">{qc.account_name}</CardTitle>
+                        <CardDescription className="text-xs text-[#45546A] font-mono mt-0.5">{qc.account_number}</CardDescription>
                       </div>
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => handleDeleteQRCode(qc.id)}
-                        className="text-slate-500 hover:text-destructive hover:bg-destructive/10 h-7 w-7 rounded-md"
+                        className="text-[#5F6A7C] hover:text-destructive hover:bg-destructive/10 h-7 w-7 rounded-md"
                         title="Delete Channel"
                       >
                         <TrashIcon className="w-4 h-4" />
                       </Button>
                     </CardHeader>
-                    <CardContent className="py-2 flex items-center justify-center bg-slate-950/40 border-y border-slate-850 h-40">
+                    <CardContent className="py-2 flex items-center justify-center bg-[#F9F8F3] border-y border-[#DCE1E8] h-40">
                       <img 
                         src={qc.qr_code_url} 
                         alt="QR code" 
@@ -1224,8 +1201,8 @@ export const SuperAdminDashboard: React.FC = () => {
                         onError={(e) => { e.currentTarget.src = "https://placehold.co/150?text=Scan+To+Pay"; }}
                       />
                     </CardContent>
-                    <CardContent className="pt-4 pb-4 flex justify-between items-center bg-slate-900">
-                      <span className="text-[10px] text-slate-400 font-semibold">Active in Onboarding?</span>
+                    <CardContent className="pt-4 pb-4 flex justify-between items-center bg-white">
+                      <span className="text-[10px] text-[#45546A] font-semibold">Active in Onboarding?</span>
                       <InlineSwitch
                         checked={qc.is_active}
                         onChange={(checked: boolean) => handleToggleQRCodeActive(qc.id, checked)}
@@ -1240,66 +1217,66 @@ export const SuperAdminDashboard: React.FC = () => {
 
         {activeSection === 'plans' && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center border-b border-slate-900 pb-5">
+            <div className="flex justify-between items-center border-b border-[#DCE1E8] pb-5">
               <div>
-                <h1 className="text-xl font-black tracking-tight text-white uppercase">Subscription Plans CMS</h1>
-                <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mt-1">Configure pricing and limits for customer tiers</p>
+                <h1 className="text-xl font-odyssey-display font-bold tracking-tight text-[#152839] uppercase">Subscription Plans CMS</h1>
+                <p className="text-[10px] text-[#5F6A7C] font-semibold uppercase tracking-wider mt-1">Configure pricing and limits for customer tiers</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {loading ? (
-                <p className="text-slate-500 text-xs font-semibold">Loading subscription plans...</p>
+                <p className="text-[#5F6A7C] text-xs font-semibold">Loading subscription plans...</p>
               ) : plans.length === 0 ? (
-                <p className="text-slate-500 text-xs col-span-full">No subscription plans found in the database. Please run migrations.</p>
+                <p className="text-[#5F6A7C] text-xs col-span-full">No subscription plans found in the database. Please run migrations.</p>
               ) : (
                 plans.map(plan => (
-                  <Card key={plan.id} className="bg-slate-900 border-slate-800 relative overflow-hidden flex flex-col justify-between">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-pink-500 to-indigo-500" />
+                  <Card key={plan.id} className="bg-white border-[#DCE1E8] relative overflow-hidden flex flex-col justify-between">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-[#152839]" />
                     
                     <CardHeader className="pb-3">
                       <div className="flex justify-between items-start">
-                        <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-wider bg-pink-500/10 text-pink-400 border-pink-500/20">
+                        <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-wider bg-[#FF6F07]/10 text-[#B8470A] border-[#FF6F07]/50">
                           {plan.id}
                         </Badge>
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => openEditPlanModal(plan)}
-                          className="h-7 px-2.5 text-[10px] font-bold text-pink-400 border-pink-500/20 hover:bg-pink-500/10 rounded-md"
+                          className="h-7 px-2.5 text-[10px] font-bold text-[#B8470A] border-[#FF6F07]/50 hover:bg-[#FF6F07]/10 rounded-md"
                         >
                           Modify Plan
                         </Button>
                       </div>
-                      <CardTitle className="text-base font-black text-white mt-3 uppercase">{plan.name}</CardTitle>
+                      <CardTitle className="text-base font-odyssey-display font-bold text-[#152839] mt-3 uppercase">{plan.name}</CardTitle>
                     </CardHeader>
 
-                    <CardContent className="py-3 border-y border-slate-850 bg-slate-950/40 space-y-3">
+                    <CardContent className="py-3 border-y border-[#DCE1E8] bg-[#F9F8F3] space-y-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-slate-500 uppercase font-semibold">Monthly Price</span>
-                        <span className="text-sm font-extrabold text-white">{Number(plan.monthly_price).toLocaleString()} PHP</span>
+                        <span className="text-[10px] text-[#5F6A7C] uppercase font-semibold">Monthly Price</span>
+                        <span className="text-sm font-extrabold text-[#152839]">{Number(plan.monthly_price).toLocaleString()} PHP</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-slate-500 uppercase font-semibold">Yearly Price</span>
-                        <span className="text-sm font-extrabold text-pink-400">{Number(plan.yearly_price).toLocaleString()} PHP</span>
+                        <span className="text-[10px] text-[#5F6A7C] uppercase font-semibold">Yearly Price</span>
+                        <span className="text-sm font-extrabold text-[#B8470A]">{Number(plan.yearly_price).toLocaleString()} PHP</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-slate-500 uppercase font-semibold">Max Branches</span>
-                        <span className="text-xs font-bold text-white">{plan.max_branches}</span>
+                        <span className="text-[10px] text-[#5F6A7C] uppercase font-semibold">Max Branches</span>
+                        <span className="text-xs font-bold text-[#152839]">{plan.max_branches}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-slate-500 uppercase font-semibold">Max Users</span>
-                        <span className="text-xs font-bold text-white">{plan.max_users}</span>
+                        <span className="text-[10px] text-[#5F6A7C] uppercase font-semibold">Max Users</span>
+                        <span className="text-xs font-bold text-[#152839]">{plan.max_users}</span>
                       </div>
                     </CardContent>
 
                     <CardContent className="pt-4 pb-4 space-y-2">
-                      <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider block">Features Enabled:</span>
+                      <span className="text-[9px] text-[#5F6A7C] uppercase font-bold tracking-wider block">Features Enabled:</span>
                       <div className="grid grid-cols-2 gap-1.5">
                         {Object.entries(plan.features || {}).map(([featKey, isEnabled]) => (
                           <div key={featKey} className="flex items-center gap-1">
-                            <div className={`w-1.5 h-1.5 rounded-full ${isEnabled ? 'bg-emerald-500' : 'bg-slate-700'}`} />
-                            <span className="text-[9px] text-slate-400 truncate" title={FEATURE_LABELS[featKey] || featKey}>
+                            <div className={`w-1.5 h-1.5 rounded-full ${isEnabled ? 'bg-emerald-500' : 'bg-[#DCE1E8]'}`} />
+                            <span className="text-[9px] text-[#45546A] truncate" title={FEATURE_LABELS[featKey] || featKey}>
                               {FEATURE_LABELS[featKey] || featKey}
                             </span>
                           </div>
@@ -1316,25 +1293,25 @@ export const SuperAdminDashboard: React.FC = () => {
 
       {/* DIALOG 1: MANUAL ONBOARD MODAL */}
       <Dialog open={isManualModalOpen} onOpenChange={setIsManualModalOpen}>
-        <DialogContent className="max-w-md bg-slate-900 border-slate-800 text-white p-0 overflow-hidden">
-          <DialogHeader className="p-6 border-b border-slate-800">
+        <DialogContent className="max-w-md bg-white border-[#DCE1E8] text-[#152839] p-0 overflow-hidden">
+          <DialogHeader className="p-6 border-b border-[#DCE1E8]">
             <DialogTitle>Manual Tenant Onboarding</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleManualOnboardSubmit} className="space-y-4 p-6">
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-450 uppercase tracking-wider">Business Name</Label>
+              <Label className="text-xs font-bold text-[#45546A] uppercase tracking-wider">Business Name</Label>
               <Input
                 type="text"
                 required
                 value={manualName}
                 onChange={(e) => setManualName(e.target.value)}
                 placeholder="e.g. Odyssey Coffee"
-                className="bg-slate-950 border-slate-800 text-white h-10 rounded-lg focus-visible:ring-pink-500"
+                className="bg-white border-[#DCE1E8] text-[#152839] h-10 rounded-lg focus-visible:ring-[#FF6F07]"
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-450 uppercase tracking-wider">Subdomain</Label>
+              <Label className="text-xs font-bold text-[#45546A] uppercase tracking-wider">Subdomain</Label>
               <div className="relative">
                 <Input
                   type="text"
@@ -1342,18 +1319,18 @@ export const SuperAdminDashboard: React.FC = () => {
                   value={manualSubdomain}
                   onChange={(e) => setManualSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
                   placeholder="odysseycoffee"
-                  className="bg-slate-950 border-slate-800 text-white h-10 rounded-lg focus-visible:ring-pink-500 pr-24"
+                  className="bg-white border-[#DCE1E8] text-[#152839] h-10 rounded-lg focus-visible:ring-[#FF6F07] pr-24"
                 />
-                <span className="absolute right-3 top-2.5 text-xs text-slate-500 font-semibold">.{import.meta.env.VITE_MAIN_DOMAIN || 'odcph.com'}</span>
+                <span className="absolute right-3 top-2.5 text-xs text-[#5F6A7C] font-semibold">.{import.meta.env.VITE_MAIN_DOMAIN || 'odcph.com'}</span>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-455 uppercase tracking-wider">Plan</Label>
+                <Label className="text-xs font-bold text-[#45546A] uppercase tracking-wider">Plan</Label>
                 <Select value={manualPlan} onValueChange={(val) => setManualPlan(val as any)}>
-                  <SelectTrigger className="bg-slate-950 border-slate-800"><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-slate-900 text-white border-slate-800">
+                  <SelectTrigger className="bg-white border-[#DCE1E8]"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-white text-[#152839] border-[#DCE1E8]">
                     <SelectItem value="starter">Starter</SelectItem>
                     <SelectItem value="professional">Professional</SelectItem>
                     <SelectItem value="enterprise">Enterprise</SelectItem>
@@ -1361,10 +1338,10 @@ export const SuperAdminDashboard: React.FC = () => {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-455 uppercase tracking-wider">Cycle</Label>
+                <Label className="text-xs font-bold text-[#45546A] uppercase tracking-wider">Cycle</Label>
                 <Select value={manualCycle} onValueChange={(val) => setManualCycle(val as any)}>
-                  <SelectTrigger className="bg-slate-950 border-slate-800"><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-slate-900 text-white border-slate-800">
+                  <SelectTrigger className="bg-white border-[#DCE1E8]"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-white text-[#152839] border-[#DCE1E8]">
                     <SelectItem value="monthly">Monthly</SelectItem>
                     <SelectItem value="yearly">Yearly</SelectItem>
                   </SelectContent>
@@ -1372,35 +1349,35 @@ export const SuperAdminDashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-1.5 border-t border-slate-850 pt-3">
-              <Label className="text-xs font-bold text-pink-400 uppercase tracking-wider">Admin Email Account</Label>
+            <div className="space-y-1.5 border-t border-[#DCE1E8] pt-3">
+              <Label className="text-xs font-bold text-[#B8470A] uppercase tracking-wider">Admin Email Account</Label>
               <Input
                 type="email"
                 required
                 value={manualEmail}
                 onChange={(e) => setManualEmail(e.target.value)}
                 placeholder="admin@odysseycoffee.com"
-                className="bg-slate-950 border-slate-800 text-white h-10 rounded-lg focus-visible:ring-pink-500"
+                className="bg-white border-[#DCE1E8] text-[#152839] h-10 rounded-lg focus-visible:ring-[#FF6F07]"
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-pink-400 uppercase tracking-wider">Admin Password</Label>
+              <Label className="text-xs font-bold text-[#B8470A] uppercase tracking-wider">Admin Password</Label>
               <Input
                 type="password"
                 required
                 value={manualPassword}
                 onChange={(e) => setManualPassword(e.target.value)}
                 placeholder="••••••••"
-                className="bg-slate-950 border-slate-800 text-white h-10 rounded-lg focus-visible:ring-pink-500"
+                className="bg-white border-[#DCE1E8] text-[#152839] h-10 rounded-lg focus-visible:ring-[#FF6F07]"
               />
             </div>
 
-            <DialogFooter className="pt-4 border-t border-slate-850">
-              <Button type="button" variant="outline" onClick={() => setIsManualModalOpen(false)} className="border-slate-800 text-slate-300">
+            <DialogFooter className="pt-4 border-t border-[#DCE1E8]">
+              <Button type="button" variant="outline" onClick={() => setIsManualModalOpen(false)} className="border-[#DCE1E8] text-[#152839]">
                 Cancel
               </Button>
-              <Button type="submit" disabled={submitting} className="bg-pink-500 hover:bg-pink-600 text-white font-bold">
+              <Button type="submit" disabled={submitting} className="bg-[#152839] hover:bg-[#1f3a52] text-[#F9F8F3] font-bold">
                 {submitting ? "Provisioning..." : "Onboard Tenant"}
               </Button>
             </DialogFooter>
@@ -1410,28 +1387,29 @@ export const SuperAdminDashboard: React.FC = () => {
 
       {/* DIALOG 2: EDIT TENANT MODAL */}
       <Dialog open={isEditModalOpen} onOpenChange={(open) => { if (!open) { setIsEditModalOpen(false); setEditingTenant(null); } }}>
-        <DialogContent className="max-w-lg bg-slate-900 border-slate-800 text-white p-0 overflow-hidden max-h-[90vh] flex flex-col">
-          <DialogHeader className="p-6 border-b border-slate-800 shrink-0">
+        <DialogContent className="max-w-lg bg-white border-[#DCE1E8] text-[#152839] p-0 overflow-hidden max-h-[90vh] flex flex-col">
+          <DialogHeader className="p-6 border-b border-[#DCE1E8] shrink-0">
             <DialogTitle>Edit Tenant: {editingTenant?.name}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleEditTenantSubmit} className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0">
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Business Name</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Business Name</Label>
               <Input
                 type="text"
                 required
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                className="bg-slate-950 border-slate-800 text-white"
+                className="bg-white border-[#DCE1E8] text-[#152839]"
               />
             </div>
 
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Plan</Label>
+                <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Plan</Label>
                 <Select value={editPlan} onValueChange={(val) => setEditPlan(val as any)}>
-                  <SelectTrigger className="bg-slate-950 border-slate-800"><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-slate-900 text-white border-slate-800">
+                  <SelectTrigger className="bg-white border-[#DCE1E8]"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-white text-[#152839] border-[#DCE1E8]">
+                    <SelectItem value="free">Free Trial</SelectItem>
                     <SelectItem value="starter">Starter</SelectItem>
                     <SelectItem value="professional">Professional</SelectItem>
                     <SelectItem value="enterprise">Enterprise</SelectItem>
@@ -1439,20 +1417,20 @@ export const SuperAdminDashboard: React.FC = () => {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Cycle</Label>
+                <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Cycle</Label>
                 <Select value={editCycle} onValueChange={(val) => setEditCycle(val as any)}>
-                  <SelectTrigger className="bg-slate-950 border-slate-800"><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-slate-900 text-white border-slate-800">
+                  <SelectTrigger className="bg-white border-[#DCE1E8]"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-white text-[#152839] border-[#DCE1E8]">
                     <SelectItem value="monthly">Monthly</SelectItem>
                     <SelectItem value="yearly">Yearly</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Status</Label>
+                <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Status</Label>
                 <Select value={editStatus} onValueChange={(val) => setEditStatus(val as any)}>
-                  <SelectTrigger className="bg-slate-950 border-slate-800"><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-slate-900 text-white border-slate-800">
+                  <SelectTrigger className="bg-white border-[#DCE1E8]"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-white text-[#152839] border-[#DCE1E8]">
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="suspended">Suspended</SelectItem>
                   </SelectContent>
@@ -1460,50 +1438,50 @@ export const SuperAdminDashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 border-t border-slate-850 pt-3">
+            <div className="grid grid-cols-2 gap-4 border-t border-[#DCE1E8] pt-3">
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold uppercase tracking-wider text-pink-400">Max Branches Quota</Label>
+                <Label className="text-xs font-bold uppercase tracking-wider text-[#B8470A]">Max Branches Quota</Label>
                 <Input
                   type="number"
                   min={1}
                   required
                   value={editMaxBranches}
                   onChange={(e) => setEditMaxBranches(parseInt(e.target.value) || 1)}
-                  className="bg-slate-950 border-slate-800 text-white"
+                  className="bg-white border-[#DCE1E8] text-[#152839]"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold uppercase tracking-wider text-pink-400">Max Users Quota</Label>
+                <Label className="text-xs font-bold uppercase tracking-wider text-[#B8470A]">Max Users Quota</Label>
                 <Input
                   type="number"
                   min={1}
                   required
                   value={editMaxUsers}
                   onChange={(e) => setEditMaxUsers(parseInt(e.target.value) || 1)}
-                  className="bg-slate-950 border-slate-800 text-white"
+                  className="bg-white border-[#DCE1E8] text-[#152839]"
                 />
               </div>
             </div>
 
-            <div className="space-y-3 border-t border-slate-850 pt-3">
-              <Label className="text-xs font-bold uppercase tracking-wider text-pink-400">Business Model Configuration</Label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-950/40 p-3 rounded-lg border border-slate-850">
+            <div className="space-y-3 border-t border-[#DCE1E8] pt-3">
+              <Label className="text-xs font-bold uppercase tracking-wider text-[#B8470A]">Business Model Configuration</Label>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-[#F9F8F3] p-3 rounded-lg border border-[#DCE1E8]">
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Restaurant F&B</span>
+                  <span className="text-[10px] text-[#5F6A7C] font-bold uppercase">Restaurant F&B</span>
                   <InlineSwitch
                     checked={editIsRestaurant}
                     onChange={setEditIsRestaurant}
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Retail Store</span>
+                  <span className="text-[10px] text-[#5F6A7C] font-bold uppercase">Retail Store</span>
                   <InlineSwitch
                     checked={editIsRetail}
                     onChange={setEditIsRetail}
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Service Repair</span>
+                  <span className="text-[10px] text-[#5F6A7C] font-bold uppercase">Service Repair</span>
                   <InlineSwitch
                     checked={editIsService}
                     onChange={setEditIsService}
@@ -1512,18 +1490,18 @@ export const SuperAdminDashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-3 border-t border-slate-850 pt-3">
-              <div className="p-3.5 rounded-xl border border-pink-500/30 bg-pink-500/5 flex items-center justify-between">
+            <div className="space-y-3 border-t border-[#DCE1E8] pt-3">
+              <div className="p-3.5 rounded-xl border border-[#FF6F07]/50 bg-[#FF6F07]/10 flex items-center justify-between">
                 <div className="space-y-0.5 pr-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-white">Table Management & Running Bills</span>
+                    <span className="text-xs font-bold text-[#152839]">Table Management & Running Bills</span>
                     <Badge variant="outline" className={`text-[9px] font-bold uppercase tracking-wider ${
-                      editFeatures.table_management ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10' : 'border-slate-700 text-slate-500'
+                      editFeatures.table_management ? 'border-emerald-500/40 text-emerald-700 bg-emerald-500/10' : 'border-[#DCE1E8] text-[#5F6A7C]'
                     }`}>
                       {editFeatures.table_management ? 'Enabled' : 'Disabled'}
                     </Badge>
                   </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                  <p className="text-[11px] text-[#45546A] leading-relaxed">
                     Allow this tenant to configure floor tables, seating capacities, and handle dine-in running bills.
                   </p>
                 </div>
@@ -1533,17 +1511,17 @@ export const SuperAdminDashboard: React.FC = () => {
                 />
               </div>
 
-              <div className="p-3.5 rounded-xl border border-indigo-500/30 bg-indigo-500/5 flex items-center justify-between">
+              <div className="p-3.5 rounded-xl border border-[#DCE1E8] bg-[#F9F8F3] flex items-center justify-between">
                 <div className="space-y-0.5 pr-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-white">Shift Management & Tracking</span>
+                    <span className="text-xs font-bold text-[#152839]">Shift Management & Tracking</span>
                     <Badge variant="outline" className={`text-[9px] font-bold uppercase tracking-wider ${
-                      editFeatures.shift_management ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10' : 'border-slate-700 text-slate-500'
+                      editFeatures.shift_management ? 'border-emerald-500/40 text-emerald-700 bg-emerald-500/10' : 'border-[#DCE1E8] text-[#5F6A7C]'
                     }`}>
                       {editFeatures.shift_management ? 'Enabled' : 'Disabled'}
                     </Badge>
                   </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                  <p className="text-[11px] text-[#45546A] leading-relaxed">
                     Allow cashiers to select Morning, Mid, or Night shifts when opening register and track shift assignments on X/Z reads.
                   </p>
                 </div>
@@ -1553,13 +1531,13 @@ export const SuperAdminDashboard: React.FC = () => {
                 />
               </div>
 
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Other Feature Access Flags</Label>
-              <div className="grid grid-cols-2 gap-3 p-4 border border-slate-800 rounded-xl bg-slate-950/40 max-h-48 overflow-y-auto">
+              <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Other Feature Access Flags</Label>
+              <div className="grid grid-cols-2 gap-3 p-4 border border-[#DCE1E8] rounded-xl bg-[#F9F8F3] max-h-48 overflow-y-auto">
                 {Object.keys(FEATURE_LABELS).filter(k => k !== 'table_management' && k !== 'shift_management').map(key => {
                   const isEnabled = editFeatures[key] !== false; // default true if not configured
                   return (
-                    <div key={key} className="flex items-center justify-between bg-slate-950 p-2 rounded-lg border border-slate-900">
-                      <span className="text-[10px] font-medium text-slate-300">{FEATURE_LABELS[key]}</span>
+                    <div key={key} className="flex items-center justify-between bg-white p-2 rounded-lg border border-[#DCE1E8]">
+                      <span className="text-[10px] font-medium text-[#152839]">{FEATURE_LABELS[key]}</span>
                       <InlineSwitch
                         checked={isEnabled}
                         onChange={(checked: boolean) => setEditFeatures({ ...editFeatures, [key]: checked })}
@@ -1570,11 +1548,11 @@ export const SuperAdminDashboard: React.FC = () => {
               </div>
             </div>
 
-            <DialogFooter className="pt-4 border-t border-slate-800 shrink-0">
-              <Button type="button" variant="outline" onClick={() => { setIsEditModalOpen(false); setEditingTenant(null); }} className="border-slate-800 text-slate-300">
+            <DialogFooter className="pt-4 border-t border-[#DCE1E8] shrink-0">
+              <Button type="button" variant="outline" onClick={() => { setIsEditModalOpen(false); setEditingTenant(null); }} className="border-[#DCE1E8] text-[#152839]">
                 Cancel
               </Button>
-              <Button type="submit" disabled={submitting} className="bg-pink-500 hover:bg-pink-600 text-white font-bold">
+              <Button type="submit" disabled={submitting} className="bg-[#152839] hover:bg-[#1f3a52] text-[#F9F8F3] font-bold">
                 {submitting ? "Saving..." : "Save Configuration"}
               </Button>
             </DialogFooter>
@@ -1584,11 +1562,11 @@ export const SuperAdminDashboard: React.FC = () => {
 
       {/* DIALOG 3: RECEIPT VIEW MODAL */}
       <Dialog open={isReceiptModalOpen} onOpenChange={setIsReceiptModalOpen}>
-        <DialogContent className="max-w-md bg-slate-900 border-slate-800 text-white p-4">
+        <DialogContent className="max-w-md bg-white border-[#DCE1E8] text-[#152839] p-4">
           <DialogHeader>
             <DialogTitle>Proof of Payment Receipt</DialogTitle>
           </DialogHeader>
-          <div className="flex items-center justify-center border border-slate-850 bg-slate-950/80 rounded-xl p-2 h-96 overflow-hidden">
+          <div className="flex items-center justify-center border border-[#DCE1E8] bg-white rounded-xl p-2 h-96 overflow-hidden">
             <img 
               src={selectedReceiptUrl} 
               alt="Receipt proof" 
@@ -1597,7 +1575,7 @@ export const SuperAdminDashboard: React.FC = () => {
             />
           </div>
           <DialogFooter>
-            <Button onClick={() => setIsReceiptModalOpen(false)} className="bg-slate-800 hover:bg-slate-700 text-white w-full font-bold">
+            <Button onClick={() => setIsReceiptModalOpen(false)} className="bg-[#ECE7DE] hover:bg-[#DCE1E8] text-[#152839] w-full font-bold">
               Close Viewer
             </Button>
           </DialogFooter>
@@ -1606,16 +1584,16 @@ export const SuperAdminDashboard: React.FC = () => {
 
       {/* DIALOG 4: ADD QR CODE CHANNEL MODAL */}
       <Dialog open={isQrModalOpen} onOpenChange={setIsQrModalOpen}>
-        <DialogContent className="max-w-md bg-slate-900 border-slate-800 text-white p-0 overflow-hidden">
-          <DialogHeader className="p-6 border-b border-slate-800">
+        <DialogContent className="max-w-md bg-white border-[#DCE1E8] text-[#152839] p-0 overflow-hidden">
+          <DialogHeader className="p-6 border-b border-[#DCE1E8]">
             <DialogTitle>Add Onboarding Payment QR Code</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleAddQRCode} className="space-y-4 p-6">
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Payment Channel Method</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Payment Channel Method</Label>
               <Select value={qrMethod} onValueChange={setQrMethod}>
-                <SelectTrigger className="bg-slate-950 border-slate-800"><SelectValue /></SelectTrigger>
-                <SelectContent className="bg-slate-900 text-white border-slate-800">
+                <SelectTrigger className="bg-white border-[#DCE1E8]"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-white text-[#152839] border-[#DCE1E8]">
                   <SelectItem value="GCash">GCash</SelectItem>
                   <SelectItem value="Maya">Maya</SelectItem>
                   <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
@@ -1624,32 +1602,32 @@ export const SuperAdminDashboard: React.FC = () => {
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Account Name</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Account Name</Label>
               <Input
                 type="text"
                 required
                 value={qrName}
                 onChange={(e) => setQrName(e.target.value)}
                 placeholder="e.g. Odyssey Inc."
-                className="bg-slate-950 border-slate-800"
+                className="bg-white border-[#DCE1E8]"
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Account Number</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Account Number</Label>
               <Input
                 type="text"
                 required
                 value={qrNumber}
                 onChange={(e) => setQrNumber(e.target.value)}
                 placeholder="e.g. 0917-XXX-XXXX or Bank account"
-                className="bg-slate-950 border-slate-800"
+                className="bg-white border-[#DCE1E8]"
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">QR Code Image</Label>
-              <div className="relative h-20 border border-dashed border-slate-800 rounded-lg hover:border-pink-500/50 hover:bg-pink-500/5 transition-all flex flex-col items-center justify-center cursor-pointer group">
+              <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">QR Code Image</Label>
+              <div className="relative h-20 border border-dashed border-[#DCE1E8] rounded-lg hover:border-[#152839] hover:bg-[#FF6F07]/10 transition-all flex flex-col items-center justify-center cursor-pointer group">
                 <input 
                   type="file" 
                   accept="image/*" 
@@ -1657,18 +1635,18 @@ export const SuperAdminDashboard: React.FC = () => {
                   required
                   className="absolute inset-0 opacity-0 cursor-pointer" 
                 />
-                <UploadIcon className="w-4 h-4 text-slate-500 group-hover:text-pink-400 transition-colors" />
-                <span className="text-[10px] text-slate-400 mt-1.5 font-medium">
+                <UploadIcon className="w-4 h-4 text-[#5F6A7C] group-hover:text-[#B8470A] transition-colors" />
+                <span className="text-[10px] text-[#45546A] mt-1.5 font-medium">
                   {qrFileName || "Upload QR screenshot (PNG, JPG)"}
                 </span>
               </div>
             </div>
 
-            <DialogFooter className="pt-4 border-t border-slate-850">
-              <Button type="button" variant="outline" onClick={() => setIsQrModalOpen(false)} className="border-slate-800 text-slate-300">
+            <DialogFooter className="pt-4 border-t border-[#DCE1E8]">
+              <Button type="button" variant="outline" onClick={() => setIsQrModalOpen(false)} className="border-[#DCE1E8] text-[#152839]">
                 Cancel
               </Button>
-              <Button type="submit" disabled={submitting} className="bg-pink-500 hover:bg-pink-600 text-white font-bold">
+              <Button type="submit" disabled={submitting} className="bg-[#152839] hover:bg-[#1f3a52] text-[#F9F8F3] font-bold">
                 {submitting ? "Saving..." : "Add Payment Channel"}
               </Button>
             </DialogFooter>
@@ -1678,69 +1656,69 @@ export const SuperAdminDashboard: React.FC = () => {
 
       {/* DIALOG 5: EDIT SUBSCRIPTION PLAN MODAL */}
       <Dialog open={isPlanModalOpen} onOpenChange={setIsPlanModalOpen}>
-        <DialogContent className="max-w-md bg-slate-900 border-slate-800 text-white p-0 overflow-hidden flex flex-col max-h-[85vh]">
-          <DialogHeader className="p-6 border-b border-slate-800 shrink-0">
+        <DialogContent className="max-w-md bg-white border-[#DCE1E8] text-[#152839] p-0 overflow-hidden flex flex-col max-h-[85vh]">
+          <DialogHeader className="p-6 border-b border-[#DCE1E8] shrink-0">
             <DialogTitle>Edit Plan: {editPlanName}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleEditPlanSubmit} className="flex-1 overflow-y-auto space-y-4 p-6">
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Monthly Price (PHP)</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Monthly Price (PHP)</Label>
               <Input
                 type="number"
                 required
                 min={0}
                 value={editPlanMonthlyPrice}
                 onChange={(e) => setEditPlanMonthlyPrice(Number(e.target.value))}
-                className="bg-slate-950 border-slate-800"
+                className="bg-white border-[#DCE1E8]"
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Yearly Price (PHP)</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Yearly Price (PHP)</Label>
               <Input
                 type="number"
                 required
                 min={0}
                 value={editPlanYearlyPrice}
                 onChange={(e) => setEditPlanYearlyPrice(Number(e.target.value))}
-                className="bg-slate-950 border-slate-800"
+                className="bg-white border-[#DCE1E8]"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Max Branches</Label>
+                <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Max Branches</Label>
                 <Input
                   type="number"
                   required
                   min={1}
                   value={editPlanMaxBranches}
                   onChange={(e) => setEditPlanMaxBranches(Number(e.target.value))}
-                  className="bg-slate-950 border-slate-800"
+                  className="bg-white border-[#DCE1E8]"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Max Users</Label>
+                <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Max Users</Label>
                 <Input
                   type="number"
                   required
                   min={1}
                   value={editPlanMaxUsers}
                   onChange={(e) => setEditPlanMaxUsers(Number(e.target.value))}
-                  className="bg-slate-950 border-slate-800"
+                  className="bg-white border-[#DCE1E8]"
                 />
               </div>
             </div>
 
-            <div className="space-y-2 border-t border-slate-850 pt-4">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-400">Feature Permissions</Label>
+            <div className="space-y-2 border-t border-[#DCE1E8] pt-4">
+              <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Feature Permissions</Label>
               <div className="grid grid-cols-1 gap-2.5 max-h-48 overflow-y-auto pr-1">
                 {Object.entries(FEATURE_LABELS).map(([key, label]) => {
                   const isEnabled = !!editPlanFeatures[key];
                   return (
-                    <div key={key} className="flex justify-between items-center bg-slate-950/40 p-2 rounded-lg border border-slate-850">
-                      <span className="text-xs text-slate-350">{label}</span>
+                    <div key={key} className="flex justify-between items-center bg-[#F9F8F3] p-2 rounded-lg border border-[#DCE1E8]">
+                      <span className="text-xs text-[#152839]">{label}</span>
                       <InlineSwitch
                         checked={isEnabled}
                         onChange={(checked: boolean) => setEditPlanFeatures({ ...editPlanFeatures, [key]: checked })}
@@ -1751,11 +1729,11 @@ export const SuperAdminDashboard: React.FC = () => {
               </div>
             </div>
 
-            <DialogFooter className="pt-4 border-t border-slate-850 shrink-0">
-              <Button type="button" variant="outline" onClick={() => { setIsPlanModalOpen(false); setEditingPlan(null); }} className="border-slate-800 text-slate-300">
+            <DialogFooter className="pt-4 border-t border-[#DCE1E8] shrink-0">
+              <Button type="button" variant="outline" onClick={() => { setIsPlanModalOpen(false); setEditingPlan(null); }} className="border-[#DCE1E8] text-[#152839]">
                 Cancel
               </Button>
-              <Button type="submit" disabled={submitting} className="bg-pink-500 hover:bg-pink-600 text-white font-bold">
+              <Button type="submit" disabled={submitting} className="bg-[#152839] hover:bg-[#1f3a52] text-[#F9F8F3] font-bold">
                 {submitting ? "Saving Plan..." : "Save Plan Configurations"}
               </Button>
             </DialogFooter>
@@ -1765,19 +1743,19 @@ export const SuperAdminDashboard: React.FC = () => {
 
       {/* DIALOG 6: CONFIRM DELETE TENANT MODAL */}
       <Dialog open={isDeleteModalOpen} onOpenChange={(open) => { if (!open) { setIsDeleteModalOpen(false); setDeletingTenant(null); } }}>
-        <DialogContent className="max-w-md bg-slate-900 border-slate-800 text-white p-6">
+        <DialogContent className="max-w-md bg-white border-[#DCE1E8] text-[#152839] p-6">
           <DialogHeader className="mb-4">
-            <DialogTitle className="text-red-500 font-black text-lg">⚠️ CRITICAL ACTION: Delete Tenant Data</DialogTitle>
-            <DialogDescription className="text-slate-400 text-xs mt-2">
-              This action will permanently delete all branches, staff profiles, menu items, sales, inventory, and transaction history for <span className="font-bold text-white font-mono bg-slate-950 px-1 py-0.5 rounded">{deletingTenant?.name}</span>.
+            <DialogTitle className="text-red-700 font-odyssey-display font-bold text-lg">⚠️ CRITICAL ACTION: Delete Tenant Data</DialogTitle>
+            <DialogDescription className="text-[#45546A] text-xs mt-2">
+              This action will permanently delete all branches, staff profiles, menu items, sales, inventory, and transaction history for <span className="font-bold text-[#152839] font-mono bg-white px-1 py-0.5 rounded">{deletingTenant?.name}</span>.
               <br /><br />
-              This action <span className="font-bold text-red-400">CANNOT</span> be undone. It is isolated and will not affect any other tenants.
+              This action <span className="font-bold text-red-700">CANNOT</span> be undone. It is isolated and will not affect any other tenants.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleDeleteTenantSubmit} className="space-y-4">
-            <div className="space-y-2 bg-slate-950/40 p-3 rounded-lg border border-slate-850">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                To confirm, type the tenant's identifier: <span className="font-bold text-pink-400 font-mono select-all">{(deletingTenant?.subdomain || deletingTenant?.name || '').toLowerCase()}</span>
+            <div className="space-y-2 bg-[#F9F8F3] p-3 rounded-lg border border-[#DCE1E8]">
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-[#45546A]">
+                To confirm, type the tenant's identifier: <span className="font-bold text-[#B8470A] font-mono select-all">{(deletingTenant?.subdomain || deletingTenant?.name || '').toLowerCase()}</span>
               </Label>
               <Input
                 type="text"
@@ -1785,23 +1763,23 @@ export const SuperAdminDashboard: React.FC = () => {
                 value={deleteConfirmText}
                 onChange={(e) => setDeleteConfirmText(e.target.value)}
                 placeholder="Type name/subdomain here..."
-                className="bg-slate-950 border-slate-800 focus:border-red-500 focus:ring-red-500 text-xs"
+                className="bg-white border-[#DCE1E8] focus:border-red-500 focus:ring-red-500 text-xs"
               />
             </div>
 
-            <DialogFooter className="pt-4 border-t border-slate-850">
+            <DialogFooter className="pt-4 border-t border-[#DCE1E8]">
               <Button 
                 type="button" 
                 variant="outline" 
                 onClick={() => { setIsDeleteModalOpen(false); setDeletingTenant(null); }} 
-                className="border-slate-800 text-slate-300"
+                className="border-[#DCE1E8] text-[#152839]"
               >
                 Cancel
               </Button>
               <Button 
                 type="submit" 
                 disabled={submitting || deleteConfirmText.trim().toLowerCase() !== (deletingTenant?.subdomain || deletingTenant?.name || '').toLowerCase()} 
-                className="bg-red-650 hover:bg-red-700 text-white font-bold text-xs"
+                className="bg-red-650 hover:bg-red-700 text-[#F9F8F3] font-bold text-xs"
               >
                 {submitting ? "Deleting Tenant..." : "Permanently Delete Data"}
               </Button>
@@ -1812,19 +1790,19 @@ export const SuperAdminDashboard: React.FC = () => {
 
       {/* DIALOG 7: CONFIRM RESET TENANT MODAL */}
       <Dialog open={isResetModalOpen} onOpenChange={(open) => { if (!open) { setIsResetModalOpen(false); setResettingTenant(null); } }}>
-        <DialogContent className="max-w-md bg-slate-900 border-slate-800 text-white p-6">
+        <DialogContent className="max-w-md bg-white border-[#DCE1E8] text-[#152839] p-6">
           <DialogHeader className="mb-4">
-            <DialogTitle className="text-amber-500 font-black text-lg">⚠️ RESET TRANSACTIONAL DATA</DialogTitle>
-            <DialogDescription className="text-slate-400 text-xs mt-2">
-              This action will erase all sales history, cashier sessions, inventory movements/balances, stock adjustments, transfers, expenses, menu items, recipes, settings, and sequences for <span className="font-bold text-white font-mono bg-slate-950 px-1 py-0.5 rounded">{resettingTenant?.name}</span> to start from scratch.
+            <DialogTitle className="text-amber-700 font-odyssey-display font-bold text-lg">⚠️ RESET TRANSACTIONAL DATA</DialogTitle>
+            <DialogDescription className="text-[#45546A] text-xs mt-2">
+              This action will erase all sales history, cashier sessions, inventory movements/balances, stock adjustments, transfers, expenses, menu items, recipes, settings, and sequences for <span className="font-bold text-[#152839] font-mono bg-white px-1 py-0.5 rounded">{resettingTenant?.name}</span> to start from scratch.
               <br /><br />
               All **user accounts, staff profiles, and physical branch structures** will be preserved.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleResetTenantSubmit} className="space-y-4">
-            <div className="space-y-2 bg-slate-950/40 p-3 rounded-lg border border-slate-850">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                To confirm, type the tenant's identifier: <span className="font-bold text-pink-400 font-mono select-all">{(resettingTenant?.subdomain || resettingTenant?.name || '').toLowerCase()}</span>
+            <div className="space-y-2 bg-[#F9F8F3] p-3 rounded-lg border border-[#DCE1E8]">
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-[#45546A]">
+                To confirm, type the tenant's identifier: <span className="font-bold text-[#B8470A] font-mono select-all">{(resettingTenant?.subdomain || resettingTenant?.name || '').toLowerCase()}</span>
               </Label>
               <Input
                 type="text"
@@ -1832,23 +1810,23 @@ export const SuperAdminDashboard: React.FC = () => {
                 value={resetConfirmText}
                 onChange={(e) => setResetConfirmText(e.target.value)}
                 placeholder="Type name/subdomain here..."
-                className="bg-slate-950 border-slate-800 focus:border-amber-500 focus:ring-amber-500 text-xs"
+                className="bg-white border-[#DCE1E8] focus:border-amber-500 focus:ring-amber-500 text-xs"
               />
             </div>
 
-            <DialogFooter className="pt-4 border-t border-slate-850">
+            <DialogFooter className="pt-4 border-t border-[#DCE1E8]">
               <Button 
                 type="button" 
                 variant="outline" 
                 onClick={() => { setIsResetModalOpen(false); setResettingTenant(null); }} 
-                className="border-slate-800 text-slate-300"
+                className="border-[#DCE1E8] text-[#152839]"
               >
                 Cancel
               </Button>
               <Button 
                 type="submit" 
                 disabled={submitting || resetConfirmText.trim().toLowerCase() !== (resettingTenant?.subdomain || resettingTenant?.name || '').toLowerCase()} 
-                className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
+                className="bg-amber-600 hover:bg-amber-700 text-[#F9F8F3] font-bold text-xs"
               >
                 {submitting ? "Resetting Data..." : "Confirm Reset Transactional Data"}
               </Button>
