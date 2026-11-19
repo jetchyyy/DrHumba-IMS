@@ -168,6 +168,7 @@ export interface RestaurantTable {
   table_number: string;
   zone: string;
   capacity: number;
+  display_order?: number | null;
   status: 'available' | 'occupied' | 'billed_out' | 'cleaning' | 'reserved';
   is_active: boolean;
   current_tab_id?: string | null;

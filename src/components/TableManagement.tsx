@@ -13,6 +13,8 @@ import {
   MagnifyingGlassIcon as Search,
   BoxModelIcon as Store,
 } from '@radix-ui/react-icons';
+import { ArrowLeft, ArrowRight, ArrowUpDown } from 'lucide-react';
+import { sortRestaurantTables, moveTableInOrder } from './pos/tableUtils';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -35,6 +37,7 @@ export interface RestaurantTable {
   table_number: string;
   zone: string;
   capacity: number;
+  display_order?: number | null;
   status: 'available' | 'occupied' | 'billed_out' | 'cleaning' | 'reserved';
   is_active: boolean;
   current_tab_id?: string | null;
@@ -66,6 +69,8 @@ export const TableManagement: React.FC = () => {
   const [zone, setZone] = useState('Main Dining');
   const [customZone, setCustomZone] = useState('');
   const [capacity, setCapacity] = useState(4);
+  const [displayOrder, setDisplayOrder] = useState<number>(1);
+  const [reordering, setReordering] = useState(false);
 
   // Quick Generate Modal State
   const [quickGenOpen, setQuickGenOpen] = useState(false);
@@ -82,10 +87,11 @@ export const TableManagement: React.FC = () => {
         .from('restaurant_tables')
         .select('*')
         .eq('branch_id', currentBranchId)
+        .order('display_order', { ascending: true, nullsFirst: false })
         .order('table_number', { ascending: true });
 
       if (error) throw error;
-      setTables(data || []);
+      setTables(sortRestaurantTables(data || []));
     } catch (err: any) {
       console.error('Failed to load tables:', err);
       showError(err.message || 'Failed to load branch tables.');
@@ -131,19 +137,27 @@ export const TableManagement: React.FC = () => {
     }
   };
 
+  const getNextDisplayOrder = () => {
+    const maxOrder = tables.reduce((max, t) => Math.max(max, Number(t.display_order || 0)), 0);
+    return Math.max(maxOrder + 1, tables.length + 1);
+  };
+
   const openAddModal = () => {
     setEditingTableId(null);
     setTableNumber('');
     setZone('Main Dining');
     setCustomZone('');
     setCapacity(4);
+    setDisplayOrder(getNextDisplayOrder());
     setModalOpen(true);
   };
 
   const openEditModal = (tbl: RestaurantTable) => {
+    const currentIndex = tables.findIndex(t => t.id === tbl.id);
     setEditingTableId(tbl.id);
     setTableNumber(tbl.table_number);
     setCapacity(tbl.capacity);
+    setDisplayOrder(tbl.display_order ?? (currentIndex >= 0 ? currentIndex + 1 : 1));
     if (COMMON_ZONES.includes(tbl.zone)) {
       setZone(tbl.zone);
       setCustomZone('');
@@ -175,6 +189,7 @@ export const TableManagement: React.FC = () => {
             table_number: finalTableNum,
             zone: finalZone,
             capacity: Math.max(1, Number(capacity) || 4),
+            display_order: Math.max(1, Number(displayOrder) || 1),
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingTableId);
@@ -190,6 +205,7 @@ export const TableManagement: React.FC = () => {
             table_number: finalTableNum,
             zone: finalZone,
             capacity: Math.max(1, Number(capacity) || 4),
+            display_order: Math.max(1, Number(displayOrder) || getNextDisplayOrder()),
             status: 'available',
             is_active: true,
           });
@@ -269,6 +285,7 @@ export const TableManagement: React.FC = () => {
 
     setSaving(true);
     try {
+      const startOrder = getNextDisplayOrder();
       const rows = [];
       for (let i = 1; i <= count; i++) {
         rows.push({
@@ -277,6 +294,7 @@ export const TableManagement: React.FC = () => {
           table_number: `${quickGenPrefix}${i}`,
           zone: quickGenZone,
           capacity: Math.max(1, quickGenCapacity),
+          display_order: startOrder + (i - 1),
           status: 'available',
           is_active: true,
         });
@@ -300,6 +318,40 @@ export const TableManagement: React.FC = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const persistTableOrder = async (nextTables: RestaurantTable[], successMessage?: string) => {
+    if (!currentBranchId) return;
+    const prevTables = tables;
+    setTables(nextTables);
+    setReordering(true);
+    try {
+      const { error } = await supabase.rpc('fn_reorder_branch_tables', {
+        p_branch_id: currentBranchId,
+        p_table_ids: nextTables.map(t => t.id),
+      });
+      if (error) throw error;
+      if (successMessage) showSuccess(successMessage);
+    } catch (err: any) {
+      console.error('Failed to save table sequence:', err);
+      setTables(prevTables);
+      showError(err.message || 'Failed to save table order.');
+    } finally {
+      setReordering(false);
+    }
+  };
+
+  const handleMoveTable = async (tableId: string, direction: 'up' | 'down') => {
+    const next = moveTableInOrder(tables, tableId, direction);
+    if (next === tables) return;
+    await persistTableOrder(next);
+  };
+
+  const handleAutoSortNatural = async () => {
+    const natural = sortRestaurantTables(
+      tables.map(t => ({ ...t, display_order: null }))
+    ).map((t, idx) => ({ ...t, display_order: idx + 1 }));
+    await persistTableOrder(natural, 'Tables sorted in natural order (1, 2, 3…).');
   };
 
   // Zones list
@@ -484,15 +536,31 @@ export const TableManagement: React.FC = () => {
           ))}
         </div>
 
-        {/* Search */}
-        <div className="relative w-full sm:w-64">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search table or zone..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            className="pl-8 h-8 text-xs bg-card"
-          />
+        {/* Search & Sort Controls */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-56">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search table or zone..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="pl-8 h-8 text-xs bg-card"
+            />
+          </div>
+          {tables.length > 1 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={reordering}
+              onClick={handleAutoSortNatural}
+              className="h-8 text-xs gap-1.5 shrink-0 bg-card"
+              title="Reset table sequence to natural numeric order (1, 2, ..., 9, 10)"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+              <span>Sort 1, 2, 3…</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -584,6 +652,30 @@ export const TableManagement: React.FC = () => {
                     </button>
 
                     <div className="flex items-center gap-1">
+                      {selectedZone === 'All' && !searchTerm && tables.length > 1 && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={reordering || tables[0]?.id === tbl.id}
+                            onClick={() => handleMoveTable(tbl.id, 'up')}
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground disabled:opacity-25"
+                            title="Move earlier in floor sequence"
+                          >
+                            <ArrowLeft className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={reordering || tables[tables.length - 1]?.id === tbl.id}
+                            onClick={() => handleMoveTable(tbl.id, 'down')}
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground disabled:opacity-25"
+                            title="Move later in floor sequence"
+                          >
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -666,17 +758,30 @@ export const TableManagement: React.FC = () => {
                 </div>
               )}
 
-              <div className="space-y-1.5">
-                <Label className="text-xs">Seating Capacity (Pax)</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="50"
-                  required
-                  value={capacity}
-                  onChange={e => setCapacity(parseInt(e.target.value) || 1)}
-                  className="text-xs"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Seating Capacity (Pax)</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="50"
+                    required
+                    value={capacity}
+                    onChange={e => setCapacity(parseInt(e.target.value) || 1)}
+                    className="text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Sequence Order #</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="999"
+                    value={displayOrder}
+                    onChange={e => setDisplayOrder(parseInt(e.target.value) || 1)}
+                    className="text-xs"
+                  />
+                </div>
               </div>
 
               <DialogFooter className="pt-2 border-t gap-2">

@@ -24,6 +24,8 @@ import {
   Cross2Icon as X,
   TableIcon,
 } from '@radix-ui/react-icons';
+import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { sortRestaurantTables, moveTableInOrder } from '../pos/tableUtils';
 
 export interface RestaurantTable {
   id: string;
@@ -32,6 +34,7 @@ export interface RestaurantTable {
   table_number: string;
   zone: string;
   capacity: number;
+  display_order?: number | null;
   status: 'available' | 'occupied' | 'billed_out' | 'cleaning' | 'reserved';
   is_active: boolean;
   current_tab_id?: string | null;
@@ -68,6 +71,7 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
   const [customZone, setCustomZone] = useState('');
   const [capacity, setCapacity] = useState(4);
   const [editingTableId, setEditingTableId] = useState<string | null>(null);
+  const [reordering, setReordering] = useState(false);
 
   // Quick generate state
   const [showQuickGen, setShowQuickGen] = useState(false);
@@ -84,10 +88,11 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
         .from('restaurant_tables')
         .select('*')
         .eq('branch_id', branch.id)
+        .order('display_order', { ascending: true, nullsFirst: false })
         .order('table_number', { ascending: true });
 
       if (error) throw error;
-      setTables(data || []);
+      setTables(sortRestaurantTables(data || []));
     } catch (err: any) {
       console.error('Error fetching tables:', err);
       showError(err.message || 'Failed to load branch tables');
@@ -95,13 +100,6 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (open && branch?.id) {
-      fetchTables();
-      resetForm();
-    }
-  }, [open, branch?.id]);
 
   const resetForm = () => {
     setTableNumber('');
@@ -112,6 +110,14 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
     setShowAddForm(false);
     setShowQuickGen(false);
   };
+
+  useEffect(() => {
+    if (open && branch?.id) {
+      fetchTables();
+      resetForm();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, branch?.id]);
 
   const handleEditClick = (tbl: RestaurantTable) => {
     setEditingTableId(tbl.id);
@@ -156,7 +162,9 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
         if (error) throw error;
         showSuccess(`Table "${finalTableNum}" updated.`);
       } else {
-        // Create new table
+        // Create new table at end of sequence
+        const maxOrder = tables.reduce((max, t) => Math.max(max, Number(t.display_order || 0)), 0);
+        const nextOrder = Math.max(maxOrder + 1, tables.length + 1);
         const { error } = await supabase
           .from('restaurant_tables')
           .insert({
@@ -165,6 +173,7 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
             table_number: finalTableNum,
             zone: finalZone,
             capacity: Math.max(1, Number(capacity) || 4),
+            display_order: nextOrder,
             status: 'available',
             is_active: true,
           });
@@ -243,6 +252,8 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
 
     setSaving(true);
     try {
+      const maxOrder = tables.reduce((max, t) => Math.max(max, Number(t.display_order || 0)), 0);
+      const startOrder = Math.max(maxOrder + 1, tables.length + 1);
       const rows = [];
       for (let i = 1; i <= count; i++) {
         rows.push({
@@ -251,6 +262,7 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
           table_number: `${quickGenPrefix}${i}`,
           zone: quickGenZone,
           capacity: Math.max(1, quickGenCapacity),
+          display_order: startOrder + (i - 1),
           status: 'available',
           is_active: true,
         });
@@ -276,6 +288,40 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
     } finally {
       setSaving(false);
     }
+  };
+
+  const persistTableOrder = async (nextTables: RestaurantTable[], successMessage?: string) => {
+    if (!branch?.id) return;
+    const prevTables = tables;
+    setTables(nextTables);
+    setReordering(true);
+    try {
+      const { error } = await supabase.rpc('fn_reorder_branch_tables', {
+        p_branch_id: branch.id,
+        p_table_ids: nextTables.map(t => t.id),
+      });
+      if (error) throw error;
+      if (successMessage) showSuccess(successMessage);
+    } catch (err: any) {
+      console.error('Error reordering tables:', err);
+      setTables(prevTables);
+      showError(err.message || 'Failed to save table order.');
+    } finally {
+      setReordering(false);
+    }
+  };
+
+  const handleMoveTable = async (tableId: string, direction: 'up' | 'down') => {
+    const next = moveTableInOrder(tables, tableId, direction);
+    if (next === tables) return;
+    await persistTableOrder(next);
+  };
+
+  const handleAutoSortNatural = async () => {
+    const natural = sortRestaurantTables(
+      tables.map(t => ({ ...t, display_order: null }))
+    ).map((t, idx) => ({ ...t, display_order: idx + 1 }));
+    await persistTableOrder(natural, 'Tables sorted in natural order (1, 2, 3…).');
   };
 
   const totalSeats = tables.filter(t => t.is_active).reduce((sum, t) => sum + (t.capacity || 0), 0);
@@ -331,6 +377,20 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
                 >
                   Quick Generate
                 </Button>
+                {tables.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={reordering}
+                    onClick={handleAutoSortNatural}
+                    className="h-8 text-xs gap-1.5"
+                    title="Reset table sequence to natural numeric order (1, 2, ..., 9, 10)"
+                  >
+                    <ArrowUpDown className="w-3.5 h-3.5" />
+                    Sort 1, 2, 3…
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -555,7 +615,31 @@ export const BranchTablesModal: React.FC<BranchTablesModalProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
+                      {tables.length > 1 && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={reordering || tables[0]?.id === tbl.id}
+                            onClick={() => handleMoveTable(tbl.id, 'up')}
+                            title="Move up in floor sequence"
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground disabled:opacity-25"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={reordering || tables[tables.length - 1]?.id === tbl.id}
+                            onClick={() => handleMoveTable(tbl.id, 'down')}
+                            title="Move down in floor sequence"
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground disabled:opacity-25"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"

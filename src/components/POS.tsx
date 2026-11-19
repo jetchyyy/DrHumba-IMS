@@ -14,7 +14,7 @@ import {
   ChatBubbleIcon as MessageSquare,
   TableIcon,
 } from '@radix-ui/react-icons';
-import { Combine, ClipboardList } from 'lucide-react';
+import { Combine, ClipboardList, PanelBottomOpen, PanelBottomClose, Lock, Unlock } from 'lucide-react';
 import {
   formatTableGroupLabel,
   buildKitchenControlNumber,
@@ -63,6 +63,7 @@ import { PaymentDialog } from "./pos/PaymentDialog";
 import { TableFloorDialog } from "./pos/TableFloorDialog";
 import { TabDiscountModal } from "./pos/TabDiscountModal";
 import { FullTableOrderDialog } from "./pos/FullTableOrderDialog";
+import { PosLockDialog } from "./pos/PosLockDialog";
 import {
   MatchPriceDialog,
   SaleSuccessDialog,
@@ -84,11 +85,17 @@ import {
 interface POSProps {
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  isPosLocked?: boolean;
+  onPosLocked?: () => void;
+  onPosUnlocked?: () => void;
 }
 
 export const POS: React.FC<POSProps> = ({
   isFullscreen = false,
   onToggleFullscreen,
+  isPosLocked = false,
+  onPosLocked,
+  onPosUnlocked,
 }) => {
   const { selectedBranch, profile, branches } = useAuth();
   const { showSuccess, showError, confirm } = useModal();
@@ -180,6 +187,8 @@ export const POS: React.FC<POSProps> = ({
   const [tableFloorMode, setTableFloorMode] = useState<'normal' | 'merge' | 'manage'>('normal');
   const [fullOrderOpen, setFullOrderOpen] = useState(false);
   const [updatingServedId, setUpdatingServedId] = useState<string | null>(null);
+  const [portraitSplitCart, setPortraitSplitCart] = useState(false);
+  const [lockDialogMode, setLockDialogMode] = useState<'lock' | 'unlock' | null>(null);
   const activeTableLabel = activeTable
     ? formatTableGroupLabel(activeTab?.merged_tables, activeTable.table_number)
     : '';
@@ -2191,17 +2200,17 @@ export const POS: React.FC<POSProps> = ({
 
   return (
     <>
-      <div className="flex-1 flex overflow-hidden h-full min-h-0 relative">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden h-full min-h-0 relative">
         {/* Menu / Catalog Panel */}
-        <div className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-y-auto min-h-0 h-full pb-48 lg:pb-8">
+        <div className="flex-1 flex flex-col p-3 sm:p-5 lg:p-8 overflow-y-auto min-h-0">
           {/* Header */}
-          <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0">
+          <div className="mb-4 sm:mb-6 flex flex-col xl:flex-row xl:items-center justify-between gap-3 sm:gap-4">
             <div>
-              <h2 className="text-3xl font-bold tracking-tight flex items-center space-x-2">
-                <ShoppingCart className="w-8 h-8 text-primary" />
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center space-x-2">
+                <ShoppingCart className="w-7 h-7 sm:w-8 sm:h-8 text-primary shrink-0" />
                 <span>{vocab.posTitle}</span>
               </h2>
-              <p className="text-muted-foreground">
+              <p className="text-xs sm:text-sm text-muted-foreground">
                 {vocab.posDescription}
               </p>
             </div>
@@ -2401,36 +2410,54 @@ export const POS: React.FC<POSProps> = ({
                 Customer Screen
               </Button>
 
-              {/* Fullscreen Button */}
+              {/* Fullscreen Button (hidden while POS Kiosk Lock is active) */}
+              {!isPosLocked && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleFullscreen}
+                  className={`h-9 text-xs font-bold gap-1.5 rounded-lg active:scale-95 ${isFullscreen ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
+                  title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+                >
+                  {isFullscreen ? (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 9L3 3m0 0l2 5M3 3l5 2m6 4l6-6m0 0l-5 2m5-2l-2 5M9 15l-6 6m0 0l5-2m-5 2l-2-5m13-1l6 6m0 0l-2-5m2 5l-5-2" />
+                      </svg>
+                      Exit Full
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5h-4m4 0v-4m0 4l-5-5" />
+                      </svg>
+                      Fullscreen
+                    </>
+                  )}
+                </Button>
+              )}
+
+              {/* POS Kiosk Lock / Unlock Button */}
               <Button
-                variant="outline"
+                variant={isPosLocked ? 'default' : 'outline'}
                 size="sm"
-                onClick={toggleFullscreen}
-                className={`h-9 text-xs font-bold gap-1.5 rounded-lg active:scale-95 ${isFullscreen ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
-                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+                onClick={() => setLockDialogMode(isPosLocked ? 'unlock' : 'lock')}
+                className={`h-9 text-xs font-bold gap-1.5 rounded-lg active:scale-95 ${
+                  isPosLocked
+                    ? 'bg-amber-500 hover:bg-amber-600 text-black shadow-sm'
+                    : 'border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10'
+                }`}
+                title={isPosLocked ? 'Unlock POS mode with PIN' : 'Lock device to POS-only mode with PIN'}
               >
-                {isFullscreen ? (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 9L3 3m0 0l2 5M3 3l5 2m6 4l6-6m0 0l-5 2m5-2l-2 5M9 15l-6 6m0 0l5-2m-5 2l-2-5m13-1l6 6m0 0l-2-5m2 5l-5-2" />
-                    </svg>
-                    Exit Full
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5h-4m4 0v-4m0 4l-5-5" />
-                    </svg>
-                    Fullscreen
-                  </>
-                )}
+                {isPosLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                <span>{isPosLocked ? 'POS Locked' : 'Lock POS'}</span>
               </Button>
             </div>
           </div>
 
           {/* Filters - Touch-Optimized Bar */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
-            <div className="relative w-full sm:w-72 lg:w-80 shrink-0">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 mb-4 sm:mb-6">
+            <div className="relative w-full sm:flex-1 sm:min-w-0 lg:max-w-xs shrink-0">
               <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-muted-foreground" />
               <Input
                 type="text"
@@ -2450,10 +2477,10 @@ export const POS: React.FC<POSProps> = ({
                 </button>
               )}
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto sm:min-w-[240px]">
+            <div className="flex items-center gap-2 w-full sm:w-56 md:w-64 shrink-0">
               <Select value={selectedCategory} onValueChange={setSelectedCategory}>
                 <SelectTrigger
-                  className="h-11 w-full sm:w-64 rounded-xl text-sm font-bold bg-background"
+                  className="h-11 w-full rounded-xl text-sm font-bold bg-background"
                   aria-label="Filter by category"
                 >
                   <SelectValue placeholder="All Categories" />
@@ -2487,7 +2514,7 @@ export const POS: React.FC<POSProps> = ({
               <span className="text-muted-foreground animate-pulse">Loading menu items…</span>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 flex-1 content-start">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 flex-1 content-start">
               {filteredItems.map(item => {
                 const avail = availabilityMap[item.id];
                 const isOutOfStock = avail ? !avail.stockAvailable : false;
@@ -2579,30 +2606,93 @@ export const POS: React.FC<POSProps> = ({
           {renderCartContent()}
         </div>
 
-        {/* Mobile Cart Floating Bottom Bar */}
-        <div className={`lg:hidden fixed ${isFullscreen ? 'bottom-4 md:bottom-0' : 'bottom-[104px] md:bottom-0'} left-4 right-4 md:left-0 md:right-0 p-4 bg-background border md:border-x-0 md:border-b-0 md:border-t rounded-2xl md:rounded-none shadow-lg flex justify-between items-center z-40`}>
-          <div>
-            <p className="text-xs text-muted-foreground font-semibold">Total ({cartCount} items)</p>
-            <p className="text-lg font-bold text-primary">{formatPHP(cartTotalWithSC)}</p>
-          </div>
-          <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
-            <SheetTrigger asChild>
-              <Button size="lg" className="font-bold shadow-md relative">
-                View Cart
-                {cart.length > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-background">
-                    {cartCount}
-                  </span>
-                )}
+        {/* Portrait Tablet Split Cart Panel (Expandable inline below catalog on < lg) */}
+        {portraitSplitCart && (
+          <div className="lg:hidden h-[46vh] min-h-[340px] max-h-[500px] border-t bg-muted/10 flex flex-col shrink-0 overflow-hidden shadow-[0_-6px_20px_rgba(0,0,0,0.08)]">
+            <div className="px-4 py-1.5 bg-background border-b flex items-center justify-between text-xs shrink-0">
+              <span className="font-bold text-muted-foreground">
+                Portrait Split View {activeTable ? `• ${activeTableLabel}` : ''}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setPortraitSplitCart(false)}
+                className="h-7 px-2 text-xs gap-1 font-semibold"
+              >
+                <PanelBottomClose className="w-3.5 h-3.5" />
+                <span>Collapse</span>
               </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="w-[90vw] sm:w-[420px] p-0 gap-0 flex flex-col bg-muted/10">
-              <SheetTitle className="sr-only">Order Cart</SheetTitle>
-              <SheetDescription className="sr-only">Review your items and collect payment</SheetDescription>
+            </div>
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               {renderCartContent()}
-            </SheetContent>
-          </Sheet>
-        </div>
+            </div>
+          </div>
+        )}
+
+        {/* Portrait Tablet & Mobile Docked Cart Bar (non-overlapping flex child) */}
+        {!portraitSplitCart && (
+          <div className="lg:hidden shrink-0 px-3 sm:px-5 py-3 bg-background border-t shadow-[0_-4px_16px_rgba(0,0,0,0.06)] flex items-center justify-between gap-2 z-30">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {activeTable && (
+                  <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-black border-rose-500/40 text-rose-600 dark:text-rose-400">
+                    {activeTableLabel}
+                  </Badge>
+                )}
+                <p className="text-xs text-muted-foreground font-semibold truncate">
+                  {cartCount} {cartCount === 1 ? 'item' : 'items'}
+                </p>
+              </div>
+              <p className="text-lg font-black text-primary leading-tight">{formatPHP(finalCartTotal)}</p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {activeTable && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFullOrderOpen(true)}
+                  className="hidden sm:inline-flex h-10 px-3 text-xs font-bold rounded-xl gap-1.5"
+                >
+                  <ClipboardList className="w-4 h-4 text-primary" />
+                  <span>Full Order</span>
+                </Button>
+              )}
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPortraitSplitCart(true)}
+                className="hidden sm:inline-flex h-10 px-3 text-xs font-bold rounded-xl gap-1.5"
+                title="Show live cart below menu for portrait tablet"
+              >
+                <PanelBottomOpen className="w-4 h-4" />
+                <span>Split Cart</span>
+              </Button>
+
+              <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
+                <SheetTrigger asChild>
+                  <Button size="lg" className="h-10 sm:h-11 px-4 font-bold shadow-md relative rounded-xl">
+                    View Cart
+                    {cart.length > 0 && (
+                      <span className="ml-1.5 bg-primary-foreground text-primary text-[10px] font-black px-1.5 py-0.5 rounded-full">
+                        {cartCount}
+                      </span>
+                    )}
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="right" className="w-[92vw] sm:w-[440px] p-0 gap-0 flex flex-col bg-muted/10">
+                  <SheetTitle className="sr-only">Order Cart</SheetTitle>
+                  <SheetDescription className="sr-only">Review your items and collect payment</SheetDescription>
+                  {renderCartContent()}
+                </SheetContent>
+              </Sheet>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Payment Dialog */}
@@ -2675,6 +2765,23 @@ export const POS: React.FC<POSProps> = ({
           onSettleAndPay={openPayment}
         />
       )}
+
+      {/* POS Kiosk Lock / Unlock Dialog */}
+      <PosLockDialog
+        open={lockDialogMode !== null}
+        mode={lockDialogMode || 'lock'}
+        isOnline={isOnline}
+        userEmail={profile?.email}
+        onClose={() => setLockDialogMode(null)}
+        onLocked={() => {
+          onPosLocked?.();
+          showSuccess('Device locked to POS mode.');
+        }}
+        onUnlocked={() => {
+          onPosUnlocked?.();
+          showSuccess('POS lock removed.');
+        }}
+      />
 
       {/* Tab Pre-Bill Discount Modal */}
       <TabDiscountModal

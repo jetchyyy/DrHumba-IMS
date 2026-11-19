@@ -25,6 +25,7 @@ import {
   classifyMergeSelection,
   formatTableGroupLabel,
   getCombinedTableCapacity,
+  sortRestaurantTables,
 } from './tableUtils';
 
 interface ActiveTabSummary {
@@ -122,6 +123,7 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
         .select('*')
         .eq('branch_id', branchId)
         .eq('is_active', true)
+        .order('display_order', { ascending: true, nullsFirst: false })
         .order('table_number', { ascending: true });
 
       if (tablesErr) throw tablesErr;
@@ -229,9 +231,10 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
         };
       });
 
-      setTables(combined);
+      const sortedCombined = sortRestaurantTables(combined);
+      setTables(sortedCombined);
       setNowMs(Date.now());
-      return combined;
+      return sortedCombined;
     } catch (err: any) {
       console.error('Failed to load tables and tabs:', err);
       showError(err.message || 'Failed to load table floor');

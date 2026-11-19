@@ -313,3 +313,52 @@ export function groupOrderItemsByRound<T extends OrderRoundItemLike>(
     submittedCount,
   };
 }
+
+export interface SortableTableLike {
+  id?: string;
+  table_number: string;
+  display_order?: number | null;
+}
+
+/**
+ * Sorts restaurant tables by explicit display_order first, then naturally by table_number (1, 2, ..., 9, 10).
+ */
+export function sortRestaurantTables<T extends SortableTableLike>(tables: T[]): T[] {
+  return [...tables].sort((a, b) => {
+    const hasA = typeof a.display_order === 'number' && Number.isFinite(a.display_order);
+    const hasB = typeof b.display_order === 'number' && Number.isFinite(b.display_order);
+
+    if (hasA && hasB && a.display_order !== b.display_order) {
+      return (a.display_order as number) - (b.display_order as number);
+    }
+    if (hasA && !hasB) return -1;
+    if (!hasA && hasB) return 1;
+
+    return (a.table_number || '').localeCompare(b.table_number || '', undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  });
+}
+
+/**
+ * Moves a table up or down by one slot and renumbers display_order sequentially from 1.
+ */
+export function moveTableInOrder<T extends { id: string; display_order?: number | null }>(
+  tables: T[],
+  tableId: string,
+  direction: 'up' | 'down'
+): T[] {
+  const index = tables.findIndex(t => t.id === tableId);
+  if (index === -1) return tables;
+
+  const targetIndex = direction === 'up' ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= tables.length) {
+    return tables;
+  }
+
+  const next = [...tables];
+  const [moved] = next.splice(index, 1);
+  next.splice(targetIndex, 0, moved);
+  return next.map((tbl, idx) => ({ ...tbl, display_order: idx + 1 }));
+}

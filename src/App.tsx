@@ -33,6 +33,7 @@ import { Expenses } from './components/Expenses';
 import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen';
 import { KitchenReceipts } from './components/KitchenReceipts';
 import { TableManagement } from './components/TableManagement';
+import { isPosLocked as readPosLockedState } from './lib/posLock';
 import { Pig404 } from './components/Pig404';
 import { CustomerDisplay } from './components/CustomerDisplay';
 import { QueueCaller } from './components/QueueCaller';
@@ -59,8 +60,11 @@ const AppContent: React.FC = () => {
     window.location.pathname === '/queue-tv' || 
     window.location.search.includes('view=queue-tv');
 
+  // POS Kiosk Lock state (persisted across reloads)
+  const [isPosLocked, setIsPosLocked] = useState<boolean>(() => readPosLockedState());
+
   // Navigation active state
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => (readPosLockedState() ? 'pos' : 'dashboard'));
 
   // Authentication states
   const [email, setEmail] = useState('');
@@ -90,6 +94,47 @@ const AppContent: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isPosLocked) return;
+
+    if (activeTab !== 'pos') {
+      setActiveTab('pos');
+    }
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isPosLocked, activeTab]);
+
+  const handlePosLocked = async () => {
+    setIsPosLocked(true);
+    setActiveTab('pos');
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen().catch(() => {});
+      }
+      setIsFullscreen(true);
+    } catch {
+      setIsFullscreen(true);
+    }
+  };
+
+  const handlePosUnlocked = async () => {
+    setIsPosLocked(false);
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen().catch(() => {});
+      }
+    } finally {
+      setIsFullscreen(false);
+    }
+  };
+
   const toggleFullscreen = async () => {
     try {
       if (!document.fullscreenElement) {
@@ -99,11 +144,6 @@ const AppContent: React.FC = () => {
         // Fallback if browser fullscreen request is blocked/unsupported
         if (!document.fullscreenElement) {
           setIsFullscreen(true);
-        }
-        if ((window.screen as any).orientation?.lock) {
-          await (window.screen as any).orientation.lock('landscape').catch((err: any) => {
-            console.warn('Orientation lock failed:', err);
-          });
         }
       } else {
         if (document.exitFullscreen) {
@@ -658,7 +698,15 @@ const AppContent: React.FC = () => {
       case 'dashboard':
         return <Dashboard setActiveTab={setActiveTab} />;
       case 'pos':
-        return <POS isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen} />;
+        return (
+          <POS
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={toggleFullscreen}
+            isPosLocked={isPosLocked}
+            onPosLocked={handlePosLocked}
+            onPosUnlocked={handlePosUnlocked}
+          />
+        );
       case 'queue-caller':
         return <QueueCaller />;
       case 'sales-history':
@@ -702,7 +750,7 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const shouldHideSidebar = isFullscreen && activeTab === 'pos';
+  const shouldHideSidebar = (isFullscreen || isPosLocked) && activeTab === 'pos';
 
   return (
     <div className={`min-h-screen ${activeTab === 'pos' ? 'h-screen overflow-hidden' : ''} flex bg-background text-foreground selection:bg-primary/30`}>
