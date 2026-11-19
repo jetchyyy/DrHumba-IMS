@@ -281,3 +281,21 @@ export function discrepancyColorClass(discrepancy: number): string {
   if (cents > 0) return 'text-amber-500';
   return 'text-emerald-500';
 }
+
+/** Whether a staff profile is allowed to view service charge amounts in Sales History, Transactions, and Z-Read reports. */
+export function canViewServiceCharge(
+  profile?: { role_name?: string; is_platform_admin?: boolean; allowed_tabs?: string[] | null } | null
+): boolean {
+  if (!profile) return false;
+  if (profile.role_name === 'super_admin' || profile.is_platform_admin) return true;
+  return Boolean(profile.allowed_tabs?.includes('view_service_charge'));
+}
+
+/** Whether a staff profile is restricted in Sales History to viewing only their own sales from today. */
+export function isSalesHistoryRestricted(
+  profile?: { role_name?: string; is_platform_admin?: boolean; allowed_tabs?: string[] | null } | null
+): boolean {
+  if (!profile) return false;
+  if (profile.role_name === 'super_admin' || profile.is_platform_admin) return false;
+  return Boolean(profile.allowed_tabs?.includes('restrict_sales_history_own_today'));
+}

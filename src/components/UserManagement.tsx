@@ -106,6 +106,20 @@ const ACTION_PERMISSIONS: ActionPermission[] = [
     featureKey: 'sales_history',
   },
   {
+    id: 'view_service_charge',
+    category: 'Sales & Cashier',
+    name: 'View Service Charge',
+    description: 'View service charge amounts in Sales History, Transactions, Z-Read reports, and invoice previews/reprints.',
+    featureKey: 'sales_history',
+  },
+  {
+    id: 'restrict_sales_history_own_today',
+    category: 'Sales & Cashier',
+    name: 'Only View Own & Today\'s Sales History',
+    description: 'Restricts Sales History to only this staff member\'s own sales from today and locks the date filter so past dates and other cashiers cannot be viewed.',
+    featureKey: 'sales_history',
+  },
+  {
     id: 'expenses',
     category: 'Audit & Financial',
     name: 'Record Store Expenses',
@@ -143,7 +157,7 @@ export const UserManagement: React.FC = () => {
   const [role, setRole] = useState<string>('cashier');
   const [branchId, setBranchId] = useState('');
   const [allowedTabs, setAllowedTabs] = useState<string[]>([
-    'dashboard', 'pos', 'sales-history', 'z-read-history', 'inventory', 'global-inventory', 'settings', 'restrict_adjustment_edits'
+    'dashboard', 'pos', 'sales-history', 'z-read-history', 'inventory', 'global-inventory', 'settings', 'restrict_adjustment_edits', 'restrict_sales_history_own_today'
   ]);
   const [customRole, setCustomRole] = useState('');
 
@@ -182,7 +196,7 @@ export const UserManagement: React.FC = () => {
       'dashboard', 'pos', 'queue-caller', 'sales-history', 'z-read-history', 'expenses', 'inventory', 'global-inventory',
       'receiving', 'transfers', 'transfers_dispatch', 'transfers_receive', 'adjustments', 'portioning',
       'transactions', 'kitchen-receipts', 'recipes', 'branches', 'table-management', 'analytics', 'audit-logs', 'users', 'settings',
-      'action_buttons', 'sales_void'
+      'action_buttons', 'sales_void', 'view_service_charge'
     ],
     inventory_manager: [
       'dashboard', 'inventory', 'global-inventory', 'receiving', 'transfers', 'transfers_dispatch',
@@ -196,7 +210,7 @@ export const UserManagement: React.FC = () => {
     ],
     cashier: [
       'dashboard', 'pos', 'sales-history', 'z-read-history', 'inventory', 'global-inventory', 'settings',
-      'restrict_adjustment_edits'
+      'restrict_adjustment_edits', 'restrict_sales_history_own_today'
     ],
     auditor: [
       'dashboard', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'branches',

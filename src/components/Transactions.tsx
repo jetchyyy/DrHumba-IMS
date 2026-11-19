@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { canViewServiceCharge } from '../lib/utils';
 import { useBusinessVocab } from '../hooks/useBusinessVocab';
 import { useTenant } from '../contexts/TenantContext';
 import { settingsService } from '../lib/settingsService';
@@ -95,6 +96,7 @@ export const Transactions: React.FC = () => {
   const [isPrintingBluetooth, setIsPrintingBluetooth] = useState(false);
 
   const isAdminRole = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name);
+  const showServiceCharge = canViewServiceCharge(profile);
 
   const loadTransactions = async () => {
     if (!profile) return;
@@ -977,7 +979,7 @@ export const Transactions: React.FC = () => {
 
                 <div className="border-t border-dashed border-black my-2" />
 
-                {Number(previewSale.service_charge_amount || 0) > 0 && (
+                {showServiceCharge && Number(previewSale.service_charge_amount || 0) > 0 && (
                   <div className="flex justify-between text-[0.95em] my-1">
                     <span>Service Charge:</span>
                     <span>₱{Number(previewSale.service_charge_amount).toFixed(2)}</span>
@@ -1073,7 +1075,8 @@ export const Transactions: React.FC = () => {
                   try {
                     setIsPrintingBluetooth(true);
                     await ensureBluetoothPrinter();
-                    await printBluetoothThermalInvoice(previewSale, salesInvoiceTemplate);
+                    const printableSale = showServiceCharge ? previewSale : { ...previewSale, service_charge_amount: 0, service_charge_rate: 0 };
+                    await printBluetoothThermalInvoice(printableSale, salesInvoiceTemplate);
                     setShowThermalPreview(false);
                   } catch (err: any) {
                     alert(`Failed to print: ${err.message}`);

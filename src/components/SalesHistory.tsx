@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { canViewServiceCharge, isSalesHistoryRestricted } from '../lib/utils';
 import { useBusinessVocab } from '../hooks/useBusinessVocab';
 import { useTenant } from '../contexts/TenantContext';
 import { CountdownTimerIcon as History, MagnifyingGlassIcon as Search, ReloadIcon as RefreshCw, CalendarIcon as Calendar, BackpackIcon as ShoppingBag, ValueIcon as DollarSign, EyeOpenIcon as Eye, ActivityLogIcon as TrendingUp, FileTextIcon as Printer, FileTextIcon as FileIcon } from '@radix-ui/react-icons';
@@ -204,6 +205,7 @@ export const SalesHistory: React.FC = () => {
   const vocab = useBusinessVocab();
   const { tenant } = useTenant();
   const isRestaurant = tenant?.is_restaurant ?? true;
+  const isSalesRestricted = isSalesHistoryRestricted(profile);
   
   // `sales` holds only the current page; `stats` covers every sale matching the filters
   const [sales, setSales] = useState<SaleRecord[]>([]);
@@ -230,7 +232,7 @@ export const SalesHistory: React.FC = () => {
   const [shiftOptions, setShiftOptions] = useState<ShiftOption[]>([]);
   const [shiftsLoading, setShiftsLoading] = useState(false);
   const [selectedShiftId, setSelectedShiftId] = useState('all');
-  const countByShift = countBy === 'shift' && dateFilter !== 'all';
+  const countByShift = !isSalesRestricted && countBy === 'shift' && dateFilter !== 'all';
 
   const getDateRange = () => {
     const now = new Date();
@@ -340,6 +342,7 @@ export const SalesHistory: React.FC = () => {
   const canVoid = ['super_admin', 'branch_manager'].includes(profile?.role_name || '') || (profile?.allowed_tabs && profile.allowed_tabs.includes('sales_void'));
 
   const isAdminRole = ['super_admin', 'inventory_manager', 'auditor'].includes(profile?.role_name || '');
+  const showServiceCharge = canViewServiceCharge(profile);
 
   // Z-Report / End of Day States
   const [showEODModal, setShowEODModal] = useState(false);
@@ -353,6 +356,18 @@ export const SalesHistory: React.FC = () => {
   const [profilesList, setProfilesList] = useState<{ id: string; email: string; branch_id: string | null }[]>([]);
   const [profilesLoaded, setProfilesLoaded] = useState(false);
 
+  // Lock date/shift filters when user is restricted to own & today's sales
+  useEffect(() => {
+    if (isSalesRestricted) {
+      if (dateFilter !== 'today') setDateFilter('today');
+      if (countBy !== 'calendar') setCountBy('calendar');
+      if (startDate !== undefined) setStartDate(undefined);
+      if (endDate !== undefined) setEndDate(undefined);
+      setEodDate(new Date());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSalesRestricted]);
+
   // Initialize eodBranchId and eodCashierId when profile or branches load
   useEffect(() => {
     if (profile) {
@@ -362,20 +377,21 @@ export const SalesHistory: React.FC = () => {
         setEodBranchId(branches[0].id);
       }
 
-      if (!isAdminRole) {
+      if (!isAdminRole || isSalesRestricted) {
         setEodCashierId(profile.id);
       } else {
         setEodCashierId('All');
       }
     }
-  }, [profile, branches, isAdminRole]);
+  }, [profile, branches, isAdminRole, isSalesRestricted]);
 
   // Load only the selected day's sales for the End of Day report
   useEffect(() => {
     if (!showEODModal || !eodDate || !eodBranchId) return;
 
-    const startOfDay = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), 0, 0, 0, 0);
-    const endOfDay = new Date(eodDate.getFullYear(), eodDate.getMonth(), eodDate.getDate(), 23, 59, 59, 999);
+    const targetDate = isSalesRestricted ? new Date() : eodDate;
+    const startOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0, 0);
+    const endOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59, 999);
     let cancelled = false;
 
     let query = supabase
@@ -384,7 +400,9 @@ export const SalesHistory: React.FC = () => {
       .eq('branch_id', eodBranchId)
       .gte('created_at', startOfDay.toISOString())
       .lte('created_at', endOfDay.toISOString());
-    if (eodCashierId !== 'All') {
+    if (isSalesRestricted && profile?.id) {
+      query = query.eq('cashier_id', profile.id);
+    } else if (eodCashierId !== 'All') {
       query = query.eq('cashier_id', eodCashierId);
     }
 
@@ -706,7 +724,12 @@ export const SalesHistory: React.FC = () => {
         );
     }
 
-    if (countByShift) {
+    if (isSalesRestricted && profile?.id) {
+      query = query.eq('cashier_id', profile.id);
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      query = query.gte('created_at', startOfToday.toISOString());
+    } else if (countByShift) {
       // Same window each Z-read uses: the shift's cashier (and branch), opened_at..closed_at
       const shifts = selectedShiftId === 'all' ? shiftOptions : shiftOptions.filter(s => s.id === selectedShiftId);
       if (shiftsLoading || shifts.length === 0) return query.eq('id', '00000000-0000-0000-0000-000000000000');
@@ -845,12 +868,12 @@ export const SalesHistory: React.FC = () => {
   useEffect(() => {
     if (profilesLoaded) loadStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, countBy, shiftsLoading, shiftOptions, selectedShiftId, saleCategoryFilter, paymentMethodFilter]);
+  }, [profilesLoaded, isSalesRestricted, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, countBy, shiftsLoading, shiftOptions, selectedShiftId, saleCategoryFilter, paymentMethodFilter]);
 
   useEffect(() => {
     if (profilesLoaded) loadPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profilesLoaded, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, countBy, shiftsLoading, shiftOptions, selectedShiftId, saleCategoryFilter, paymentMethodFilter, currentPage, itemsPerPage]);
+  }, [profilesLoaded, isSalesRestricted, debouncedSearch, selectedBranchId, selectedSubStoreId, dateFilter, startDate, endDate, countBy, shiftsLoading, shiftOptions, selectedShiftId, saleCategoryFilter, paymentMethodFilter, currentPage, itemsPerPage]);
 
   const openSheet = (sale: SaleRecord) => {
     setSelectedSale(sale);
@@ -1059,7 +1082,7 @@ export const SalesHistory: React.FC = () => {
                 <span>-₱${Number(sale.discount_amount).toFixed(2)}</span>
               </div>
               ` : ''}
-              ${(sale.service_charge_amount || 0) > 0 ? `
+              ${showServiceCharge && (sale.service_charge_amount || 0) > 0 ? `
               <div class="payment-row">
                 <span>Service Charge:</span>
                 <span>+₱${Number(sale.service_charge_amount).toFixed(2)}</span>
@@ -1097,15 +1120,16 @@ export const SalesHistory: React.FC = () => {
   };
 
   const handlePrintThermalReceipt = async (sale: SaleRecord) => {
+    const printableSale = showServiceCharge ? sale : { ...sale, service_charge_amount: 0, service_charge_rate: 0 };
     try {
       setIsPrintingBluetooth(true);
       await ensureBluetoothPrinter();
       const settings = await settingsService.getSettings();
-      await printBluetoothThermalInvoice(sale, settings.sales_invoice);
+      await printBluetoothThermalInvoice(printableSale, settings.sales_invoice);
     } catch (err: any) {
       console.error('Failed to print thermal receipt:', err);
       try {
-        await printBluetoothThermalInvoice(sale, DEFAULT_SALES_INVOICE_TEMPLATE);
+        await printBluetoothThermalInvoice(printableSale, DEFAULT_SALES_INVOICE_TEMPLATE);
       } catch (innerErr: any) {
         console.error('Failed fallback print:', innerErr);
         showError(innerErr?.message || err?.message || 'Failed to print thermal receipt via Bluetooth.');
@@ -1133,9 +1157,11 @@ export const SalesHistory: React.FC = () => {
             <span>Sales History Log</span>
           </h2>
           <p className="text-muted-foreground mt-1">
-            {isAdminRole 
-              ? 'Consolidated sales, cashier registers, and ingredient deductions across all corporate branches.'
-              : `Sales transaction log for your assigned location context.`
+            {isSalesRestricted
+              ? 'Viewing your own sales transactions for today only.'
+              : isAdminRole
+                ? 'Consolidated sales, cashier registers, and ingredient deductions across all corporate branches.'
+                : `Sales transaction log for your assigned location context.`
             }
           </p>
         </div>
@@ -1337,7 +1363,11 @@ export const SalesHistory: React.FC = () => {
 
             <div className="flex items-center space-x-2">
               <span className="text-xs text-muted-foreground font-medium">Date Scope:</span>
-              <Select value={dateFilter} onValueChange={(v: any) => setDateFilter(v)}>
+              <Select
+                value={isSalesRestricted ? 'today' : dateFilter}
+                onValueChange={(v: any) => { if (!isSalesRestricted) setDateFilter(v); }}
+                disabled={isSalesRestricted}
+              >
                 <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="Today" />
                 </SelectTrigger>
@@ -1353,7 +1383,11 @@ export const SalesHistory: React.FC = () => {
 
             <div className="flex items-center space-x-2">
               <span className="text-xs text-muted-foreground font-medium">Count By:</span>
-              <Select value={countBy} onValueChange={(v: any) => setCountBy(v)} disabled={dateFilter === 'all'}>
+              <Select
+                value={isSalesRestricted ? 'calendar' : countBy}
+                onValueChange={(v: any) => { if (!isSalesRestricted) setCountBy(v); }}
+                disabled={dateFilter === 'all' || isSalesRestricted}
+              >
                 <SelectTrigger className="w-[160px]">
                   <SelectValue />
                 </SelectTrigger>
@@ -1400,7 +1434,7 @@ export const SalesHistory: React.FC = () => {
           </Card>
         )}
 
-        {dateFilter === 'custom' && (
+        {dateFilter === 'custom' && !isSalesRestricted && (
           <Card className="bg-muted/30">
             <CardContent className="p-4 flex flex-col sm:flex-row items-center gap-4 text-sm">
               <div className="flex items-center space-x-2 w-full sm:w-auto">
@@ -2052,7 +2086,7 @@ export const SalesHistory: React.FC = () => {
                           </TableCell>
                         </TableRow>
                       )}
-                      {selectedSale.service_charge_amount != null && selectedSale.service_charge_amount > 0 && (
+                      {showServiceCharge && selectedSale.service_charge_amount != null && selectedSale.service_charge_amount > 0 && (
                         <TableRow className="bg-muted/10 border-t">
                           <TableCell colSpan={3} className="text-right text-xs text-muted-foreground font-semibold">
                             Service Charge:
@@ -2143,7 +2177,7 @@ export const SalesHistory: React.FC = () => {
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
                   Cashier Register Shift
                 </Label>
-                {isAdminRole ? (
+                {isAdminRole && !isSalesRestricted ? (
                   <Select value={eodCashierId} onValueChange={setEodCashierId}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select Cashier" />
@@ -2167,21 +2201,28 @@ export const SalesHistory: React.FC = () => {
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold block">
                   Report Date
                 </Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal h-10">
-                      <Calendar className="mr-2 h-4 w-4" />
-                      {eodDate ? format(eodDate, 'PPP') : <span>Pick a date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <CalendarComponent
-                      mode="single"
-                      selected={eodDate}
-                      onSelect={(d) => d && setEodDate(d)}
-                    />
-                  </PopoverContent>
-                </Popover>
+                {isSalesRestricted ? (
+                  <div className="bg-muted p-2 rounded text-sm font-bold border flex items-center">
+                    <Calendar className="mr-2 h-4 w-4 text-muted-foreground" />
+                    {format(new Date(), 'PPP')} (Today Only)
+                  </div>
+                ) : (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left font-normal h-10">
+                        <Calendar className="mr-2 h-4 w-4" />
+                        {eodDate ? format(eodDate, 'PPP') : <span>Pick a date</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <CalendarComponent
+                        mode="single"
+                        selected={eodDate}
+                        onSelect={(d) => d && setEodDate(d)}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                )}
               </div>
 
               {/* Shift Hours Time Inputs */}

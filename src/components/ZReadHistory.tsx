@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { discrepancyColorClass, getOrganizedBranches } from '../lib/utils';
+import { discrepancyColorClass, getOrganizedBranches, canViewServiceCharge } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useModal } from '../contexts/ModalContext';
 import { printXZReport } from '../lib/printService';
@@ -57,6 +57,7 @@ export const ZReadHistory: React.FC = () => {
   const { profile, branches } = useAuth();
   const { showError } = useModal();
   const isAdminRole = Boolean(profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name));
+  const showServiceCharge = canViewServiceCharge(profile);
 
   const [sessions, setSessions] = useState<CashierSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -351,11 +352,16 @@ export const ZReadHistory: React.FC = () => {
     }
   };
 
+  const sanitizeSummaryForDisplay = (summary: any) => {
+    if (!summary || showServiceCharge) return summary;
+    return { ...summary, serviceChargeTotal: 0 };
+  };
+
   const handlePrintXZBluetooth = async (summary: any, isZRead: boolean, branchName: string) => {
     try {
       setIsPrintingXZBluetooth(true);
       await ensureBluetoothPrinter();
-      await printBluetoothXZReport(summary, isZRead, branchName);
+      await printBluetoothXZReport(sanitizeSummaryForDisplay(summary), isZRead, branchName);
     } catch (err: any) {
       console.error('Failed to print Z-Read via Bluetooth:', err);
       showError(err?.message || 'Failed to print report via Bluetooth.');
@@ -748,7 +754,7 @@ export const ZReadHistory: React.FC = () => {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8 text-muted-foreground hover:text-primary"
-                              onClick={() => printXZReport(summary, true, session.branches?.name || 'TERMINAL')}
+                              onClick={() => printXZReport(sanitizeSummaryForDisplay(summary), true, session.branches?.name || 'TERMINAL')}
                               title="Reprint Z-Read Receipt"
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -825,7 +831,7 @@ export const ZReadHistory: React.FC = () => {
                   <div className="flex justify-between"><span>VAT Amount (12%):</span><span>{formatPHP(summary.vatAmount)}</span></div>
                   <div className="flex justify-between"><span>VAT-Exempt Sales:</span><span>{formatPHP(summary.vatExemptSales || 0)}</span></div>
                   <div className="flex justify-between"><span>Discount Total:</span><span>{formatPHP(summary.discountAmount || 0)}</span></div>
-                  {Number(summary.serviceChargeTotal || 0) > 0 && (
+                  {showServiceCharge && Number(summary.serviceChargeTotal || 0) > 0 && (
                     <div className="flex justify-between"><span>Service Charge:</span><span>{formatPHP(summary.serviceChargeTotal)}</span></div>
                   )}
                   <div className="flex justify-between"><span>Transaction Count:</span><span>{summary.transactionCount}</span></div>
@@ -885,7 +891,7 @@ export const ZReadHistory: React.FC = () => {
             <Button
               onClick={() => {
                 const summary = getSummaryObject(selectedSession!);
-                printXZReport(summary, true, selectedSession!.branches?.name || 'TERMINAL');
+                printXZReport(sanitizeSummaryForDisplay(summary), true, selectedSession!.branches?.name || 'TERMINAL');
               }}
               className="sm:flex-1 font-bold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
             >
