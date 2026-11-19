@@ -34,6 +34,7 @@ import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen'
 import { KitchenReceipts } from './components/KitchenReceipts';
 import { TableManagement } from './components/TableManagement';
 import { isPosLocked as readPosLockedState } from './lib/posLock';
+import { getAllowedTabIds, resolveEffectiveTab } from './lib/navPermissions';
 import { PosLockDialog } from './components/pos/PosLockDialog';
 import { useNetworkStatus } from './hooks/use-network-status';
 import { Pig404 } from './components/Pig404';
@@ -102,36 +103,61 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (!isPosLocked) return;
 
+    // Trap repeated Android/browser Back button presses inside the PWA so WebAPK never exits to a frozen splash screen
+    if (!window.history.state?.kioskGuard) {
+      window.history.pushState({ kioskGuard: true }, '', window.location.href);
+    }
+
+    const handlePopState = () => {
+      window.history.pushState({ kioskGuard: true }, '', window.location.href);
+    };
+    window.addEventListener('popstate', handlePopState);
+
+    // Only attach beforeunload on non-standalone desktop tabs; Android standalone WebAPKs can freeze on splash when beforeunload fires on back-exit
+    const isStandalonePwa =
+      window.matchMedia?.('(display-mode: standalone)').matches ||
+      Boolean((window.navigator as any).standalone);
+
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
     };
-    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    if (!isStandalonePwa) {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+    }
+
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+      if (!isStandalonePwa) {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+      }
     };
   }, [isPosLocked]);
 
-  const handlePosLocked = async () => {
-    setIsPosLocked(true);
-    try {
-      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen().catch(() => {});
-      }
-    } catch {
-      // Ignore fullscreen denial on unsupported browsers
+  const allowedTabIds = React.useMemo(
+    () => getAllowedTabIds(profile, tenant),
+    [profile, tenant]
+  );
+
+  const effectiveTab = profile ? resolveEffectiveTab(activeTab, allowedTabIds) : activeTab;
+
+  useEffect(() => {
+    if (!user) {
+      setActiveTab('dashboard');
+      return;
     }
+    if (profile && effectiveTab && effectiveTab !== activeTab) {
+      setActiveTab(effectiveTab);
+    }
+  }, [user, profile, effectiveTab, activeTab]);
+
+  const handlePosLocked = () => {
+    setIsPosLocked(true);
   };
 
-  const handlePosUnlocked = async () => {
+  const handlePosUnlocked = () => {
     setIsPosLocked(false);
-    try {
-      if (document.fullscreenElement && document.exitFullscreen) {
-        await document.exitFullscreen().catch(() => {});
-      }
-    } finally {
-      setIsFullscreen(false);
-    }
   };
 
   const toggleFullscreen = async () => {
@@ -704,12 +730,24 @@ const AppContent: React.FC = () => {
     );
   };
 
-  // Render Page Content based on selected tab — plan-gated
+  // Render Page Content based on selected tab — plan-gated & role-gated
   const renderContent = () => {
-    if (!isFeatureAllowed(activeTab)) {
-      return <PlanUpgradeWall tabId={activeTab} />;
+    if (profile && allowedTabIds.length === 0) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-8 text-center">
+          <div className="max-w-md space-y-2">
+            <h2 className="text-xl font-bold">No Modules Permitted</h2>
+            <p className="text-sm text-muted-foreground">
+              Your account currently has no enabled tabs. Contact your administrator to grant access.
+            </p>
+          </div>
+        </div>
+      );
     }
-    switch (activeTab) {
+    if (!isFeatureAllowed(effectiveTab)) {
+      return <PlanUpgradeWall tabId={effectiveTab} />;
+    }
+    switch (effectiveTab) {
       case 'dashboard':
         return <Dashboard setActiveTab={setActiveTab} />;
       case 'pos':
@@ -764,15 +802,15 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const shouldHideSidebar = isFullscreen && activeTab === 'pos' && !isPosLocked;
+  const shouldHideSidebar = isFullscreen && effectiveTab === 'pos';
 
   return (
-    <div className={`min-h-screen ${activeTab === 'pos' ? 'h-screen overflow-hidden' : ''} flex bg-background text-foreground selection:bg-primary/30`}>
+    <div className={`min-h-screen ${effectiveTab === 'pos' ? 'h-screen overflow-hidden' : ''} flex bg-background text-foreground selection:bg-primary/30`}>
       <OfflineBanner />
       {/* Desktop Sidebar */}
       {!shouldHideSidebar && (
         <Sidebar
-          activeTab={activeTab}
+          activeTab={effectiveTab}
           setActiveTab={setActiveTab}
           isAppLocked={isPosLocked}
           onOpenLockDialog={setLockDialogMode}
@@ -783,7 +821,7 @@ const AppContent: React.FC = () => {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {!shouldHideSidebar && (
           <MobileHeader
-            activeTab={activeTab}
+            activeTab={effectiveTab}
             setActiveTab={setActiveTab}
             isAppLocked={isPosLocked}
             onOpenLockDialog={setLockDialogMode}
@@ -794,7 +832,7 @@ const AppContent: React.FC = () => {
         <main 
           onScroll={handleScroll}
           className={`flex-1 flex flex-col min-w-0 ${
-            activeTab === 'pos'
+            effectiveTab === 'pos'
               ? 'h-full overflow-hidden'
               : 'overflow-y-auto overflow-x-hidden'
           } ${shouldHideSidebar ? 'pb-0' : 'pb-28 md:pb-0'}`}
@@ -804,7 +842,7 @@ const AppContent: React.FC = () => {
       </div>
 
       {/* Mobile Bottom Navigation */}
-      {!shouldHideSidebar && <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} isVisible={showMobileNav} />}
+      {!shouldHideSidebar && <MobileBottomNav activeTab={effectiveTab} setActiveTab={setActiveTab} isVisible={showMobileNav} />}
 
       <PosLockDialog
         open={lockDialogMode !== null}

@@ -2406,32 +2406,30 @@ export const POS: React.FC<POSProps> = ({
                 Customer Screen
               </Button>
 
-              {/* Fullscreen Button (hidden while POS Kiosk Lock is active) */}
-              {!isPosLocked && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={toggleFullscreen}
-                  className={`h-9 text-xs font-bold gap-1.5 rounded-lg active:scale-95 ${isFullscreen ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
-                  title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-                >
-                  {isFullscreen ? (
-                    <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 9L3 3m0 0l2 5M3 3l5 2m6 4l6-6m0 0l-5 2m5-2l-2 5M9 15l-6 6m0 0l5-2m-5 2l-2-5m13-1l6 6m0 0l-2-5m2 5l-5-2" />
-                      </svg>
-                      Exit Full
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5h-4m4 0v-4m0 4l-5-5" />
-                      </svg>
-                      Fullscreen
-                    </>
-                  )}
-                </Button>
-              )}
+              {/* Fullscreen Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleFullscreen}
+                className={`h-9 text-xs font-bold gap-1.5 rounded-lg active:scale-95 ${isFullscreen ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
+                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+              >
+                {isFullscreen ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 9L3 3m0 0l2 5M3 3l5 2m6 4l6-6m0 0l-5 2m5-2l-2 5M9 15l-6 6m0 0l5-2m-5 2l-2-5m13-1l6 6m0 0l-2-5m2 5l-5-2" />
+                    </svg>
+                    Exit Full
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5h-4m4 0v-4m0 4l-5-5" />
+                    </svg>
+                    Fullscreen
+                  </>
+                )}
+              </Button>
 
               {/* App Kiosk Lock / Unlock Button */}
               {onOpenLockDialog && (

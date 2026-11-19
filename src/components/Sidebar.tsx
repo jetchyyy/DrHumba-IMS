@@ -36,6 +36,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from 
 import { FloatingNotifications } from './FloatingNotifications';
 import { getTerminalConfig } from '../lib/offlineService';
 import { usePendingApprovalCounts } from '../hooks/usePendingApprovalCounts';
+import { getAllowedTabIds } from '../lib/navPermissions';
 import { Lock, Unlock } from 'lucide-react';
 
 interface SidebarProps {
@@ -45,94 +46,43 @@ interface SidebarProps {
   onOpenLockDialog?: (mode: 'lock' | 'unlock') => void;
 }
 
-// Feature key map for plan gating
-const TAB_FEATURE_KEYS: Record<string, string> = {
-  pos: 'pos',
-  'queue-caller': 'queue_caller',
-  'sales-history': 'sales_history',
-  'z-read-history': 'z_read_history',
-  inventory: 'inventory',
-  'global-inventory': 'global_inventory',
-  receiving: 'receiving',
-  transfers: 'transfers',
-  adjustments: 'adjustments',
-  portioning: 'portioning',
-  transactions: 'transactions',
-  'kitchen-receipts': 'kitchen_receipts',
-  recipes: 'recipes',
-  branches: 'branches',
-  'table-management': 'table_management',
-  analytics: 'analytics',
-  'audit-logs': 'audit_logs',
-  users: 'users',
-  settings: 'settings',
-  expenses: 'expenses',
-};
-
 // The shared nav items list — used by both desktop sidebar & mobile components
 export const useNavItems = () => {
   const { profile } = useAuth();
   const { tenant } = useTenant();
   if (!profile) return [];
-  const role = profile.role_name;
   const isRestaurant = tenant?.is_restaurant ?? (tenant?.is_retail || tenant?.is_service ? false : true);
-  const features = (tenant?.features ?? {}) as Record<string, boolean>;
+  const allowedIds = new Set(getAllowedTabIds(profile, tenant));
 
   const tabs = [
-    { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, show: true },
-    { id: 'pos', name: 'POS (Sales)', icon: ShoppingBag, show: ['super_admin', 'branch_manager', 'cashier'].includes(role) },
-    { id: 'queue-caller', name: 'Queue Caller', icon: Megaphone, show: ['super_admin', 'branch_manager', 'cashier'].includes(role) },
-    { id: 'sales-history', name: 'Sales History', icon: History, show: true },
-    { id: 'z-read-history', name: 'Z-Read History', icon: ClipboardList, show: true },
-    { id: 'expenses', name: 'Expense Tracker', icon: ExpensesIcon, show: ['super_admin', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'inventory', name: 'Inventory Items', icon: Package, show: true },
-    { id: 'global-inventory', name: 'Overall Stock', icon: Boxes, show: ['super_admin', 'inventory_manager', 'auditor'].includes(role) },
-    { id: 'receiving', name: 'Stock Receiving', icon: FilePlus, show: ['super_admin', 'inventory_manager'].includes(role) },
-    { id: 'transfers', name: 'Transfers', icon: ArrowLeftRight, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'adjustments', name: 'Adjustments', icon: ClipboardList, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'portioning', name: 'Portioning & Yield', icon: ChefHat, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'transactions', name: 'Transactions', icon: FileText, show: true },
-    { id: 'kitchen-receipts', name: 'Kitchen Orders', icon: ChefHat, show: isRestaurant },
-    { id: 'recipes', name: isRestaurant ? 'Recipes' : 'Products & Services', icon: ChefHat, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'branches', name: 'Branches', icon: Store, show: ['super_admin', 'auditor'].includes(role) },
-    { id: 'table-management', name: 'Table Management', icon: TableIcon, show: isRestaurant && ['super_admin', 'branch_manager'].includes(role) },
-    { id: 'analytics', name: 'Analytics', icon: BarChart3, show: ['super_admin', 'inventory_manager', 'branch_manager', 'auditor'].includes(role) },
-    { id: 'audit-logs', name: 'Audit Logs', icon: FileText, show: ['super_admin', 'auditor'].includes(role) },
-    { id: 'users', name: 'Staff Management', icon: Users, show: ['super_admin'].includes(role) },
-    { id: 'settings', name: 'Settings', icon: SettingsIcon, show: true },
+    { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard },
+    { id: 'pos', name: 'POS (Sales)', icon: ShoppingBag },
+    { id: 'queue-caller', name: 'Queue Caller', icon: Megaphone },
+    { id: 'sales-history', name: 'Sales History', icon: History },
+    { id: 'z-read-history', name: 'Z-Read History', icon: ClipboardList },
+    { id: 'expenses', name: 'Expense Tracker', icon: ExpensesIcon },
+    { id: 'inventory', name: 'Inventory Items', icon: Package },
+    { id: 'global-inventory', name: 'Overall Stock', icon: Boxes },
+    { id: 'receiving', name: 'Stock Receiving', icon: FilePlus },
+    { id: 'transfers', name: 'Transfers', icon: ArrowLeftRight },
+    { id: 'adjustments', name: 'Adjustments', icon: ClipboardList },
+    { id: 'portioning', name: 'Portioning & Yield', icon: ChefHat },
+    { id: 'transactions', name: 'Transactions', icon: FileText },
+    { id: 'kitchen-receipts', name: 'Kitchen Orders', icon: ChefHat },
+    { id: 'recipes', name: isRestaurant ? 'Recipes' : 'Products & Services' },
+    { id: 'branches', name: 'Branches', icon: Store },
+    { id: 'table-management', name: 'Table Management', icon: TableIcon },
+    { id: 'analytics', name: 'Analytics', icon: BarChart3 },
+    { id: 'audit-logs', name: 'Audit Logs', icon: FileText },
+    { id: 'users', name: 'Staff Management', icon: Users },
+    { id: 'settings', name: 'Settings', icon: SettingsIcon },
   ];
 
-  // Filter by business model rules & SuperAdmin feature flags
-  const filtered = tabs.filter(tab => {
-    // 1. Plan feature flag is a hard ceiling — always applied first regardless of role
-    const key = TAB_FEATURE_KEYS[tab.id];
-    if (key === 'table_management') {
-      // Table Management is an opt-in feature: must be explicitly enabled
-      if (!tenant?.features?.table_management) {
-        return false;
-      }
-    } else if (key && tenant?.features && features[key] === false) {
-      return false;
-    }
-
-    // 2. If the staff has an explicit allowed_tabs list, use it as the source of truth.
-    //    This allows custom-role staff to access tabs like Transfers even if tab.show
-    //    is false for their role (since tab.show only lists known system roles).
-    if (profile.allowed_tabs && Array.isArray(profile.allowed_tabs)) {
-      return profile.allowed_tabs.includes(tab.id);
-    }
-
-    // 3. System tabs always available to standard roles (if not overridden by allowed_tabs)
-    if (['dashboard', 'settings'].includes(tab.id)) return true;
-
-    // 4. Super Admin gets all business-valid & feature-enabled tabs
-    if (role === 'super_admin') return tab.show;
-
-    // 5. Fall back to the tab.show role gate for standard roles without overrides
-    return !!tab.show;
-  });
-
-  return filtered.map(tab => ({ ...tab, locked: false }));
+  // Note: recipes needs icon set uniformly
+  const withIcons = tabs.map(t => (t.icon ? t : { ...t, icon: ChefHat }));
+  return withIcons
+    .filter(tab => allowedIds.has(tab.id))
+    .map(tab => ({ ...tab, locked: false }));
 };
 
 // ── Inner nav content (shared between desktop sidebar & mobile sheet) ─────────
