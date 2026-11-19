@@ -63,7 +63,6 @@ import { PaymentDialog } from "./pos/PaymentDialog";
 import { TableFloorDialog } from "./pos/TableFloorDialog";
 import { TabDiscountModal } from "./pos/TabDiscountModal";
 import { FullTableOrderDialog } from "./pos/FullTableOrderDialog";
-import { PosLockDialog } from "./pos/PosLockDialog";
 import {
   MatchPriceDialog,
   SaleSuccessDialog,
@@ -86,16 +85,14 @@ interface POSProps {
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   isPosLocked?: boolean;
-  onPosLocked?: () => void;
-  onPosUnlocked?: () => void;
+  onOpenLockDialog?: (mode: 'lock' | 'unlock') => void;
 }
 
 export const POS: React.FC<POSProps> = ({
   isFullscreen = false,
   onToggleFullscreen,
   isPosLocked = false,
-  onPosLocked,
-  onPosUnlocked,
+  onOpenLockDialog,
 }) => {
   const { selectedBranch, profile, branches } = useAuth();
   const { showSuccess, showError, confirm } = useModal();
@@ -188,7 +185,6 @@ export const POS: React.FC<POSProps> = ({
   const [fullOrderOpen, setFullOrderOpen] = useState(false);
   const [updatingServedId, setUpdatingServedId] = useState<string | null>(null);
   const [portraitSplitCart, setPortraitSplitCart] = useState(false);
-  const [lockDialogMode, setLockDialogMode] = useState<'lock' | 'unlock' | null>(null);
   const activeTableLabel = activeTable
     ? formatTableGroupLabel(activeTab?.merged_tables, activeTable.table_number)
     : '';
@@ -2437,21 +2433,23 @@ export const POS: React.FC<POSProps> = ({
                 </Button>
               )}
 
-              {/* POS Kiosk Lock / Unlock Button */}
-              <Button
-                variant={isPosLocked ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setLockDialogMode(isPosLocked ? 'unlock' : 'lock')}
-                className={`h-9 text-xs font-bold gap-1.5 rounded-lg active:scale-95 ${
-                  isPosLocked
-                    ? 'bg-amber-500 hover:bg-amber-600 text-black shadow-sm'
-                    : 'border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10'
-                }`}
-                title={isPosLocked ? 'Unlock POS mode with PIN' : 'Lock device to POS-only mode with PIN'}
-              >
-                {isPosLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                <span>{isPosLocked ? 'POS Locked' : 'Lock POS'}</span>
-              </Button>
+              {/* App Kiosk Lock / Unlock Button */}
+              {onOpenLockDialog && (
+                <Button
+                  variant={isPosLocked ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => onOpenLockDialog(isPosLocked ? 'unlock' : 'lock')}
+                  className={`h-9 text-xs font-bold gap-1.5 rounded-lg active:scale-95 ${
+                    isPosLocked
+                      ? 'bg-amber-500 hover:bg-amber-600 text-black shadow-sm'
+                      : 'border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10'
+                  }`}
+                  title={isPosLocked ? 'Unlock Kiosk Mode with PIN' : 'Lock App in Kiosk Mode with PIN'}
+                >
+                  {isPosLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                  <span>{isPosLocked ? 'Kiosk Locked' : 'Lock App'}</span>
+                </Button>
+              )}
             </div>
           </div>
 
@@ -2765,23 +2763,6 @@ export const POS: React.FC<POSProps> = ({
           onSettleAndPay={openPayment}
         />
       )}
-
-      {/* POS Kiosk Lock / Unlock Dialog */}
-      <PosLockDialog
-        open={lockDialogMode !== null}
-        mode={lockDialogMode || 'lock'}
-        isOnline={isOnline}
-        userEmail={profile?.email}
-        onClose={() => setLockDialogMode(null)}
-        onLocked={() => {
-          onPosLocked?.();
-          showSuccess('Device locked to POS mode.');
-        }}
-        onUnlocked={() => {
-          onPosUnlocked?.();
-          showSuccess('POS lock removed.');
-        }}
-      />
 
       {/* Tab Pre-Bill Discount Modal */}
       <TabDiscountModal

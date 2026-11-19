@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
-import { ModalProvider } from './contexts/ModalContext';
+import { ModalProvider, useModal } from './contexts/ModalContext';
 import { PendingApprovalsProvider } from './contexts/PendingApprovalsContext';
 import { supabase } from './lib/supabase';
 import { useTenant } from './contexts/TenantContext';
@@ -34,6 +34,8 @@ import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen'
 import { KitchenReceipts } from './components/KitchenReceipts';
 import { TableManagement } from './components/TableManagement';
 import { isPosLocked as readPosLockedState } from './lib/posLock';
+import { PosLockDialog } from './components/pos/PosLockDialog';
+import { useNetworkStatus } from './hooks/use-network-status';
 import { Pig404 } from './components/Pig404';
 import { CustomerDisplay } from './components/CustomerDisplay';
 import { QueueCaller } from './components/QueueCaller';
@@ -49,6 +51,8 @@ import { Alert, AlertDescription } from './components/ui/alert';
 const AppContent: React.FC = () => {
   const { user, profile, loading, refreshProfile, signOut } = useAuth();
   const { tenant, tenantLoading, tenantError, isSingleTenantMode } = useTenant();
+  const { showSuccess } = useModal();
+  const { isOnline } = useNetworkStatus();
 
   // Check if this is the customer display screen
   const isCustomerDisplay = 
@@ -60,11 +64,12 @@ const AppContent: React.FC = () => {
     window.location.pathname === '/queue-tv' || 
     window.location.search.includes('view=queue-tv');
 
-  // POS Kiosk Lock state (persisted across reloads)
+  // App Kiosk Lock state (persisted across reloads and account switches)
   const [isPosLocked, setIsPosLocked] = useState<boolean>(() => readPosLockedState());
+  const [lockDialogMode, setLockDialogMode] = useState<'lock' | 'unlock' | null>(null);
 
   // Navigation active state
-  const [activeTab, setActiveTab] = useState(() => (readPosLockedState() ? 'pos' : 'dashboard'));
+  const [activeTab, setActiveTab] = useState('dashboard');
 
   // Authentication states
   const [email, setEmail] = useState('');
@@ -97,10 +102,6 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (!isPosLocked) return;
 
-    if (activeTab !== 'pos') {
-      setActiveTab('pos');
-    }
-
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
@@ -109,18 +110,16 @@ const AppContent: React.FC = () => {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [isPosLocked, activeTab]);
+  }, [isPosLocked]);
 
   const handlePosLocked = async () => {
     setIsPosLocked(true);
-    setActiveTab('pos');
     try {
       if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen().catch(() => {});
       }
-      setIsFullscreen(true);
     } catch {
-      setIsFullscreen(true);
+      // Ignore fullscreen denial on unsupported browsers
     }
   };
 
@@ -228,7 +227,9 @@ const AppContent: React.FC = () => {
       });
 
       if (error) throw error;
-      setAuthSuccess('Sign in successful!');
+      setEmail('');
+      setPassword('');
+      setAuthSuccess('');
     } catch (err: any) {
       console.error(err);
       setAuthError(err.message || 'Failed to sign in. Please verify credentials.');
@@ -329,6 +330,11 @@ const AppContent: React.FC = () => {
                   <p className="text-sm text-[#45546A] mt-1">
                     {isConsole ? 'Platform administration' : 'Sign in to your workspace'}
                   </p>
+                  {isPosLocked && (
+                    <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-800 text-xs font-semibold">
+                      POS Kiosk Lock Active — Sign in to continue to POS
+                    </div>
+                  )}
                 </div>
 
                 {authError && (
@@ -404,17 +410,21 @@ const AppContent: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center justify-center gap-2 mt-8 text-xs text-[#5F6A7C]">
-              <span>Powered by</span>
-              <a href={`https://${import.meta.env.VITE_MAIN_DOMAIN || 'erp.odysseyph.com'}`} aria-label="ODYSSEY">
-                <img src="/odyssey/logo-horizontal.svg" alt="ODYSSEY" className="h-6 w-auto" />
-              </a>
-            </div>
-            <div className="flex items-center justify-center gap-4 mt-3 text-xs text-[#45546A]">
-              <a href="/terms" className="hover:text-[#152839] underline-offset-4 hover:underline">Terms &amp; Conditions</a>
-              <span aria-hidden="true">·</span>
-              <a href="/privacy" className="hover:text-[#152839] underline-offset-4 hover:underline">Data Privacy</a>
-            </div>
+            {!isPosLocked && (
+              <>
+                <div className="flex items-center justify-center gap-2 mt-8 text-xs text-[#5F6A7C]">
+                  <span>Powered by</span>
+                  <a href={`https://${import.meta.env.VITE_MAIN_DOMAIN || 'erp.odysseyph.com'}`} aria-label="ODYSSEY">
+                    <img src="/odyssey/logo-horizontal.svg" alt="ODYSSEY" className="h-6 w-auto" />
+                  </a>
+                </div>
+                <div className="flex items-center justify-center gap-4 mt-3 text-xs text-[#45546A]">
+                  <a href="/terms" className="hover:text-[#152839] underline-offset-4 hover:underline">Terms &amp; Conditions</a>
+                  <span aria-hidden="true">·</span>
+                  <a href="/privacy" className="hover:text-[#152839] underline-offset-4 hover:underline">Data Privacy</a>
+                </div>
+              </>
+            )}
           </div>
         </div>
       );
@@ -452,6 +462,11 @@ const AppContent: React.FC = () => {
               <CardDescription className="text-sm font-semibold text-pink-600 uppercase tracking-widest mt-1">
                 {window.location.pathname === '/odc' ? "Console Administration" : "Management System"}
               </CardDescription>
+              {isPosLocked && (
+                <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-800 text-xs font-semibold">
+                  POS Kiosk Lock Active — Sign in to continue to POS
+                </div>
+              )}
             </div>
           </CardHeader>
 
@@ -703,8 +718,7 @@ const AppContent: React.FC = () => {
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullscreen}
             isPosLocked={isPosLocked}
-            onPosLocked={handlePosLocked}
-            onPosUnlocked={handlePosUnlocked}
+            onOpenLockDialog={setLockDialogMode}
           />
         );
       case 'queue-caller':
@@ -750,17 +764,31 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const shouldHideSidebar = (isFullscreen || isPosLocked) && activeTab === 'pos';
+  const shouldHideSidebar = isFullscreen && activeTab === 'pos' && !isPosLocked;
 
   return (
     <div className={`min-h-screen ${activeTab === 'pos' ? 'h-screen overflow-hidden' : ''} flex bg-background text-foreground selection:bg-primary/30`}>
       <OfflineBanner />
       {/* Desktop Sidebar */}
-      {!shouldHideSidebar && <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />}
+      {!shouldHideSidebar && (
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          isAppLocked={isPosLocked}
+          onOpenLockDialog={setLockDialogMode}
+        />
+      )}
 
       {/* Mobile Top Header */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {!shouldHideSidebar && <MobileHeader activeTab={activeTab} setActiveTab={setActiveTab} />}
+        {!shouldHideSidebar && (
+          <MobileHeader
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            isAppLocked={isPosLocked}
+            onOpenLockDialog={setLockDialogMode}
+          />
+        )}
 
         {/* Main Content Area — pb-28 leaves room for mobile floating bottom nav */}
         <main 
@@ -777,6 +805,22 @@ const AppContent: React.FC = () => {
 
       {/* Mobile Bottom Navigation */}
       {!shouldHideSidebar && <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} isVisible={showMobileNav} />}
+
+      <PosLockDialog
+        open={lockDialogMode !== null}
+        mode={lockDialogMode || 'lock'}
+        isOnline={isOnline}
+        userEmail={profile?.email}
+        onClose={() => setLockDialogMode(null)}
+        onLocked={() => {
+          handlePosLocked();
+          showSuccess('App locked in Kiosk Mode.');
+        }}
+        onUnlocked={() => {
+          handlePosUnlocked();
+          showSuccess('App Kiosk Lock removed.');
+        }}
+      />
 
       <ActiveBranchSplashScreen />
       <Toaster />

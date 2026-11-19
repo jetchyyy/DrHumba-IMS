@@ -146,21 +146,21 @@ export const PosLockDialog: React.FC<PosLockDialogProps> = ({
             {mode === 'lock' ? (
               <>
                 <Lock className="w-4 h-4 text-primary" />
-                <span>Lock POS Mode</span>
+                <span>Lock App (Kiosk Mode)</span>
               </>
             ) : (
               <>
                 <Unlock className="w-4 h-4 text-amber-500" />
-                <span>Unlock POS Mode</span>
+                <span>Unlock App</span>
               </>
             )}
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
             {mode === 'lock'
-              ? 'Set a 4–6 digit PIN to lock this device to POS only (hides sidebar, branch switcher, settings, and sign out—even offline). Pair with Android App Pinning to prevent closing the PWA.'
+              ? 'Set a 4–6 digit PIN to lock this device in Fullscreen Kiosk Mode. Staff can still use their allowed sidebar features and switch accounts—unlocking kiosk mode requires this PIN.'
               : showPasswordFallback
-                ? `Verify password for ${userEmail} to clear the POS lock.`
-                : 'Enter the 4–6 digit lock PIN to restore full navigation and exit POS lock.'}
+                ? `Verify password for ${userEmail} to unlock Kiosk Mode.`
+                : 'Enter the 4–6 digit PIN to exit Kiosk Mode.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -216,7 +216,7 @@ export const PosLockDialog: React.FC<PosLockDialogProps> = ({
                 className="text-xs font-bold gap-1.5"
               >
                 {submitting ? <Spinner className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
-                <span>Lock to POS</span>
+                <span>Lock App</span>
               </Button>
             </div>
           </form>
@@ -337,7 +337,7 @@ export const PosLockDialog: React.FC<PosLockDialogProps> = ({
                 className="text-xs font-bold gap-1.5 bg-amber-500 hover:bg-amber-600 text-black"
               >
                 {submitting ? <Spinner className="w-3.5 h-3.5 animate-spin" /> : <Unlock className="w-3.5 h-3.5" />}
-                <span>Unlock POS</span>
+                <span>Unlock App</span>
               </Button>
             </div>
           </form>

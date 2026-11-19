@@ -36,10 +36,13 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from 
 import { FloatingNotifications } from './FloatingNotifications';
 import { getTerminalConfig } from '../lib/offlineService';
 import { usePendingApprovalCounts } from '../hooks/usePendingApprovalCounts';
+import { Lock, Unlock } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  isAppLocked?: boolean;
+  onOpenLockDialog?: (mode: 'lock' | 'unlock') => void;
 }
 
 // Feature key map for plan gating
@@ -133,8 +136,16 @@ export const useNavItems = () => {
 };
 
 // ── Inner nav content (shared between desktop sidebar & mobile sheet) ─────────
-const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => void; onNavigate?: () => void; isCollapsed?: boolean; onToggleCollapse?: () => void }> = ({
-  activeTab, setActiveTab, onNavigate, isCollapsed, onToggleCollapse
+const NavContent: React.FC<{
+  activeTab: string;
+  setActiveTab: (t: string) => void;
+  onNavigate?: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
+  isAppLocked?: boolean;
+  onOpenLockDialog?: (mode: 'lock' | 'unlock') => void;
+}> = ({
+  activeTab, setActiveTab, onNavigate, isCollapsed, onToggleCollapse, isAppLocked, onOpenLockDialog
 }) => {
   const { counts, isApprover } = usePendingApprovalCounts();
   const { profile, selectedBranch, setSelectedBranch, branches, signOut } = useAuth();
@@ -345,6 +356,26 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
             </Button>
           </div>
         </div>
+        {onOpenLockDialog && (
+          <Button
+            variant={isAppLocked ? "default" : "outline"}
+            size={isCollapsed ? "icon" : "sm"}
+            onClick={() => onOpenLockDialog(isAppLocked ? 'unlock' : 'lock')}
+            className={`flex-shrink-0 ${isCollapsed ? 'w-10 h-10' : 'w-full'} ${
+              isAppLocked
+                ? 'bg-amber-500 hover:bg-amber-600 text-black font-bold shadow-sm'
+                : 'border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10'
+            }`}
+            title={isAppLocked ? 'Unlock Kiosk Mode with PIN' : 'Lock App in Kiosk Mode with PIN'}
+          >
+            {isAppLocked ? (
+              <Unlock className={`${isCollapsed ? '' : 'mr-2'} h-4 w-4`} />
+            ) : (
+              <Lock className={`${isCollapsed ? '' : 'mr-2'} h-4 w-4`} />
+            )}
+            {!isCollapsed && (isAppLocked ? 'Kiosk Locked (Unlock)' : 'Lock App (Kiosk)')}
+          </Button>
+        )}
         <Button
           variant="outline"
           size={isCollapsed ? "icon" : "sm"}
@@ -366,7 +397,7 @@ const NavContent: React.FC<{ activeTab: string; setActiveTab: (t: string) => voi
 };
 
 // ── Desktop Sidebar ───────────────────────────────────────────────────────────
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAppLocked, onOpenLockDialog }) => {
   const { profile } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   
@@ -379,13 +410,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         setActiveTab={setActiveTab} 
         isCollapsed={isCollapsed}
         onToggleCollapse={() => setIsCollapsed(!isCollapsed)}
+        isAppLocked={isAppLocked}
+        onOpenLockDialog={onOpenLockDialog}
       />
     </aside>
   );
 };
 
 // ── Mobile Top Header + Sheet Drawer ─────────────────────────────────────────
-export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
+export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAppLocked, onOpenLockDialog }) => {
   const [open, setOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { profile, selectedBranch } = useAuth();
@@ -426,6 +459,11 @@ export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }
               activeTab={activeTab}
               setActiveTab={setActiveTab}
               onNavigate={() => setOpen(false)}
+              isAppLocked={isAppLocked}
+              onOpenLockDialog={(mode) => {
+                setOpen(false);
+                onOpenLockDialog?.(mode);
+              }}
             />
           </SheetContent>
         </Sheet>
@@ -436,8 +474,19 @@ export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab }
         </div>
       </div>
 
-      {/* Right: logo + theme toggle */}
+      {/* Right: kiosk lock + notifications + theme toggle + logo */}
       <div className="flex items-center space-x-2">
+        {onOpenLockDialog && (
+          <Button
+            variant={isAppLocked ? "default" : "ghost"}
+            size="icon"
+            className={`h-8 w-8 ${isAppLocked ? 'bg-amber-500 hover:bg-amber-600 text-black' : 'text-muted-foreground'}`}
+            onClick={() => onOpenLockDialog(isAppLocked ? 'unlock' : 'lock')}
+            title={isAppLocked ? 'Unlock Kiosk Mode' : 'Lock App in Kiosk Mode'}
+          >
+            {isAppLocked ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+          </Button>
+        )}
         <FloatingNotifications hidePermissionPrompt onNavigate={(tab) => { setActiveTab(tab); setOpen(false); }} />
         <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" onClick={toggleTheme}>
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
