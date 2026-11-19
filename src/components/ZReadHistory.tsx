@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { discrepancyColorClass } from '../lib/utils';
+import { discrepancyColorClass, getOrganizedBranches } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useModal } from '../contexts/ModalContext';
 import { printXZReport } from '../lib/printService';
@@ -12,16 +12,26 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Calendar as CalendarComponent } from './ui/calendar';
+import { format } from 'date-fns';
 import {
   FileTextIcon as FileText,
   FileTextIcon as Printer,
   MagnifyingGlassIcon as Search,
-  ReloadIcon as RefreshCw
+  ReloadIcon as RefreshCw,
+  CalendarIcon as Calendar,
+  BackpackIcon as ShoppingBag,
+  ValueIcon as DollarSign,
+  ActivityLogIcon as TrendingUp
 } from '@radix-ui/react-icons';
+import { Banknote, Smartphone } from 'lucide-react';
 import { DataTablePagination } from "./ui/DataTablePagination";
 
 interface CashierSession {
   id: string;
+  branch_id?: string;
+  cashier_id?: string;
   opened_at: string;
   closed_at: string;
   opening_balance: number;
@@ -34,32 +44,43 @@ interface CashierSession {
   sales_summary: any;
   control_number?: string;
   shift_name?: string | null;
-  branches?: { name: string };
-  profiles?: { email: string; full_name?: string | null };
+  branches?: { name: string } | null;
+  profiles?: { email: string; full_name?: string | null } | null;
 }
 
 const formatPHP = (n: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(n);
 
+const STANDARD_SHIFTS = ['Morning', 'Mid', 'Night'];
+
 export const ZReadHistory: React.FC = () => {
-  const { profile, selectedBranch, branches } = useAuth();
+  const { profile, branches } = useAuth();
   const { showError } = useModal();
-  const isAdminRole = profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name);
+  const isAdminRole = Boolean(profile && ['super_admin', 'inventory_manager', 'auditor'].includes(profile.role_name));
 
   const [sessions, setSessions] = useState<CashierSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [selectedSession, setSelectedSession] = useState<CashierSession | null>(null);
   const [filterBranchId, setFilterBranchId] = useState('All');
+  const [shiftFilter, setShiftFilter] = useState<string>('all');
+  const [cashierFilter, setCashierFilter] = useState<string>('all');
+  const [discrepancyFilter, setDiscrepancyFilter] = useState<'all' | 'short' | 'over' | 'exact'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
+  const [startDate, setStartDate] = useState<Date | undefined>();
+  const [endDate, setEndDate] = useState<Date | undefined>();
+  const [dateBy, setDateBy] = useState<'closed' | 'opened'>('opened');
+  const [selectedSession, setSelectedSession] = useState<CashierSession | null>(null);
   const [isPrintingXZBluetooth, setIsPrintingXZBluetooth] = useState(false);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
+  const loadRequestRef = useRef(0);
+
   const loadSessions = async () => {
+    if (!profile) return;
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
     try {
       let query = supabase
@@ -72,7 +93,7 @@ export const ZReadHistory: React.FC = () => {
         .eq('status', 'closed')
         .order('closed_at', { ascending: false });
 
-      if (!isAdminRole && profile?.branch_id) {
+      if (!isAdminRole && profile.branch_id) {
         query = query.eq('branch_id', profile.branch_id);
       } else if (filterBranchId !== 'All') {
         query = query.eq('branch_id', filterBranchId);
@@ -80,85 +101,62 @@ export const ZReadHistory: React.FC = () => {
 
       const { data, error } = await query;
       if (error) throw error;
-      setSessions(data || []);
+      if (requestId !== loadRequestRef.current) return;
+
+      const normalized: CashierSession[] = (data || []).map((row: any) => ({
+        ...row,
+        branches: Array.isArray(row.branches) ? row.branches[0] ?? null : row.branches ?? null,
+        profiles: Array.isArray(row.profiles) ? row.profiles[0] ?? null : row.profiles ?? null,
+      }));
+      setSessions(normalized);
     } catch (err: any) {
+      if (requestId !== loadRequestRef.current) return;
       console.error('Error loading Z-Reports:', err);
       showError(err.message || 'Error loading Z-Reports');
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    if (!isAdminRole && profile?.branch_id) {
+    if (!profile) return;
+    if (!isAdminRole && profile.branch_id) {
       setFilterBranchId(profile.branch_id);
-    } else if (selectedBranch?.id) {
-      setFilterBranchId(selectedBranch.id);
     } else {
       setFilterBranchId('All');
     }
-  }, [selectedBranch?.id, profile, isAdminRole]);
+  }, [profile, isAdminRole]);
 
   useEffect(() => {
-    loadSessions();
+    if (profile) {
+      loadSessions();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterBranchId]);
+  }, [filterBranchId, profile?.id, profile?.branch_id, isAdminRole]);
 
-  // Filters logic
-  const filteredSessions = useMemo(() => {
-    return sessions.filter(session => {
-      const cashierEmail = session.profiles?.email?.toLowerCase() || '';
-      const cashierFullName = session.profiles?.full_name?.toLowerCase() || '';
-      const branchName = session.branches?.name?.toLowerCase() || '';
-      const query = searchTerm.toLowerCase();
-
-      const matchesSearch =
-        cashierEmail.includes(query) ||
-        cashierFullName.includes(query) ||
-        branchName.includes(query) ||
-        (session.shift_name || '').toLowerCase().includes(query) ||
-        String(session.z_counter).includes(query) ||
-        (session.control_number || '').toLowerCase().includes(query);
-
-      let matchesDates = true;
+  const getDateRange = () => {
+    const now = new Date();
+    let from: Date | undefined;
+    let to: Date | undefined;
+    if (dateFilter === 'today') {
+      from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (dateFilter === 'week') {
+      from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (dateFilter === 'month') {
+      from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (dateFilter === 'custom') {
       if (startDate) {
-        matchesDates = matchesDates && new Date(session.closed_at) >= new Date(startDate);
+        from = new Date(startDate);
+        from.setHours(0, 0, 0, 0);
       }
       if (endDate) {
-        // Set end date to end of that day
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        matchesDates = matchesDates && new Date(session.closed_at) <= end;
+        to = new Date(endDate);
+        to.setHours(23, 59, 59, 999);
       }
-
-      return matchesSearch && matchesDates;
-    });
-  }, [sessions, searchTerm, startDate, endDate]);
-
-  // Pagination Logic
-  const totalPages = Math.ceil(filteredSessions.length / itemsPerPage);
-  const paginatedSessions = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredSessions.slice(start, start + itemsPerPage);
-  }, [filteredSessions, currentPage, itemsPerPage]);
-
-  const handlePageChange = (page: number) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
     }
-  };
-
-  const handlePrintXZBluetooth = async (summary: any, isZRead: boolean, branchName: string) => {
-    try {
-      setIsPrintingXZBluetooth(true);
-      await ensureBluetoothPrinter();
-      await printBluetoothXZReport(summary, isZRead, branchName);
-    } catch (err: any) {
-      console.error('Failed to print Z-Read via Bluetooth:', err);
-      showError(err?.message || 'Failed to print report via Bluetooth.');
-    } finally {
-      setIsPrintingXZBluetooth(false);
-    }
+    return { from, to };
   };
 
   // Safe JSON extraction helper
@@ -201,6 +199,171 @@ export const ZReadHistory: React.FC = () => {
     return summary;
   };
 
+  const getSessionDrawerMetrics = (session: CashierSession) => {
+    const summary = getSummaryObject(session);
+    const expectedCash = summary ? Number(summary.expectedCash || 0) : 0;
+    const expectedDrawer = session.opening_balance + expectedCash;
+    const discrepancy = session.actual_cash - expectedDrawer;
+    return { summary, expectedDrawer, discrepancy };
+  };
+
+  const shiftOptions = useMemo(() => {
+    const extras = new Set<string>();
+    let hasUnassigned = false;
+    sessions.forEach(s => {
+      const name = s.shift_name?.trim();
+      if (!name) {
+        hasUnassigned = true;
+      } else if (!STANDARD_SHIFTS.includes(name)) {
+        extras.add(name);
+      }
+    });
+    return {
+      shifts: [...STANDARD_SHIFTS, ...Array.from(extras).sort()],
+      hasUnassigned,
+    };
+  }, [sessions]);
+
+  const cashierOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    sessions.forEach(s => {
+      const key = s.cashier_id || s.profiles?.email || '';
+      if (!key) return;
+      if (!map.has(key)) {
+        const label = s.profiles?.full_name?.trim() || s.profiles?.email || 'Staff';
+        map.set(key, label);
+      }
+    });
+    return Array.from(map.entries())
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [sessions]);
+
+  useEffect(() => {
+    if (cashierFilter !== 'all' && !cashierOptions.some(c => c.id === cashierFilter)) {
+      setCashierFilter('all');
+    }
+  }, [cashierOptions, cashierFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterBranchId, shiftFilter, cashierFilter, discrepancyFilter, dateFilter, startDate, endDate, dateBy, itemsPerPage]);
+
+  // Filters logic
+  const filteredSessions = useMemo(() => {
+    const { from, to } = getDateRange();
+    const query = searchTerm.trim().toLowerCase();
+
+    return sessions.filter(session => {
+      if (query) {
+        const cashierEmail = session.profiles?.email?.toLowerCase() || '';
+        const cashierFullName = session.profiles?.full_name?.toLowerCase() || '';
+        const branchName = session.branches?.name?.toLowerCase() || '';
+        const matchesSearch =
+          cashierEmail.includes(query) ||
+          cashierFullName.includes(query) ||
+          branchName.includes(query) ||
+          (session.shift_name || '').toLowerCase().includes(query) ||
+          String(session.z_counter).includes(query) ||
+          (session.control_number || '').toLowerCase().includes(query);
+        if (!matchesSearch) return false;
+      }
+
+      if (shiftFilter === 'none') {
+        if (session.shift_name?.trim()) return false;
+      } else if (shiftFilter !== 'all') {
+        if ((session.shift_name || '').trim().toLowerCase() !== shiftFilter.toLowerCase()) return false;
+      }
+
+      if (cashierFilter !== 'all') {
+        const key = session.cashier_id || session.profiles?.email || '';
+        if (key !== cashierFilter) return false;
+      }
+
+      if (discrepancyFilter !== 'all') {
+        const { discrepancy } = getSessionDrawerMetrics(session);
+        const cents = Math.round(Number(discrepancy || 0) * 100);
+        if (discrepancyFilter === 'short' && cents >= 0) return false;
+        if (discrepancyFilter === 'over' && cents <= 0) return false;
+        if (discrepancyFilter === 'exact' && cents !== 0) return false;
+      }
+
+      if (dateFilter !== 'all') {
+        const rawDate = dateBy === 'opened' ? session.opened_at : session.closed_at;
+        const targetDate = new Date(rawDate);
+        if (from && targetDate < from) return false;
+        if (to && targetDate > to) return false;
+      }
+
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, searchTerm, shiftFilter, cashierFilter, discrepancyFilter, dateFilter, startDate, endDate, dateBy]);
+
+  // Summary Card Totals across all filtered Z-Read shifts
+  const summaryStats = useMemo(() => {
+    let totalRevenue = 0;
+    let transactionCount = 0;
+    let cashSales = 0;
+    let gcashSales = 0;
+    let foodpandaSales = 0;
+    let grabSales = 0;
+    let totalDiscrepancy = 0;
+
+    filteredSessions.forEach(session => {
+      const { summary, discrepancy } = getSessionDrawerMetrics(session);
+      totalDiscrepancy += discrepancy;
+      if (summary) {
+        totalRevenue += Number(summary.totalPayments || 0);
+        transactionCount += Number(summary.transactionCount || 0);
+        cashSales += Number(summary.cashSales || 0);
+        gcashSales += Number(summary.gcashSales || 0);
+        foodpandaSales += Number(summary.foodpandaSales || 0);
+        grabSales += Number(summary.grabSales || 0);
+      }
+    });
+
+    const avgTicket = transactionCount > 0 ? totalRevenue / transactionCount : 0;
+
+    return {
+      totalRevenue,
+      transactionCount,
+      avgTicket,
+      cashSales,
+      gcashSales,
+      foodpandaSales,
+      grabSales,
+      totalDiscrepancy,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredSessions]);
+
+  // Pagination Logic
+  const totalPages = Math.ceil(filteredSessions.length / itemsPerPage);
+  const paginatedSessions = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredSessions.slice(start, start + itemsPerPage);
+  }, [filteredSessions, currentPage, itemsPerPage]);
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  const handlePrintXZBluetooth = async (summary: any, isZRead: boolean, branchName: string) => {
+    try {
+      setIsPrintingXZBluetooth(true);
+      await ensureBluetoothPrinter();
+      await printBluetoothXZReport(summary, isZRead, branchName);
+    } catch (err: any) {
+      console.error('Failed to print Z-Read via Bluetooth:', err);
+      showError(err?.message || 'Failed to print report via Bluetooth.');
+    } finally {
+      setIsPrintingXZBluetooth(false);
+    }
+  };
+
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6">
       {/* Header */}
@@ -221,47 +384,277 @@ export const ZReadHistory: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter bar */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
-          <Input
-            type="text"
-            placeholder="Search by cashier email, branch or Z-Count..."
-            value={searchTerm}
-            onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-            className="pl-9"
-          />
-        </div>
-        {isAdminRole ? (
-          <Select value={filterBranchId} onValueChange={val => { setFilterBranchId(val); setCurrentPage(1); }}>
-            <SelectTrigger className="w-full sm:w-[200px]">
-              <SelectValue placeholder="All Branches" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="All">All Branches</SelectItem>
-              {branches.filter(b => !b.parent_id).map(b => (
-                <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <div className="text-sm font-semibold bg-muted/40 border rounded-lg h-9 px-3 py-2 leading-none flex items-center">
-            {branches.find(b => b.id === filterBranchId)?.name || 'My Branch'}
+      {/* Top Level Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="glass-dark border-border/50">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-emerald-500/10 rounded-lg text-emerald-500 border border-emerald-500/20">
+              <DollarSign className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider block">Total Sales Revenue</span>
+              <span className="text-2xl font-bold">{formatPHP(summaryStats.totalRevenue)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-dark border-border/50">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-primary/10 rounded-lg text-primary border border-primary/20">
+              <ShoppingBag className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider block">Transactions Logged</span>
+              <span className="text-2xl font-bold">{summaryStats.transactionCount} Orders</span>
+              <span className="text-[11px] text-muted-foreground block mt-0.5">{filteredSessions.length} Z-Read shifts</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-dark border-border/50">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-amber-500/10 rounded-lg text-amber-500 border border-amber-500/20">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider block">Average Ticket Size</span>
+              <span className="text-2xl font-bold">{formatPHP(summaryStats.avgTicket)}</span>
+              <span className="text-[11px] text-muted-foreground block mt-0.5">
+                Net Discrepancy:{' '}
+                <span className={`font-semibold ${discrepancyColorClass(summaryStats.totalDiscrepancy)}`}>
+                  {formatPHP(summaryStats.totalDiscrepancy)}
+                </span>
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Payment & Channel Breakdown Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <Card className="glass-dark border-green-500/30 bg-green-500/5">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-green-500/10 rounded-lg text-green-600 border border-green-500/20">
+              <Banknote className="w-5 h-5 text-green-600 dark:text-green-400" />
+            </div>
+            <div>
+              <span className="text-xs text-green-600 dark:text-green-400 font-bold uppercase tracking-wider block">Cash Sales</span>
+              <span className="text-2xl font-bold text-green-600 dark:text-green-400">{formatPHP(summaryStats.cashSales)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-dark border-blue-500/30 bg-blue-500/5">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-blue-500/10 rounded-lg text-blue-600 border border-blue-500/20">
+              <Smartphone className="w-5 h-5 text-blue-500" />
+            </div>
+            <div>
+              <span className="text-xs text-blue-600 dark:text-blue-400 font-bold uppercase tracking-wider block">GCash Sales</span>
+              <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatPHP(summaryStats.gcashSales)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-dark border-amber-500/30 bg-amber-500/5">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-amber-500/10 rounded-lg text-amber-600 border border-amber-500/20">
+              <ShoppingBag className="w-5 h-5 text-amber-500" />
+            </div>
+            <div>
+              <span className="text-xs text-amber-600 dark:text-amber-400 font-bold uppercase tracking-wider block">FoodPanda Sales</span>
+              <span className="text-2xl font-bold text-amber-600 dark:text-amber-400">{formatPHP(summaryStats.foodpandaSales)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-dark border-emerald-500/30 bg-emerald-500/5">
+          <CardContent className="p-6 flex items-center space-x-4">
+            <div className="p-3 bg-emerald-500/10 rounded-lg text-emerald-600 border border-emerald-500/20">
+              <ShoppingBag className="w-5 h-5 text-emerald-500" />
+            </div>
+            <div>
+              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider block">GrabFood Sales</span>
+              <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{formatPHP(summaryStats.grabSales)}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filter and Query Bars */}
+      <div className="space-y-4">
+        <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
+          <div className="relative w-full lg:w-96">
+            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-3 pointer-events-none" />
+            <Input
+              type="text"
+              placeholder="Search by cashier email, branch, shift or Z-Count..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="pl-9"
+            />
           </div>
+
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-start lg:justify-end">
+            {isAdminRole ? (
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-muted-foreground font-medium">Branch:</span>
+                <Select value={filterBranchId} onValueChange={setFilterBranchId}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="All Branches" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Branches</SelectItem>
+                    {getOrganizedBranches(branches).map(b => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.isSubStore ? `└─ ${b.name}` : b.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              profile?.branch_id && (
+                <div className="text-xs text-muted-foreground bg-muted/50 border px-3 py-2 rounded-lg font-medium">
+                  Branch Locked: <span className="text-foreground font-bold">{branches.find(b => b.id === filterBranchId)?.name || 'My Branch'}</span>
+                </div>
+              )
+            )}
+
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-muted-foreground font-medium">Shift:</span>
+              <Select value={shiftFilter} onValueChange={setShiftFilter}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="All Shifts" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Shifts</SelectItem>
+                  {shiftOptions.shifts.map(shift => (
+                    <SelectItem key={shift} value={shift}>{shift} Shift</SelectItem>
+                  ))}
+                  {shiftOptions.hasUnassigned && (
+                    <SelectItem value="none">No Shift</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-muted-foreground font-medium">Cashier:</span>
+              <Select value={cashierFilter} onValueChange={setCashierFilter}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="All Cashiers" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Cashiers</SelectItem>
+                  {cashierOptions.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-muted-foreground font-medium">Discrepancy:</span>
+              <Select value={discrepancyFilter} onValueChange={(v: any) => setDiscrepancyFilter(v)}>
+                <SelectTrigger className="w-[130px]">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="short">Short</SelectItem>
+                  <SelectItem value="over">Over</SelectItem>
+                  <SelectItem value="exact">Exact</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-muted-foreground font-medium">Date Scope:</span>
+              <Select value={dateFilter} onValueChange={(v: any) => setDateFilter(v)}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="All Time" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Time</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="week">Last 7 Days</SelectItem>
+                  <SelectItem value="month">Last 30 Days</SelectItem>
+                  <SelectItem value="custom">Custom Range</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-muted-foreground font-medium">Date By:</span>
+              <Select value={dateBy} onValueChange={(v: any) => setDateBy(v)} disabled={dateFilter === 'all'}>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="opened">Opened Date</SelectItem>
+                  <SelectItem value="closed">Closed Date</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+
+        {dateFilter === 'custom' && (
+          <Card className="bg-muted/30">
+            <CardContent className="p-4 flex flex-col sm:flex-row items-center gap-4 text-sm">
+              <div className="flex items-center space-x-2 w-full sm:w-auto">
+                <span className="text-muted-foreground">Start:</span>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="min-w-[140px] justify-start text-left font-normal h-8">
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {startDate ? format(startDate, 'PPP') : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <CalendarComponent
+                      mode="single"
+                      selected={startDate}
+                      onSelect={setStartDate}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div className="flex items-center space-x-2 w-full sm:w-auto">
+                <span className="text-muted-foreground">End:</span>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="min-w-[140px] justify-start text-left font-normal h-8">
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {endDate ? format(endDate, 'PPP') : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <CalendarComponent
+                      mode="single"
+                      selected={endDate}
+                      onSelect={setEndDate}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              {(startDate || endDate) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setStartDate(undefined);
+                    setEndDate(undefined);
+                  }}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10 sm:ml-auto h-8"
+                >
+                  Clear Range
+                </Button>
+              )}
+            </CardContent>
+          </Card>
         )}
-        <Input
-          type="date"
-          value={startDate}
-          onChange={e => { setStartDate(e.target.value); setCurrentPage(1); }}
-          className="w-full sm:w-[150px]"
-        />
-        <Input
-          type="date"
-          value={endDate}
-          onChange={e => { setEndDate(e.target.value); setCurrentPage(1); }}
-          className="w-full sm:w-[150px]"
-        />
       </div>
 
       {/* Discrepancy color legend */}
@@ -306,10 +699,7 @@ export const ZReadHistory: React.FC = () => {
                   </TableRow>
                 ) : (
                   paginatedSessions.map(session => {
-                    const summary = getSummaryObject(session);
-                    const expectedCash = summary ? Number(summary.expectedCash || 0) : 0;
-                    const expectedDrawer = session.opening_balance + expectedCash;
-                    const discrepancy = session.actual_cash - expectedDrawer;
+                    const { summary, expectedDrawer, discrepancy } = getSessionDrawerMetrics(session);
 
                     return (
                       <TableRow key={session.id}>

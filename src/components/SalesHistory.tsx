@@ -805,7 +805,7 @@ export const SalesHistory: React.FC = () => {
 
       setStats({
         count: rows.length,
-        revenue: sum(rows),
+        revenue: sum(rows.filter(s => s.status === 'completed')),
         cash: sum(rows.filter(s => isCompletedPayment(s, 'cash'))),
         gcash: sum(rows.filter(s => isCompletedPayment(s, 'gcash'))),
         foodpanda: sum(rows.filter(s => isCompletedIn(s, 'foodpanda', 'food panda'))),
