@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useModal } from '../../contexts/ModalContext';
@@ -18,19 +18,35 @@ import {
   CheckIcon as Check,
   TableIcon,
 } from '@radix-ui/react-icons';
+import { Combine, Unlink, ArrowLeftRight, Plus } from 'lucide-react';
 import type { RestaurantTable, PosTab } from './types';
 import { formatPHP } from './types';
+import {
+  classifyMergeSelection,
+  formatTableGroupLabel,
+  getCombinedTableCapacity,
+} from './tableUtils';
+
+interface ActiveTabSummary {
+  id: string;
+  table_id: string;
+  merged_tables: RestaurantTable[];
+  server_id?: string | null;
+  server_name?: string | null;
+  pax_count: number;
+  status: 'open' | 'billed_out';
+  notes?: string | null;
+  discount_type?: string | null;
+  discount_amount?: number;
+  discount_metadata?: any[];
+  created_at: string;
+  total_amount: number;
+  items_count: number;
+  combined_capacity: number;
+}
 
 interface TableWithTab extends RestaurantTable {
-  active_tab?: {
-    id: string;
-    server_name?: string | null;
-    pax_count: number;
-    status: string;
-    created_at: string;
-    total_amount?: number;
-    items_count?: number;
-  } | null;
+  active_tab?: ActiveTabSummary | null;
 }
 
 interface TableFloorDialogProps {
@@ -38,6 +54,9 @@ interface TableFloorDialogProps {
   onClose: () => void;
   branchId: string;
   activeTableId?: string | null;
+  activeTabId?: string | null;
+  isOnline?: boolean;
+  initialMode?: 'normal' | 'merge' | 'manage';
   onSelectTable: (table: RestaurantTable, tab: PosTab | null) => void;
 }
 
@@ -46,27 +65,58 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
   onClose,
   branchId,
   activeTableId,
+  activeTabId,
+  isOnline = true,
+  initialMode = 'normal',
   onSelectTable,
 }) => {
   const { profile } = useAuth();
-  const { showError, showSuccess } = useModal();
+  const { showError, showSuccess, confirm } = useModal();
 
   const [tables, setTables] = useState<TableWithTab[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeZone, setActiveZone] = useState<string>('All');
 
-  // Open Table Dialog state
-  const [openingTable, setOpeningTable] = useState<RestaurantTable | null>(null);
+  // Merge Mode state
+  const [mergeMode, setMergeMode] = useState(false);
+  const [selectedTableIds, setSelectedTableIds] = useState<string[]>([]);
+  const [mergeSubmitting, setMergeSubmitting] = useState(false);
+  const [swapMergeOrder, setSwapMergeOrder] = useState(false);
+
+  // Open Table(s) Dialog state (supports 1 or more vacant tables)
+  const [openingTables, setOpeningTables] = useState<RestaurantTable[]>([]);
   const [paxCount, setPaxCount] = useState<number>(2);
   const [serverName, setServerName] = useState<string>('');
   const [tableNotes, setTableNotes] = useState<string>('');
   const [openingSubmitting, setOpeningSubmitting] = useState(false);
 
-  const loadTablesAndTabs = async () => {
-    if (!branchId) return;
+  // Manage / Unmerge Sub-Dialog state
+  const [managingTabId, setManagingTabId] = useState<string | null>(null);
+  const [unmergingTableId, setUnmergingTableId] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState<number>(0);
+  const wasOpenRef = useRef(false);
+  const lastBranchIdRef = useRef<string | null>(null);
+
+  const buildPosTab = (summary: ActiveTabSummary): PosTab => ({
+    id: summary.id,
+    table_id: summary.table_id,
+    merged_tables: summary.merged_tables,
+    branch_id: branchId,
+    server_id: summary.server_id,
+    server_name: summary.server_name,
+    pax_count: summary.pax_count,
+    status: summary.status,
+    notes: summary.notes,
+    discount_type: summary.discount_type,
+    discount_amount: summary.discount_amount,
+    discount_metadata: summary.discount_metadata,
+    created_at: summary.created_at,
+  });
+
+  const loadTablesAndTabs = async (): Promise<TableWithTab[]> => {
+    if (!branchId) return [];
     setLoading(true);
     try {
-      // 1. Fetch tables
       const { data: tablesData, error: tablesErr } = await supabase
         .from('restaurant_tables')
         .select('*')
@@ -76,17 +126,24 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
 
       if (tablesErr) throw tablesErr;
 
-      // 2. Fetch active tabs for this branch
       const { data: tabsData, error: tabsErr } = await supabase
         .from('pos_tabs')
         .select(`
           id,
           table_id,
+          server_id,
           server_name,
           pax_count,
           status,
+          notes,
           created_at,
+          discount_type,
           discount_amount,
+          discount_metadata,
+          pos_tab_tables (
+            table_id,
+            is_primary
+          ),
           pos_tab_items (
             quantity,
             price
@@ -97,48 +154,126 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
 
       if (tabsErr) throw tabsErr;
 
-      // Map tabs by table_id
-      const tabsMap = new Map<string, any>();
+      const tableById = new Map<string, RestaurantTable>(
+        (tablesData || []).map((tbl: RestaurantTable) => [tbl.id, tbl])
+      );
+
+      const tabsByTableId = new Map<string, ActiveTabSummary>();
       (tabsData || []).forEach((t: any) => {
-        const items = t.pos_tab_items || [];
-        const rawTotal = items.reduce((acc: number, item: any) => acc + (Number(item.quantity || 1) * Number(item.price || 0)), 0);
+        const items = Array.isArray(t.pos_tab_items) ? t.pos_tab_items : [];
+        const rawTotal = items.reduce(
+          (acc: number, item: any) => acc + Number(item.quantity || 1) * Number(item.price || 0),
+          0
+        );
         const disc = Number(t.discount_amount || 0);
         const netTotal = Math.max(0, rawTotal - disc);
 
-        tabsMap.set(t.table_id, {
+        const rawLinks = Array.isArray(t.pos_tab_tables) ? t.pos_tab_tables : [];
+        const sortedLinks = [...rawLinks].sort((a: any, b: any) => {
+          if (Boolean(a.is_primary) !== Boolean(b.is_primary)) {
+            return a.is_primary ? -1 : 1;
+          }
+          const tblA = tableById.get(a.table_id)?.table_number || '';
+          const tblB = tableById.get(b.table_id)?.table_number || '';
+          return tblA.localeCompare(tblB, undefined, { numeric: true });
+        });
+
+        const mergedTables: RestaurantTable[] = [];
+        const seenTableIds = new Set<string>();
+        for (const link of sortedLinks) {
+          const tbl = tableById.get(link.table_id);
+          if (tbl && !seenTableIds.has(tbl.id)) {
+            seenTableIds.add(tbl.id);
+            mergedTables.push(tbl);
+          }
+        }
+        if (t.table_id && !seenTableIds.has(t.table_id)) {
+          const primaryTbl = tableById.get(t.table_id);
+          if (primaryTbl) {
+            seenTableIds.add(primaryTbl.id);
+            mergedTables.unshift(primaryTbl);
+          }
+        }
+
+        const summary: ActiveTabSummary = {
           id: t.id,
+          table_id: t.table_id,
+          merged_tables: mergedTables,
+          server_id: t.server_id,
           server_name: t.server_name,
           pax_count: t.pax_count,
           status: t.status,
+          notes: t.notes,
+          discount_type: t.discount_type,
+          discount_amount: disc,
+          discount_metadata: Array.isArray(t.discount_metadata) ? t.discount_metadata : [],
           created_at: t.created_at,
           total_amount: netTotal,
           items_count: items.reduce((acc: number, item: any) => acc + Number(item.quantity || 1), 0),
+          combined_capacity: getCombinedTableCapacity(mergedTables),
+        };
+
+        mergedTables.forEach(tbl => {
+          tabsByTableId.set(tbl.id, summary);
         });
       });
 
-      const combined: TableWithTab[] = (tablesData || []).map(tbl => ({
-        ...tbl,
-        active_tab: tabsMap.get(tbl.id) || null,
-        // Sync status if tab exists
-        status: tabsMap.get(tbl.id)
-          ? (tabsMap.get(tbl.id).status === 'billed_out' ? 'billed_out' : 'occupied')
-          : (tbl.status === 'occupied' || tbl.status === 'billed_out' ? 'available' : tbl.status),
-      }));
+      const combined: TableWithTab[] = (tablesData || []).map((tbl: RestaurantTable) => {
+        const tab = tabsByTableId.get(tbl.id) || null;
+        return {
+          ...tbl,
+          active_tab: tab,
+          status: tab
+            ? (tab.status === 'billed_out' ? 'billed_out' : 'occupied')
+            : (tbl.status === 'occupied' || tbl.status === 'billed_out' ? 'available' : tbl.status),
+        };
+      });
 
       setTables(combined);
+      setNowMs(Date.now());
+      return combined;
     } catch (err: any) {
       console.error('Failed to load tables and tabs:', err);
       showError(err.message || 'Failed to load table floor');
+      return [];
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (open && branchId) {
-      loadTablesAndTabs();
+    if (!open || !branchId) {
+      wasOpenRef.current = false;
+      return;
     }
-  }, [open, branchId]);
+
+    const isFreshOpen = !wasOpenRef.current || lastBranchIdRef.current !== branchId;
+    if (!isFreshOpen) return;
+
+    wasOpenRef.current = true;
+    lastBranchIdRef.current = branchId;
+
+    setSwapMergeOrder(false);
+    setOpeningTables([]);
+    setNowMs(Date.now());
+
+    if (initialMode === 'merge' && isOnline) {
+      setMergeMode(true);
+      setManagingTabId(null);
+      setSelectedTableIds(activeTableId ? [activeTableId] : []);
+    } else if (initialMode === 'manage' && activeTabId) {
+      setMergeMode(false);
+      setSelectedTableIds([]);
+      setManagingTabId(activeTabId);
+    } else {
+      setMergeMode(false);
+      setSelectedTableIds([]);
+      setManagingTabId(null);
+    }
+
+    loadTablesAndTabs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, branchId, initialMode, activeTabId, activeTableId, isOnline]);
 
   const zones = ['All', ...Array.from(new Set(tables.map(t => t.zone).filter(Boolean)))];
 
@@ -150,53 +285,95 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
   const occupiedCount = tables.filter(t => t.active_tab?.status === 'open').length;
   const billedOutCount = tables.filter(t => t.active_tab?.status === 'billed_out').length;
 
+  const selectedTables = useMemo(
+    () =>
+      selectedTableIds
+        .map(id => tables.find(t => t.id === id))
+        .filter((t): t is TableWithTab => Boolean(t)),
+    [selectedTableIds, tables]
+  );
+
+  const mergeClassification = useMemo(
+    () => classifyMergeSelection(selectedTables),
+    [selectedTables]
+  );
+
+  const managingTab = useMemo(() => {
+    if (!managingTabId) return null;
+    return tables.find(t => t.active_tab?.id === managingTabId)?.active_tab || null;
+  }, [managingTabId, tables]);
+
+  const openNewTabPrompt = (targetTables: RestaurantTable[]) => {
+    const combinedCap = getCombinedTableCapacity(targetTables);
+    setOpeningTables(targetTables);
+    setPaxCount(Math.min(combinedCap, Math.max(2, targetTables.length * 2)));
+    setServerName(profile?.full_name || profile?.email?.split('@')[0] || '');
+    setTableNotes('');
+  };
+
+  const toggleMergeSelection = (tbl: TableWithTab) => {
+    setSwapMergeOrder(false);
+    setSelectedTableIds(prev => {
+      if (prev.includes(tbl.id)) {
+        return prev.filter(id => id !== tbl.id);
+      }
+      // If clicking another table belonging to an already-selected active tab, keep selection clean
+      if (tbl.active_tab) {
+        const alreadySelectedSameTab = prev.some(
+          id => tables.find(t => t.id === id)?.active_tab?.id === tbl.active_tab?.id
+        );
+        if (alreadySelectedSameTab) {
+          return prev.filter(
+            id => tables.find(t => t.id === id)?.active_tab?.id !== tbl.active_tab?.id
+          );
+        }
+      }
+      return [...prev, tbl.id];
+    });
+  };
+
   const handleTableClick = (tbl: TableWithTab) => {
+    if (mergeMode) {
+      toggleMergeSelection(tbl);
+      return;
+    }
+
     if (tbl.active_tab) {
-      // Table already has an active tab -> select and load it directly
-      onSelectTable(tbl, {
-        id: tbl.active_tab.id,
-        table_id: tbl.id,
-        branch_id: branchId,
-        server_name: tbl.active_tab.server_name,
-        pax_count: tbl.active_tab.pax_count,
-        status: tbl.active_tab.status as any,
-        created_at: tbl.active_tab.created_at,
-      });
+      const primaryTable = tbl.active_tab.merged_tables[0] || tbl;
+      onSelectTable(primaryTable, buildPosTab(tbl.active_tab));
       onClose();
     } else {
-      // Table is vacant -> open prompt to start a new tab
-      setOpeningTable(tbl);
-      setPaxCount(Math.min(tbl.capacity, 2));
-      setServerName(profile?.full_name || profile?.email?.split('@')[0] || '');
-      setTableNotes('');
+      openNewTabPrompt([tbl]);
     }
   };
 
   const handleStartTab = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!openingTable || !branchId) return;
+    if (openingTables.length === 0 || !branchId) return;
 
     setOpeningSubmitting(true);
     try {
-      const { data: newTab, error } = await supabase
-        .from('pos_tabs')
-        .insert({
-          branch_id: branchId,
-          table_id: openingTable.id,
-          server_id: profile?.id || null,
-          server_name: serverName.trim() || profile?.full_name || 'Staff',
-          pax_count: Math.max(1, Number(paxCount) || 1),
-          status: 'open',
-          notes: tableNotes.trim() || null,
-        })
-        .select()
-        .single();
+      const tableIds = openingTables.map(t => t.id);
+      const { data: newTab, error } = await supabase.rpc('fn_open_tab_with_tables', {
+        p_branch_id: branchId,
+        p_table_ids: tableIds,
+        p_server_id: profile?.id || null,
+        p_server_name: serverName.trim() || profile?.full_name || 'Staff',
+        p_pax_count: Math.max(1, Number(paxCount) || 1),
+        p_notes: tableNotes.trim() || null,
+      });
 
       if (error) throw error;
 
-      showSuccess(`Table ${openingTable.table_number} opened!`);
-      onSelectTable(openingTable, newTab);
-      setOpeningTable(null);
+      const label = formatTableGroupLabel(openingTables);
+      showSuccess(`Table ${label} opened!`);
+      onSelectTable(openingTables[0], {
+        ...(newTab as PosTab),
+        merged_tables: openingTables,
+      });
+      setOpeningTables([]);
+      setMergeMode(false);
+      setSelectedTableIds([]);
       onClose();
     } catch (err: any) {
       console.error('Error starting tab:', err);
@@ -206,13 +383,249 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
     }
   };
 
+  const syncSelectedTabWithPos = (updatedTables: TableWithTab[], tabId: string, closeAfter: boolean) => {
+    const matched = updatedTables.find(t => t.active_tab?.id === tabId);
+    if (matched?.active_tab) {
+      const primaryTable = matched.active_tab.merged_tables[0] || matched;
+      onSelectTable(primaryTable, buildPosTab(matched.active_tab));
+      if (closeAfter) {
+        onClose();
+      }
+    }
+  };
+
+  const handleExecuteMergeAction = async () => {
+    if (!isOnline) {
+      showError('Merging tables requires an online connection.');
+      return;
+    }
+
+    if (mergeClassification.mode === 'open_merged') {
+      openNewTabPrompt(mergeClassification.tables);
+      return;
+    }
+
+    if (mergeClassification.mode === 'attach_to_tab') {
+      setMergeSubmitting(true);
+      try {
+        const vacantIds = mergeClassification.vacantTables.map(t => t.id);
+        const { error } = await supabase.rpc('fn_attach_tables_to_tab', {
+          p_tab_id: mergeClassification.targetTabId,
+          p_table_ids: vacantIds,
+        });
+        if (error) throw error;
+
+        const refreshed = await loadTablesAndTabs();
+        const targetTab = refreshed.find(t => t.active_tab?.id === mergeClassification.targetTabId)?.active_tab;
+        const label = formatTableGroupLabel(targetTab?.merged_tables || mergeClassification.vacantTables);
+        showSuccess(`Tables merged into ${label}!`);
+        setMergeMode(false);
+        setSelectedTableIds([]);
+
+        if (activeTabId === mergeClassification.targetTabId || !activeTabId) {
+          syncSelectedTabWithPos(refreshed, mergeClassification.targetTabId, true);
+        }
+      } catch (err: any) {
+        console.error('Failed to attach tables:', err);
+        showError(err.message || 'Failed to attach tables to running bill');
+      } finally {
+        setMergeSubmitting(false);
+      }
+      return;
+    }
+
+    if (mergeClassification.mode === 'merge_tabs') {
+      const targetTabId = swapMergeOrder
+        ? mergeClassification.sourceTabId
+        : mergeClassification.targetTabId;
+      const sourceTabId = swapMergeOrder
+        ? mergeClassification.targetTabId
+        : mergeClassification.sourceTabId;
+
+      const targetSummary = tables.find(t => t.active_tab?.id === targetTabId)?.active_tab;
+      const sourceSummary = tables.find(t => t.active_tab?.id === sourceTabId)?.active_tab;
+      if (!targetSummary || !sourceSummary) return;
+
+      const targetLabel = formatTableGroupLabel(targetSummary.merged_tables);
+      const sourceLabel = formatTableGroupLabel(sourceSummary.merged_tables);
+      const warnings: string[] = [];
+      if (targetSummary.status === 'billed_out' || sourceSummary.status === 'billed_out') {
+        warnings.push('The combined bill will return to Occupied status so you can print an updated Bill Out.');
+      }
+      if (
+        targetSummary.discount_type ||
+        (targetSummary.discount_amount || 0) > 0 ||
+        sourceSummary.discount_type ||
+        (sourceSummary.discount_amount || 0) > 0
+      ) {
+        warnings.push('Pre-bill discount on the selected tab(s) will be cleared—re-apply discounts on the combined bill.');
+      }
+
+      const proceed = await confirm(
+        `Merge Table ${sourceLabel} into Table ${targetLabel}?`,
+        `This combines ${sourceSummary.items_count} item(s) and ${sourceSummary.pax_count} guest(s) from Table ${sourceLabel} into Table ${targetLabel}'s running bill.${warnings.length ? `\n\nNote: ${warnings.join(' ')}` : ''}`
+      );
+      if (!proceed) return;
+
+      setMergeSubmitting(true);
+      try {
+        const { data, error } = await supabase.rpc('fn_merge_tabs', {
+          p_target_tab_id: targetTabId,
+          p_source_tab_id: sourceTabId,
+        });
+        if (error) throw error;
+
+        const refreshed = await loadTablesAndTabs();
+        const mergedSummary = refreshed.find(t => t.active_tab?.id === targetTabId)?.active_tab;
+        const mergedLabel = formatTableGroupLabel(mergedSummary?.merged_tables);
+
+        if (data?.discount_cleared) {
+          showSuccess(`Merged into Table ${mergedLabel}. Please re-apply any discount on the combined bill.`);
+        } else {
+          showSuccess(`Merged Table ${sourceLabel} into Table ${targetLabel}!`);
+        }
+
+        setMergeMode(false);
+        setSelectedTableIds([]);
+        setSwapMergeOrder(false);
+        syncSelectedTabWithPos(refreshed, targetTabId, true);
+      } catch (err: any) {
+        console.error('Failed to merge tabs:', err);
+        showError(err.message || 'Failed to merge running bills');
+      } finally {
+        setMergeSubmitting(false);
+      }
+    }
+  };
+
+  const handleUnmergeTable = async (tab: ActiveTabSummary, tbl: RestaurantTable) => {
+    if (!isOnline) {
+      showError('Unmerging tables requires an online connection.');
+      return;
+    }
+    if (tab.merged_tables.length < 2) return;
+
+    const proceed = await confirm(
+      `Unmerge Table ${tbl.table_number}?`,
+      `Table ${tbl.table_number} will be released back to Vacant. All ordered items remain on the running bill.`
+    );
+    if (!proceed) return;
+
+    setUnmergingTableId(tbl.id);
+    try {
+      const { error } = await supabase.rpc('fn_unmerge_table_from_tab', {
+        p_tab_id: tab.id,
+        p_table_id: tbl.id,
+      });
+      if (error) throw error;
+
+      const refreshed = await loadTablesAndTabs();
+      showSuccess(`Table ${tbl.table_number} unmerged and marked Vacant.`);
+
+      if (activeTabId === tab.id) {
+        syncSelectedTabWithPos(refreshed, tab.id, false);
+      }
+    } catch (err: any) {
+      console.error('Failed to unmerge table:', err);
+      showError(err.message || 'Failed to unmerge table');
+    } finally {
+      setUnmergingTableId(null);
+    }
+  };
+
   const getElapsedTime = (createdStr?: string) => {
-    if (!createdStr) return '';
-    const diffMs = Date.now() - new Date(createdStr).getTime();
+    if (!createdStr || !nowMs) return '';
+    const diffMs = Math.max(0, nowMs - new Date(createdStr).getTime());
     const mins = Math.floor(diffMs / 60000);
     if (mins < 60) return `${mins}m`;
     const hrs = Math.floor(mins / 60);
     return `${hrs}h ${mins % 60}m`;
+  };
+
+  const renderMergeFooter = () => {
+    if (!mergeMode) return null;
+
+    let actionLabel = '';
+    let canExecute = false;
+    let swapContent: React.ReactNode = null;
+
+    if (mergeClassification.mode === 'open_merged') {
+      const label = formatTableGroupLabel(mergeClassification.tables);
+      actionLabel = `Open Merged (${label} • ${mergeClassification.totalCapacity} Pax)`;
+      canExecute = true;
+    } else if (mergeClassification.mode === 'attach_to_tab') {
+      const targetSummary = tables.find(t => t.active_tab?.id === mergeClassification.targetTabId)?.active_tab;
+      const targetLabel = formatTableGroupLabel(targetSummary?.merged_tables);
+      const addLabel = formatTableGroupLabel(mergeClassification.vacantTables);
+      actionLabel = `Attach ${addLabel} to ${targetLabel}`;
+      canExecute = true;
+    } else if (mergeClassification.mode === 'merge_tabs') {
+      const targetId = swapMergeOrder ? mergeClassification.sourceTabId : mergeClassification.targetTabId;
+      const sourceId = swapMergeOrder ? mergeClassification.targetTabId : mergeClassification.sourceTabId;
+      const targetSummary = tables.find(t => t.active_tab?.id === targetId)?.active_tab;
+      const sourceSummary = tables.find(t => t.active_tab?.id === sourceId)?.active_tab;
+      const targetLabel = formatTableGroupLabel(targetSummary?.merged_tables);
+      const sourceLabel = formatTableGroupLabel(sourceSummary?.merged_tables);
+      actionLabel = `Combine ${sourceLabel} → ${targetLabel}`;
+      canExecute = true;
+      swapContent = (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setSwapMergeOrder(prev => !prev)}
+          className="h-8 text-xs gap-1.5"
+          title="Swap which table group stays primary"
+        >
+          <ArrowLeftRight className="w-3.5 h-3.5" />
+          Swap Target
+        </Button>
+      );
+    }
+
+    return (
+      <div className="mt-2 pt-3 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-muted/30 -mx-6 px-6 -mb-6 pb-5 rounded-b-lg">
+        <div className="text-xs text-muted-foreground">
+          {mergeClassification.mode === 'empty' || mergeClassification.mode === 'invalid' ? (
+            <span>{mergeClassification.hint}</span>
+          ) : (
+            <span className="font-medium text-foreground">
+              {selectedTables.length} table(s) selected ({formatTableGroupLabel(selectedTables)})
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {swapContent}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setMergeMode(false);
+              setSelectedTableIds([]);
+              setSwapMergeOrder(false);
+            }}
+            className="h-8 text-xs"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!canExecute || mergeSubmitting}
+            onClick={handleExecuteMergeAction}
+            className="h-8 text-xs font-bold gap-1.5 bg-primary text-primary-foreground"
+          >
+            {mergeSubmitting ? (
+              <Spinner className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Combine className="w-3.5 h-3.5" />
+            )}
+            <span>{actionLabel || 'Select Tables to Merge'}</span>
+          </Button>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -227,12 +640,34 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
                   <span>Table Floor Plan & Running Bills</span>
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                  Select a table to open a new tab or view an ongoing running bill.
+                  {mergeMode
+                    ? 'Select vacant tables to open together, an active tab + vacant tables, or two active tabs to combine.'
+                    : 'Select a table to open a new tab, view a running bill, or merge tables.'}
                 </DialogDescription>
               </div>
 
-              {/* Status Counters */}
-              <div className="flex items-center gap-2 text-xs">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <Button
+                  type="button"
+                  variant={mergeMode ? 'default' : 'outline'}
+                  size="sm"
+                  disabled={!isOnline}
+                  onClick={() => {
+                    setMergeMode(prev => {
+                      const next = !prev;
+                      setSelectedTableIds([]);
+                      setSwapMergeOrder(false);
+                      return next;
+                    });
+                  }}
+                  className="h-7 text-xs font-bold gap-1.5"
+                  title={isOnline ? 'Merge or combine tables flexibly' : 'Merging tables requires an online connection'}
+                >
+                  <Combine className="w-3.5 h-3.5" />
+                  <span>{mergeMode ? 'Exit Merge Mode' : 'Merge Tables'}</span>
+                </Button>
+
+                {/* Status Counters */}
                 <Badge variant="outline" className="text-emerald-600 bg-emerald-500/10 border-emerald-500/30 gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
                   {availableCount} Vacant
@@ -288,7 +723,20 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
                 {filteredTables.map(tbl => {
                   const hasTab = Boolean(tbl.active_tab);
                   const isBilledOut = tbl.active_tab?.status === 'billed_out';
-                  const isCurrentActive = activeTableId === tbl.id;
+                  const isMergedGroup = (tbl.active_tab?.merged_tables.length || 0) > 1;
+                  const mergedLabel = isMergedGroup
+                    ? formatTableGroupLabel(tbl.active_tab?.merged_tables)
+                    : '';
+                  const isCurrentActive = activeTabId
+                    ? tbl.active_tab?.id === activeTabId
+                    : activeTableId === tbl.id;
+                  const isSelectedDirect = selectedTableIds.includes(tbl.id);
+                  const isSelectedViaSibling = Boolean(
+                    mergeMode &&
+                    tbl.active_tab &&
+                    selectedTables.some(s => s.active_tab?.id === tbl.active_tab?.id)
+                  );
+                  const isSelected = isSelectedDirect || isSelectedViaSibling;
 
                   let borderClass = 'border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500 hover:shadow-md';
                   let badgeText = 'Vacant';
@@ -304,7 +752,9 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
                     badgeClass = 'bg-rose-500 text-white font-bold';
                   }
 
-                  if (isCurrentActive) {
+                  if (isSelected) {
+                    borderClass += ' ring-2 ring-primary ring-offset-2 border-primary';
+                  } else if (isCurrentActive) {
                     borderClass += ' ring-2 ring-primary ring-offset-2';
                   }
 
@@ -319,9 +769,22 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
                           <span className="text-base font-black tracking-tight text-foreground">
                             {tbl.table_number}
                           </span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider ${badgeClass}`}>
-                            {badgeText}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            {mergeMode && (
+                              <span
+                                className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] font-bold ${
+                                  isSelected
+                                    ? 'bg-primary border-primary text-primary-foreground'
+                                    : 'border-muted-foreground/40 bg-background/60'
+                                }`}
+                              >
+                                {isSelected && <Check className="w-3 h-3" />}
+                              </span>
+                            )}
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider ${badgeClass}`}>
+                              {badgeText}
+                            </span>
+                          </div>
                         </div>
 
                         <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1.5">
@@ -329,10 +792,36 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
                           <span>&bull;</span>
                           <span className="truncate">{tbl.zone}</span>
                         </div>
+
+                        {isMergedGroup && (
+                          <div className="mt-2 flex items-center justify-between gap-1">
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] px-1.5 py-0 h-5 border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 font-bold truncate"
+                              title={`Merged group: ${mergedLabel}`}
+                            >
+                              <Combine className="w-2.5 h-2.5 mr-1 shrink-0" />
+                              {mergedLabel}
+                            </Badge>
+                            {!mergeMode && isOnline && tbl.active_tab && (
+                              <button
+                                type="button"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setManagingTabId(tbl.active_tab!.id);
+                                }}
+                                className="text-[10px] font-bold text-muted-foreground hover:text-foreground underline shrink-0"
+                                title="Manage or unmerge tables in this group"
+                              >
+                                Manage
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {hasTab ? (
-                        <div className="mt-4 pt-2.5 border-t border-border/60 space-y-1">
+                        <div className="mt-3 pt-2.5 border-t border-border/60 space-y-1">
                           <div className="flex items-center justify-between text-xs font-bold text-foreground">
                             <span>{formatPHP(tbl.active_tab?.total_amount || 0)}</span>
                             <span className="text-[10px] font-normal text-muted-foreground">
@@ -348,7 +837,7 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
                         </div>
                       ) : (
                         <div className="mt-4 pt-2.5 border-t border-border/40 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center justify-between">
-                          <span>+ Open Table</span>
+                          <span>{mergeMode ? (isSelected ? 'Selected' : '+ Select') : '+ Open Table'}</span>
                           <span className="text-xs">&rarr;</span>
                         </div>
                       )}
@@ -358,23 +847,29 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
               </div>
             )}
           </div>
+
+          {renderMergeFooter()}
         </DialogContent>
       </Dialog>
 
-      {/* Start / Open Table Sub-Dialog */}
-      {openingTable && (
-        <Dialog open={!!openingTable} onOpenChange={isOpen => { if (!isOpen) setOpeningTable(null); }}>
+      {/* Start / Open Table(s) Sub-Dialog */}
+      {openingTables.length > 0 && (
+        <Dialog open={openingTables.length > 0} onOpenChange={isOpen => { if (!isOpen) setOpeningTables([]); }}>
           <DialogContent className="max-w-md p-6">
             <DialogHeader>
-              <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <DialogTitle className="text-base font-bold flex items-center gap-2 flex-wrap">
                 <TableIcon className="w-4 h-4 text-primary" />
-                <span>Open {openingTable.table_number}</span>
+                <span>
+                  Open {openingTables.length > 1 ? 'Merged Tables' : ''} {formatTableGroupLabel(openingTables)}
+                </span>
                 <Badge variant="outline" className="text-xs">
-                  Max: {openingTable.capacity} Pax
+                  Max: {getCombinedTableCapacity(openingTables)} Pax
                 </Badge>
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
-                Start a new dining session and running bill for this table.
+                {openingTables.length > 1
+                  ? `Start a single running bill combining ${openingTables.length} tables.`
+                  : 'Start a new dining session and running bill for this table.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -385,15 +880,15 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
                   <Input
                     type="number"
                     min="1"
-                    max="50"
+                    max="100"
                     required
                     value={paxCount}
-                    onChange={e => setPaxCount(parseInt(e.target.value) || 1)}
+                    onChange={e => setPaxCount(parseInt(e.target.value, 10) || 1)}
                     className="text-sm font-semibold"
                     autoFocus
                   />
                   <div className="flex gap-1">
-                    {[1, 2, 4, 6].map(num => (
+                    {[2, 4, 6, 8].map(num => (
                       <Button
                         key={num}
                         type="button"
@@ -434,7 +929,7 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setOpeningTable(null)}
+                  onClick={() => setOpeningTables([])}
                   className="text-xs"
                 >
                   Cancel
@@ -450,10 +945,99 @@ export const TableFloorDialog: React.FC<TableFloorDialogProps> = ({
                   ) : (
                     <Check className="w-3.5 h-3.5" />
                   )}
-                  Open Table & Take Order
+                  Open {openingTables.length > 1 ? 'Merged Tables' : 'Table'} & Take Order
                 </Button>
               </div>
             </form>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Manage / Unmerge Tables Sub-Dialog */}
+      {managingTab && (
+        <Dialog open={Boolean(managingTab)} onOpenChange={isOpen => { if (!isOpen) setManagingTabId(null); }}>
+          <DialogContent className="max-w-md p-6">
+            <DialogHeader>
+              <DialogTitle className="text-base font-bold flex items-center gap-2">
+                <Combine className="w-4 h-4 text-primary" />
+                <span>Manage Tables — {formatTableGroupLabel(managingTab.merged_tables)}</span>
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                Unmerge tables no longer needed by this party, or attach another table.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-2.5 pt-2">
+              {managingTab.merged_tables.map((tbl, idx) => {
+                const isOnlyTable = managingTab.merged_tables.length <= 1;
+                const isPrimary = idx === 0 || tbl.id === managingTab.table_id;
+                return (
+                  <div
+                    key={tbl.id}
+                    className="flex items-center justify-between p-3 rounded-xl border bg-muted/20"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm">{tbl.table_number}</span>
+                        {isPrimary && (
+                          <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
+                            Primary
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {tbl.capacity} Pax &bull; {tbl.zone}
+                      </span>
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isOnlyTable || unmergingTableId === tbl.id || !isOnline}
+                      onClick={() => handleUnmergeTable(managingTab, tbl)}
+                      className="h-8 text-xs gap-1.5 text-rose-600 hover:text-rose-700 border-rose-500/30 hover:bg-rose-500/10"
+                      title={isOnlyTable ? 'At least 1 table must remain on the tab' : `Release ${tbl.table_number}`}
+                    >
+                      {unmergingTableId === tbl.id ? (
+                        <Spinner className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Unlink className="w-3.5 h-3.5" />
+                      )}
+                      <span>Unmerge</span>
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-between items-center gap-2 pt-3 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!isOnline}
+                onClick={() => {
+                  const seedTableId = managingTab.merged_tables[0]?.id || managingTab.table_id;
+                  setManagingTabId(null);
+                  setMergeMode(true);
+                  setSelectedTableIds(seedTableId ? [seedTableId] : []);
+                }}
+                className="text-xs gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Attach / Merge More</span>
+              </Button>
+
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setManagingTabId(null)}
+                className="text-xs"
+              >
+                Done
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       )}

@@ -16,19 +16,10 @@ import {
   formatPHP,
   QUICK_CASH_AMOUNTS
 } from './types';
-
-interface GroupedItemCalculation {
-  menu_item_id: string;
-  quantity: number;
-  price: number;
-  name: string;
-  notes?: string;
-  discount_amount: number;
-  vatable_sales: number;
-  vat_amount: number;
-  vat_exempt_sales: number;
-  is_vat_exempt: boolean;
-}
+import {
+  buildFlatDiscountUnits,
+  groupDiscountedUnitResults,
+} from './tableUtils';
 
 export const PaymentDialog: React.FC<PaymentDialogProps> = ({
   open,
@@ -149,22 +140,8 @@ export const PaymentDialog: React.FC<PaymentDialogProps> = ({
     setManualSelection({});
   };
 
-  // Flatten the cart into individual units for discount selection
-  const flatUnits = useMemo(() => {
-    const units: Array<{ id: string; menu_item_id: string; price: number; name: string; notes?: string }> = [];
-    cart.forEach(item => {
-      for (let q = 0; q < item.quantity; q++) {
-        units.push({
-          id: `${item.menu_item_id}-${q}`,
-          menu_item_id: item.menu_item_id,
-          price: item.price,
-          name: item.name,
-          notes: item.notes
-        });
-      }
-    });
-    return units;
-  }, [cart]);
+  // Flatten the cart into individual units with row-unique IDs for discount selection
+  const flatUnits = useMemo(() => buildFlatDiscountUnits(cart), [cart]);
 
   // Automatically select cheapest units when discount settings change in itemized mode,
   // or use manual checked selections capped at discountCount
@@ -290,34 +267,7 @@ export const PaymentDialog: React.FC<PaymentDialogProps> = ({
       };
     });
 
-    const groupedItemsMap: Record<string, GroupedItemCalculation> = {};
-    calculatedUnits.forEach(unit => {
-      if (!groupedItemsMap[unit.menu_item_id]) {
-        groupedItemsMap[unit.menu_item_id] = {
-          menu_item_id: unit.menu_item_id,
-          quantity: 0,
-          price: unit.price,
-          name: unit.name,
-          notes: unit.notes,
-          discount_amount: 0,
-          vatable_sales: 0,
-          vat_amount: 0,
-          vat_exempt_sales: 0,
-          is_vat_exempt: false
-        };
-      }
-      const gi = groupedItemsMap[unit.menu_item_id];
-      gi.quantity += 1;
-      gi.discount_amount += unit.discount_amount;
-      gi.vatable_sales += unit.vatable_sales;
-      gi.vat_amount += unit.vat_amount;
-      gi.vat_exempt_sales += unit.vat_exempt_sales;
-      if (unit.is_vat_exempt) {
-        gi.is_vat_exempt = true;
-      }
-    });
-
-    const discountedItems = Object.values(groupedItemsMap);
+    const discountedItems = groupDiscountedUnitResults(calculatedUnits);
 
     let tx_total_amount = 0;
     let tx_discount_amount = 0;

@@ -14,6 +14,13 @@ import {
   ChatBubbleIcon as MessageSquare,
   TableIcon,
 } from '@radix-ui/react-icons';
+import { Combine, ClipboardList } from 'lucide-react';
+import {
+  formatTableGroupLabel,
+  buildKitchenControlNumber,
+  resolveCartItemKey,
+  isKitchenSubmitted,
+} from './pos/tableUtils';
 import {
   getTerminalConfig,
   enqueueOfflineSale,
@@ -55,6 +62,7 @@ import {
 import { PaymentDialog } from "./pos/PaymentDialog";
 import { TableFloorDialog } from "./pos/TableFloorDialog";
 import { TabDiscountModal } from "./pos/TabDiscountModal";
+import { FullTableOrderDialog } from "./pos/FullTableOrderDialog";
 import {
   MatchPriceDialog,
   SaleSuccessDialog,
@@ -169,6 +177,12 @@ export const POS: React.FC<POSProps> = ({
   const [activeTable, setActiveTable] = useState<RestaurantTable | null>(null);
   const [activeTab, setActiveTab] = useState<PosTab | null>(null);
   const [tableFloorOpen, setTableFloorOpen] = useState(false);
+  const [tableFloorMode, setTableFloorMode] = useState<'normal' | 'merge' | 'manage'>('normal');
+  const [fullOrderOpen, setFullOrderOpen] = useState(false);
+  const [updatingServedId, setUpdatingServedId] = useState<string | null>(null);
+  const activeTableLabel = activeTable
+    ? formatTableGroupLabel(activeTab?.merged_tables, activeTable.table_number)
+    : '';
   const [tabDiscountOpen, setTabDiscountOpen] = useState(false);
   const [tabDiscountType, setTabDiscountType] = useState<string | null>(null);
   const [tabDiscountAmount, setTabDiscountAmount] = useState<number>(0);
@@ -296,7 +310,7 @@ export const POS: React.FC<POSProps> = ({
   const tabVatRelief = tabDiscountMetadata?.[0]?.vat_relief || 0;
   const runningTabTotalDue = Math.max(0, Number((cartTotal - tabVatRelief - tabDiscountAmount + serviceChargeAmount).toFixed(2)));
   const finalCartTotal = activeTable && tabDiscountAmount > 0 ? runningTabTotalDue : cartTotalWithSC;
-  const unsentCount = cart.filter(ci => ci.kitchen_status !== 'sent').length;
+  const unsentCount = cart.filter(ci => !isKitchenSubmitted(ci)).length;
   const hasUnsentItems = Boolean(activeTable && unsentCount > 0);
 
   // Set up Supabase Realtime sync channel
@@ -930,10 +944,14 @@ export const POS: React.FC<POSProps> = ({
     const isAltPrep = Boolean(avail && avail.stockAvailable && !avail.hasSufficientStock);
     const unitPrice = getItemPrice(item);
     setCart(prev => {
-      const exists = prev.find(ci => ci.menu_item_id === item.id);
+      const exists = prev.find(
+        ci => ci.menu_item_id === item.id && !isKitchenSubmitted(ci)
+      );
       if (exists) {
         return prev.map(ci =>
-          ci.menu_item_id === item.id ? { ...ci, quantity: ci.quantity + qty } : ci
+          resolveCartItemKey(ci) === resolveCartItemKey(exists)
+            ? { ...ci, quantity: ci.quantity + qty }
+            : ci
         );
       }
       return [
@@ -951,7 +969,7 @@ export const POS: React.FC<POSProps> = ({
     showSuccess(`${qty}× ${item.name} added to cart (${priceChannel === 'standard' ? 'Standard' : priceChannel === 'foodpanda' ? 'Foodpanda' : 'Grab'}).`);
   };
 
-  const updateCartQty = (menuItemId: string, amount: number) => {
+  const updateCartQty = (cartKey: string, amount: number) => {
     if (!activeSession || activeSession.status !== 'open') {
       showError('Please open your register session before processing sales.');
       setOpenSessionOpen(true);
@@ -960,7 +978,7 @@ export const POS: React.FC<POSProps> = ({
     setCart(prev =>
       prev
         .map(ci => {
-          if (ci.menu_item_id !== menuItemId) return ci;
+          if (resolveCartItemKey(ci) !== cartKey) return ci;
           const newQty = ci.quantity + amount;
           return newQty > 0 ? { ...ci, quantity: newQty } : null;
         })
@@ -968,7 +986,7 @@ export const POS: React.FC<POSProps> = ({
     );
   };
 
-  const updateCartQtyDirect = (menuItemId: string, qty: number) => {
+  const updateCartQtyDirect = (cartKey: string, qty: number) => {
     if (!activeSession || activeSession.status !== 'open') {
       showError('Please open your register session before processing sales.');
       setOpenSessionOpen(true);
@@ -976,13 +994,13 @@ export const POS: React.FC<POSProps> = ({
     }
     setCart(prev =>
       prev.map(ci =>
-        ci.menu_item_id === menuItemId ? { ...ci, quantity: Math.max(0, qty) } : ci
+        resolveCartItemKey(ci) === cartKey ? { ...ci, quantity: Math.max(0, qty) } : ci
       )
     );
   };
 
-  const removeFromCart = (menuItemId: string) =>
-    setCart(prev => prev.filter(ci => ci.menu_item_id !== menuItemId));
+  const removeFromCart = (cartKey: string) =>
+    setCart(prev => prev.filter(ci => resolveCartItemKey(ci) !== cartKey));
 
   // ─── Table Service & Running Bills Handlers ─────────────────
 
@@ -1036,7 +1054,10 @@ export const POS: React.FC<POSProps> = ({
           kitchen_status: ti.kitchen_status || 'sent',
         }));
 
-        setCart(loadedCart);
+        const unsentLocal = activeTab?.id === tab.id
+          ? cart.filter(ci => !isKitchenSubmitted(ci))
+          : [];
+        setCart([...loadedCart, ...unsentLocal]);
       } catch (err: any) {
         console.error('Error fetching tab items:', err);
         showError('Failed to load table items');
@@ -1053,6 +1074,7 @@ export const POS: React.FC<POSProps> = ({
   const handleExitTableView = () => {
     setActiveTable(null);
     setActiveTab(null);
+    setFullOrderOpen(false);
     setCart([]);
     setTabDiscountType(null);
     setTabDiscountAmount(0);
@@ -1062,7 +1084,7 @@ export const POS: React.FC<POSProps> = ({
 
   const handleSendToKitchen = async () => {
     if (!activeTable || !activeTab) return;
-    const pendingItems = cart.filter(ci => ci.kitchen_status !== 'sent');
+    const pendingItems = cart.filter(ci => !isKitchenSubmitted(ci));
     if (pendingItems.length === 0) {
       showError('All items in the cart have already been sent to the kitchen.');
       return;
@@ -1070,6 +1092,19 @@ export const POS: React.FC<POSProps> = ({
 
     setFiringKitchen(true);
     try {
+      const { data: liveTab, error: liveTabErr } = await supabase
+        .from('pos_tabs')
+        .select('status')
+        .eq('id', activeTab.id)
+        .maybeSingle();
+
+      if (liveTabErr) throw liveTabErr;
+      if (!liveTab || !['open', 'billed_out'].includes(liveTab.status)) {
+        showError('This table tab has already been merged, settled, or closed on another terminal.');
+        handleExitTableView();
+        return;
+      }
+
       const nextRound = Math.max(0, ...cart.map(c => c.round_number || 0)) + 1;
 
       // Insert into pos_tab_items
@@ -1084,23 +1119,24 @@ export const POS: React.FC<POSProps> = ({
         kitchen_status: 'sent',
       }));
 
-      const { error } = await supabase
+      const { data: insertedRows, error } = await supabase
         .from('pos_tab_items')
-        .insert(rows);
+        .insert(rows)
+        .select('id');
 
       if (error) throw error;
 
       // Prepare Kitchen Ticket Payload
       const kitchenPayload: KitchenOrderSentPayload = {
-        id: String(activeTab.id || Date.now()),
-        control_number: `T${activeTable.table_number}-R${nextRound}`,
+        id: String(activeTab.id),
+        control_number: buildKitchenControlNumber(activeTableLabel, nextRound),
         branch_name: selectedBranch?.name || 'Main Branch',
-        table_number: activeTable.table_number,
+        table_number: activeTableLabel,
         round_number: nextRound,
         server_name: activeTab.server_name || profile?.full_name || 'Staff',
         cashier_name: profile?.full_name || profile?.email?.split('@')[0] || 'Staff',
         cashier_email: profile?.email || '',
-        sale_category: `Table ${activeTable.table_number} (Round ${nextRound})`,
+        sale_category: `Table ${activeTableLabel} (Round ${nextRound})`,
         notes: orderKitchenNote.trim() || undefined,
         created_at: new Date().toISOString(),
         items: pendingItems.map(p => ({
@@ -1114,11 +1150,15 @@ export const POS: React.FC<POSProps> = ({
       setLastKitchenResult(kitchenPayload);
 
       // Update cart items in state
+      let insertedIdx = 0;
       setCart(prev =>
         prev.map(item => {
-          if (item.kitchen_status !== 'sent') {
+          if (!isKitchenSubmitted(item)) {
+            const insertedId = insertedRows?.[insertedIdx]?.id;
+            insertedIdx += 1;
             return {
               ...item,
+              tab_item_id: insertedId || item.tab_item_id,
               kitchen_status: 'sent',
               round_number: nextRound,
             };
@@ -1127,7 +1167,7 @@ export const POS: React.FC<POSProps> = ({
         })
       );
 
-      showSuccess(`Round ${nextRound} sent to kitchen for Table ${activeTable.table_number}!`);
+      showSuccess(`Round ${nextRound} sent to kitchen for Table ${activeTableLabel}!`);
     } catch (err: any) {
       console.error('Error sending round to kitchen:', err);
       showError(err.message || 'Failed to send round to kitchen.');
@@ -1144,7 +1184,7 @@ export const POS: React.FC<POSProps> = ({
     }
 
     try {
-      const hasUnsent = cart.some(ci => ci.kitchen_status !== 'sent');
+      const hasUnsent = cart.some(ci => !isKitchenSubmitted(ci));
       if (hasUnsent) {
         const proceed = await confirm(
           'Unsent Items in Cart',
@@ -1158,7 +1198,7 @@ export const POS: React.FC<POSProps> = ({
 
       const billData: RunningBillSlipData = {
         branch_name: selectedBranch?.name || 'Main Branch',
-        table_number: activeTable.table_number,
+        table_number: activeTableLabel,
         pax_count: activeTab.pax_count || 1,
         server_name: activeTab.server_name || profile?.full_name || 'Staff',
         cashier_email: profile?.email || '',
@@ -1181,11 +1221,8 @@ export const POS: React.FC<POSProps> = ({
         payable_total: finalDue,
       };
 
-      // Set bill data for the BillOutDialog — the dialog buttons handle printing explicitly
-      setLastBillOutData(billData);
-
-      // Update pos_tabs status to 'billed_out'
-      await supabase
+      // Update pos_tabs status to 'billed_out' atomically while still active
+      const { data: updatedTab, error: billOutErr } = await supabase
         .from('pos_tabs')
         .update({
           status: 'billed_out',
@@ -1194,10 +1231,22 @@ export const POS: React.FC<POSProps> = ({
           discount_metadata: tabDiscountMetadata,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', activeTab.id);
+        .eq('id', activeTab.id)
+        .in('status', ['open', 'billed_out'])
+        .select('id')
+        .maybeSingle();
 
+      if (billOutErr) throw billOutErr;
+      if (!updatedTab) {
+        showError('This table tab was already settled or merged on another terminal.');
+        handleExitTableView();
+        return;
+      }
+
+      // Set bill data for the BillOutDialog — the dialog buttons handle printing explicitly
+      setLastBillOutData(billData);
       setActiveTab(prev => prev ? { ...prev, status: 'billed_out' } : null);
-      showSuccess(`Bill Out slip printed for ${activeTable.table_number}!`);
+      showSuccess(`Bill Out slip printed for ${activeTableLabel}!`);
     } catch (err: any) {
       console.error('Error printing bill out:', err);
       showError(err.message || 'Failed to print bill slip.');
@@ -1232,10 +1281,79 @@ export const POS: React.FC<POSProps> = ({
     }
   };
 
-  const updateCartItemNote = (menuItemId: string, note: string) => {
+  const handleToggleItemServed = async (item: CartItem) => {
+    if (!item.tab_item_id || !activeTab?.id) return;
+    if (!isOnline) {
+      showError('Updating served status requires an online connection.');
+      return;
+    }
+
+    const nextStatus: 'sent' | 'served' = item.kitchen_status === 'served' ? 'sent' : 'served';
+    setUpdatingServedId(item.tab_item_id);
+    try {
+      const { error } = await supabase
+        .from('pos_tab_items')
+        .update({ kitchen_status: nextStatus })
+        .eq('id', item.tab_item_id)
+        .eq('tab_id', activeTab.id);
+
+      if (error) throw error;
+
+      setCart(prev =>
+        prev.map(ci =>
+          ci.tab_item_id === item.tab_item_id ? { ...ci, kitchen_status: nextStatus } : ci
+        )
+      );
+    } catch (err: any) {
+      console.error('Failed to update served status:', err);
+      showError(err.message || 'Failed to update served status.');
+    } finally {
+      setUpdatingServedId(null);
+    }
+  };
+
+  const handleMarkAllServed = async () => {
+    if (!activeTab?.id) return;
+    if (!isOnline) {
+      showError('Updating served status requires an online connection.');
+      return;
+    }
+
+    const unservedIds = cart
+      .filter(ci => ci.tab_item_id && ci.kitchen_status === 'sent')
+      .map(ci => ci.tab_item_id as string);
+
+    if (unservedIds.length === 0) return;
+
+    setUpdatingServedId('__all__');
+    try {
+      const { error } = await supabase
+        .from('pos_tab_items')
+        .update({ kitchen_status: 'served' })
+        .in('id', unservedIds)
+        .eq('tab_id', activeTab.id);
+
+      if (error) throw error;
+
+      const idSet = new Set(unservedIds);
+      setCart(prev =>
+        prev.map(ci =>
+          ci.tab_item_id && idSet.has(ci.tab_item_id) ? { ...ci, kitchen_status: 'served' } : ci
+        )
+      );
+      showSuccess('All sent items marked as served!');
+    } catch (err: any) {
+      console.error('Failed to mark all served:', err);
+      showError(err.message || 'Failed to mark items as served.');
+    } finally {
+      setUpdatingServedId(null);
+    }
+  };
+
+  const updateCartItemNote = (cartKey: string, note: string) => {
     setCart(prev =>
       prev.map(ci =>
-        ci.menu_item_id === menuItemId
+        resolveCartItemKey(ci) === cartKey
           ? { ...ci, notes: note.trim() || undefined }
           : ci
       )
@@ -1306,7 +1424,7 @@ export const POS: React.FC<POSProps> = ({
             vatable_sales: p.vatable_sales || 0,
             vat_amount: p.vat_amount || 0,
             vat_exempt_sales: p.vat_exempt_sales || 0,
-            notes: p.notes || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.notes || null,
+            notes: p.notes || null,
           })),
           p_payment_method: method,
           p_amount_tendered: tendered,
@@ -1357,9 +1475,9 @@ export const POS: React.FC<POSProps> = ({
             quantity: p.quantity,
             unit_price: p.price,
             subtotal: p.price * p.quantity - (p.discount_amount || 0),
-            item_name: p.name || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.name || 'Item',
+            item_name: p.name || 'Item',
             sku: '',
-            notes: p.notes || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.notes || null,
+            notes: p.notes || null,
             discount_amount: p.discount_amount || 0,
             vatable_sales: p.vatable_sales || 0,
             vat_amount: p.vat_amount || 0,
@@ -1381,14 +1499,23 @@ export const POS: React.FC<POSProps> = ({
 
         if (activeTab?.id) {
           try {
-            await supabase
+            const { data: settledTab, error: settleErr } = await supabase
               .from('pos_tabs')
               .update({
                 status: 'settled',
                 sale_id: saleId,
                 closed_at: new Date().toISOString(),
               })
-              .eq('id', activeTab.id);
+              .eq('id', activeTab.id)
+              .in('status', ['open', 'billed_out'])
+              .select('id')
+              .maybeSingle();
+
+            if (settleErr) {
+              console.error('Error settling tab:', settleErr);
+            } else if (!settledTab) {
+              console.warn('Tab was already merged or settled on another terminal:', activeTab.id);
+            }
           } catch (tabErr) {
             console.error('Error settling tab:', tabErr);
           }
@@ -1443,8 +1570,8 @@ export const POS: React.FC<POSProps> = ({
             menu_item_id: p.menu_item_id,
             quantity: p.quantity,
             price: p.price,
-            name: p.name || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.name,
-            notes: p.notes || cart.find(ci => ci.menu_item_id === p.menu_item_id)?.notes || undefined,
+            name: p.name,
+            notes: p.notes || undefined,
             discount_amount: p.discount_amount || 0,
             is_vat_exempt: p.is_vat_exempt || false,
             vatable_sales: p.vatable_sales || 0,
@@ -1530,7 +1657,7 @@ export const POS: React.FC<POSProps> = ({
   // ─── Derived State ─────────────────────────────────────────
 
   const categories = useMemo(
-    () => ['All', ...Array.from(new Set(items.map(i => i.category)))],
+    () => ['All', ...Array.from(new Set(items.map(i => i.category).filter(Boolean)))],
     [items]
   );
 
@@ -1579,10 +1706,15 @@ export const POS: React.FC<POSProps> = ({
 
       {/* Active Table Banner */}
       {activeTable && (
-        <div className="p-3 mx-3 sm:mx-4 mt-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center justify-between">
-          <div className="min-w-0 pr-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-black text-sm text-rose-600 dark:text-rose-400">{activeTable.table_number}</span>
+        <div className="p-3 mx-3 sm:mx-4 mt-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center justify-between gap-2">
+          <div className="min-w-0 pr-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-black text-sm text-rose-600 dark:text-rose-400">{activeTableLabel}</span>
+              {(activeTab?.merged_tables?.length || 0) > 1 && (
+                <Badge variant="outline" className="text-[9px] h-4 font-bold border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300">
+                  Merged ({activeTab?.merged_tables?.length})
+                </Badge>
+              )}
               <Badge variant="outline" className="text-[10px] h-4 font-bold border-rose-500/40 text-rose-600">
                 {activeTab?.pax_count || 1} Guests
               </Badge>
@@ -1600,7 +1732,24 @@ export const POS: React.FC<POSProps> = ({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setTableFloorOpen(true)}
+              disabled={!isOnline}
+              onClick={() => {
+                setTableFloorMode((activeTab?.merged_tables?.length || 0) > 1 ? 'manage' : 'merge');
+                setTableFloorOpen(true);
+              }}
+              className="h-7 text-xs px-2 border-indigo-500/30 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-500/10 gap-1"
+              title={isOnline ? 'Merge or unmerge tables for this party' : 'Merging requires an online connection'}
+            >
+              <Combine className="w-3 h-3" />
+              <span>{(activeTab?.merged_tables?.length || 0) > 1 ? 'Tables' : 'Merge'}</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setTableFloorMode('normal');
+                setTableFloorOpen(true);
+              }}
               className="h-7 text-xs px-2 border-rose-500/30 hover:bg-rose-500/10"
               title="Switch to another table"
             >
@@ -1621,8 +1770,10 @@ export const POS: React.FC<POSProps> = ({
 
       {/* Items */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 min-h-0 w-full space-y-3">
-        {cart.map(item => (
-          <Card key={item.menu_item_id} className="bg-background/80 backdrop-blur-sm shadow-sm border border-border/80 rounded-xl overflow-hidden w-full">
+        {cart.map(item => {
+          const itemKey = resolveCartItemKey(item);
+          return (
+          <Card key={itemKey} className="bg-background/80 backdrop-blur-sm shadow-sm border border-border/80 rounded-xl overflow-hidden w-full">
             <CardContent className="p-3 text-xs space-y-2.5">
               {/* Row 1: Item Title + Alt Prep & Line Total */}
               <div className="flex items-start justify-between gap-2">
@@ -1635,8 +1786,12 @@ export const POS: React.FC<POSProps> = ({
                       </Badge>
                     )}
                     {activeTable && (
-                      item.kitchen_status === 'sent' ? (
-                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-emerald-500/40 text-emerald-600 bg-emerald-500/10 font-bold whitespace-nowrap">
+                      item.kitchen_status === 'served' ? (
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-emerald-600/50 text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 font-bold whitespace-nowrap">
+                          ✓ Served (Round {item.round_number || 1})
+                        </Badge>
+                      ) : item.kitchen_status === 'sent' ? (
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-sky-500/40 text-sky-600 dark:text-sky-300 bg-sky-500/10 font-bold whitespace-nowrap">
                           ✓ Sent (Round {item.round_number || 1})
                         </Badge>
                       ) : (
@@ -1713,7 +1868,7 @@ export const POS: React.FC<POSProps> = ({
                     variant="outline"
                     size="icon"
                     className="h-9 w-9 shrink-0 active:scale-90 transition-transform rounded-lg border-input hover:bg-muted"
-                    onClick={() => updateCartQty(item.menu_item_id, -1)}
+                    onClick={() => updateCartQty(itemKey, -1)}
                     title="Decrease quantity"
                   >
                     <Minus className="h-4 w-4" />
@@ -1725,18 +1880,18 @@ export const POS: React.FC<POSProps> = ({
                     onChange={(e) => {
                       const val = parseInt(e.target.value, 10);
                       if (!isNaN(val)) {
-                        updateCartQtyDirect(item.menu_item_id, val);
+                        updateCartQtyDirect(itemKey, val);
                       } else {
                         setCart(prev =>
                           prev.map(ci =>
-                            ci.menu_item_id === item.menu_item_id ? { ...ci, quantity: 0 } : ci
+                            resolveCartItemKey(ci) === itemKey ? { ...ci, quantity: 0 } : ci
                           )
                         );
                       }
                     }}
                     onBlur={() => {
                       if (!item.quantity || item.quantity < 1) {
-                        updateCartQtyDirect(item.menu_item_id, 1);
+                        updateCartQtyDirect(itemKey, 1);
                       }
                     }}
                     className="w-12 h-9 text-center text-sm font-black bg-background border border-input rounded-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none focus:outline-none focus:ring-2 focus:ring-primary shrink-0 font-mono shadow-inner"
@@ -1745,7 +1900,7 @@ export const POS: React.FC<POSProps> = ({
                     variant="outline"
                     size="icon"
                     className="h-9 w-9 shrink-0 active:scale-90 transition-transform rounded-lg border-input hover:bg-muted"
-                    onClick={() => updateCartQty(item.menu_item_id, 1)}
+                    onClick={() => updateCartQty(itemKey, 1)}
                     title="Increase quantity"
                   >
                     <Plus className="h-4 w-4" />
@@ -1754,7 +1909,7 @@ export const POS: React.FC<POSProps> = ({
                     variant="ghost"
                     size="icon"
                     className="h-9 w-9 ml-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg active:scale-90 transition-transform"
-                    onClick={() => removeFromCart(item.menu_item_id)}
+                    onClick={() => removeFromCart(itemKey)}
                     title="Remove item"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -1769,7 +1924,7 @@ export const POS: React.FC<POSProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        setEditingNoteItemId(item.menu_item_id);
+                        setEditingNoteItemId(itemKey);
                         setEditingNoteText(item.notes || '');
                       }}
                       className="text-xs font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1 truncate cursor-pointer hover:bg-amber-500/20 active:scale-98 transition-all flex items-center gap-1.5 min-h-[32px]"
@@ -1780,7 +1935,7 @@ export const POS: React.FC<POSProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => updateCartItemNote(item.menu_item_id, '')}
+                      onClick={() => updateCartItemNote(itemKey, '')}
                       className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-90 transition-all shrink-0"
                       title="Remove note"
                     >
@@ -1791,7 +1946,7 @@ export const POS: React.FC<POSProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setEditingNoteItemId(item.menu_item_id);
+                      setEditingNoteItemId(itemKey);
                       setEditingNoteText('');
                     }}
                     className="min-h-[32px] px-2 py-1 rounded-lg text-xs text-muted-foreground hover:text-primary hover:bg-primary/10 font-semibold flex items-center gap-1.5 active:scale-98 transition-all"
@@ -1803,7 +1958,7 @@ export const POS: React.FC<POSProps> = ({
               </div>
 
               {/* Inline Note Editor when this item is active */}
-              {editingNoteItemId === item.menu_item_id && (
+              {editingNoteItemId === itemKey && (
                 <div className="p-3 bg-muted/60 border border-border/80 rounded-xl space-y-2.5 mt-1.5 select-none w-full max-w-full overflow-hidden">
                   <div className="flex items-center justify-between text-xs font-bold text-foreground">
                     <span className="truncate pr-1">Kitchen Instructions for {item.name}:</span>
@@ -1843,7 +1998,7 @@ export const POS: React.FC<POSProps> = ({
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
-                          updateCartItemNote(item.menu_item_id, editingNoteText);
+                          updateCartItemNote(itemKey, editingNoteText);
                           setEditingNoteItemId(null);
                         }
                       }}
@@ -1854,7 +2009,7 @@ export const POS: React.FC<POSProps> = ({
                       size="sm"
                       className="h-9 px-3.5 text-xs font-bold rounded-lg shrink-0"
                       onClick={() => {
-                        updateCartItemNote(item.menu_item_id, editingNoteText);
+                        updateCartItemNote(itemKey, editingNoteText);
                         setEditingNoteItemId(null);
                       }}
                     >
@@ -1865,7 +2020,8 @@ export const POS: React.FC<POSProps> = ({
               )}
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
 
         {cart.length === 0 && !lastSaleResult && (
           <div className="flex flex-col items-center justify-center text-center text-muted-foreground p-8 mt-10">
@@ -1983,6 +2139,17 @@ export const POS: React.FC<POSProps> = ({
                 <span>Send to Kitchen ({unsentCount})</span>
               </Button>
             )}
+
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="w-full font-bold h-10 text-xs border-border text-foreground hover:bg-muted rounded-xl gap-1.5"
+              onClick={() => setFullOrderOpen(true)}
+            >
+              <ClipboardList className="w-4 h-4 text-primary" />
+              <span>View Full Order ({cartCount} {cartCount === 1 ? 'item' : 'items'})</span>
+            </Button>
 
             <div className="grid grid-cols-2 gap-2">
               <Button
@@ -2113,7 +2280,10 @@ export const POS: React.FC<POSProps> = ({
                   <Button
                     variant={activeTable ? 'default' : 'outline'}
                     size="sm"
-                    onClick={() => setTableFloorOpen(true)}
+                    onClick={() => {
+                      setTableFloorMode('normal');
+                      setTableFloorOpen(true);
+                    }}
                     className={`h-8 text-xs font-bold gap-1.5 transition-all ${activeTable
                         ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-sm ring-1 ring-rose-400/40'
                         : 'border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10'
@@ -2123,7 +2293,7 @@ export const POS: React.FC<POSProps> = ({
                     <TableIcon className="w-3.5 h-3.5" />
                     <span>
                       {activeTable
-                        ? `${activeTable.table_number} (${activeTab?.pax_count || 1} Pax)`
+                        ? `${activeTableLabel} (${activeTab?.pax_count || 1} Pax)`
                         : 'Select Table'}
                     </span>
                   </Button>
@@ -2280,19 +2450,34 @@ export const POS: React.FC<POSProps> = ({
                 </button>
               )}
             </div>
-            <div className="flex-1 min-w-0 flex space-x-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-hide select-none">
-              {categories.map(cat => (
-                <Button
-                  key={cat}
-                  variant={selectedCategory === cat ? 'default' : 'outline'}
-                  size="default"
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`h-11 px-4 text-xs font-bold rounded-xl whitespace-nowrap active:scale-95 transition-transform shrink-0 ${selectedCategory === cat ? 'shadow-sm' : ''
-                    }`}
+            <div className="flex items-center gap-2 w-full sm:w-auto sm:min-w-[240px]">
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger
+                  className="h-11 w-full sm:w-64 rounded-xl text-sm font-bold bg-background"
+                  aria-label="Filter by category"
                 >
-                  {cat}
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  {categories.map(cat => (
+                    <SelectItem key={cat} value={cat} className="text-sm font-semibold py-2.5">
+                      {cat === 'All' ? `All Categories (${items.length})` : cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedCategory !== 'All' && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedCategory('All')}
+                  className="h-11 px-3 text-xs font-bold text-muted-foreground hover:text-foreground rounded-xl shrink-0"
+                  title="Reset category filter"
+                >
+                  All
                 </Button>
-              ))}
+              )}
             </div>
           </div>
 
@@ -2307,8 +2492,9 @@ export const POS: React.FC<POSProps> = ({
                 const avail = availabilityMap[item.id];
                 const isOutOfStock = avail ? !avail.stockAvailable : false;
                 const needsAdjustment = avail ? (avail.stockAvailable && !avail.hasSufficientStock) : false;
-                const inCartItem = cart.find(ci => ci.menu_item_id === item.id);
-                const inCartQty = inCartItem?.quantity || 0;
+                const inCartQty = cart
+                  .filter(ci => ci.menu_item_id === item.id)
+                  .reduce((sum, ci) => sum + ci.quantity, 0);
 
                 return (
                   <Card
@@ -2446,7 +2632,7 @@ export const POS: React.FC<POSProps> = ({
         initialDiscountAmount={tabDiscountAmount}
         initialDiscountMetadata={tabDiscountMetadata}
         initialGroupSize={activeTab?.pax_count || 1}
-        initialQueueNumber={activeTable ? (activeTable.table_number.toLowerCase().startsWith('table') ? activeTable.table_number : `Table ${activeTable.table_number}`) : undefined}
+        initialQueueNumber={activeTable ? (activeTableLabel.toLowerCase().startsWith('table') ? activeTableLabel : `Table ${activeTableLabel}`) : undefined}
       />
 
       {/* Table Floor Grid Dialog */}
@@ -2456,7 +2642,37 @@ export const POS: React.FC<POSProps> = ({
           onClose={() => setTableFloorOpen(false)}
           branchId={selectedBranch.id}
           activeTableId={activeTable?.id}
+          activeTabId={activeTab?.id}
+          isOnline={isOnline}
+          initialMode={tableFloorMode}
           onSelectTable={handleSelectTable}
+        />
+      )}
+
+      {/* Full Table Order & Served Checklist Modal */}
+      {activeTable && (
+        <FullTableOrderDialog
+          open={fullOrderOpen}
+          onClose={() => setFullOrderOpen(false)}
+          tableLabel={activeTableLabel}
+          tab={activeTab}
+          cart={cart}
+          subtotal={cartTotal}
+          discountType={tabDiscountType}
+          discountAmount={tabDiscountAmount}
+          serviceChargeAmount={serviceChargeAmount}
+          totalDue={finalCartTotal}
+          orderKitchenNote={orderKitchenNote}
+          isOnline={isOnline}
+          firingKitchen={firingKitchen}
+          checkingOut={checkingOut}
+          updatingServedId={updatingServedId}
+          canCheckout={Boolean(selectedBranch && (isOnline || terminalConfig))}
+          onToggleItemServed={handleToggleItemServed}
+          onMarkAllServed={handleMarkAllServed}
+          onSendToKitchen={handleSendToKitchen}
+          onPrintBillOut={handlePrintBillOut}
+          onSettleAndPay={openPayment}
         />
       )}
 

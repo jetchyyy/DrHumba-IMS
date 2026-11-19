@@ -179,6 +179,7 @@ export interface PosTab {
   tenant_id?: string;
   branch_id: string;
   table_id: string;
+  merged_tables?: RestaurantTable[];
   server_id?: string | null;
   server_name?: string | null;
   pax_count: number;

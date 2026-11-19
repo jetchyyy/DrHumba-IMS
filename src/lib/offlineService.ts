@@ -92,31 +92,40 @@ const getOrGenerateKey = async (db: IDBDatabase): Promise<CryptoKey | null> => {
   if (!window.crypto || !window.crypto.subtle) {
     return null;
   }
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction('terminal_config', 'readwrite');
+
+  // Step 1: Read existing key in a short readonly transaction (no async awaits inside)
+  const existingKey = await new Promise<CryptoKey | null>((resolve, reject) => {
+    const transaction = db.transaction('terminal_config', 'readonly');
     const store = transaction.objectStore('terminal_config');
     const request = store.get('crypto_key');
 
-    request.onsuccess = async () => {
-      if (request.result) {
-        resolve(request.result as CryptoKey);
-      } else {
-        try {
-          // Generate a non-exportable 256-bit AES-GCM key
-          const newKey = await window.crypto.subtle.generateKey(
-            { name: 'AES-GCM', length: 256 },
-            false, // non-exportable (protected from DevTools copy/paste extraction)
-            ['encrypt', 'decrypt']
-          );
-          store.put(newKey, 'crypto_key');
-          resolve(newKey);
-        } catch (err) {
-          reject(err);
-        }
-      }
-    };
+    request.onsuccess = () => resolve((request.result as CryptoKey) || null);
     request.onerror = () => reject(request.error);
+    transaction.onerror = () => reject(transaction.error);
   });
+
+  if (existingKey) {
+    return existingKey;
+  }
+
+  // Step 2: Generate key outside any IndexedDB transaction so the transaction cannot auto-commit mid-await
+  const newKey = await window.crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    false, // non-exportable (protected from DevTools copy/paste extraction)
+    ['encrypt', 'decrypt']
+  );
+
+  // Step 3: Persist the newly generated key in a fresh readwrite transaction
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction('terminal_config', 'readwrite');
+    const store = transaction.objectStore('terminal_config');
+    store.put(newKey, 'crypto_key');
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+
+  return newKey;
 };
 
 const encryptPayload = async (payload: any, key: CryptoKey | null): Promise<{ ciphertext: ArrayBuffer; iv: Uint8Array }> => {
@@ -192,9 +201,9 @@ export const saveTerminalConfig = async (config: Omit<TerminalConfig, 'device_ke
       device_key_raw: hexKey
     };
 
-    const putRequest = store.put(fullConfig, 'config');
-    putRequest.onsuccess = () => resolve(hexKey);
-    putRequest.onerror = () => reject(putRequest.error);
+    store.put(fullConfig, 'config');
+    transaction.oncomplete = () => resolve(hexKey);
+    transaction.onerror = () => reject(transaction.error);
   });
 };
 
