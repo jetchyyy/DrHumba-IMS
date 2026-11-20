@@ -4,7 +4,7 @@ import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { ExclamationTriangleIcon as ShieldAlert } from '@radix-ui/react-icons';
 import { OdysseyHeader, OdysseyFooter } from './odyssey/OdysseyChrome';
-import { ReceiptText, ArrowRightLeft, ChartColumn, Users, Check, ShieldCheck, WifiOff, Store, ArrowRight } from 'lucide-react';
+import { ReceiptText, ArrowRightLeft, ChartColumn, Users, Check, ShieldCheck, WifiOff, Store, ArrowRight, Plus } from 'lucide-react';
 
 // 1. Tenant Suspended Screen
 export const TenantSuspendedPage: React.FC<{ tenantName: string }> = ({ tenantName }) => {
@@ -143,6 +143,7 @@ export const PlatformAdminTenantMismatchPage: React.FC<{
 // 4. Gorgeous Premium SaaS Landing Page
 export const SaaSLandingPage: React.FC = () => {
   const [dbPlans, setDbPlans] = useState<any[]>([]);
+  const [dbAddOns, setDbAddOns] = useState<any[] | null>(null);
 
   useEffect(() => {
     const fetchPlans = async () => {
@@ -158,7 +159,16 @@ export const SaaSLandingPage: React.FC = () => {
         console.error('Error loading plans for landing page:', err);
       }
     };
+    const fetchAddOns = async () => {
+      const { data, error } = await supabase
+        .from('subscription_addons')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order');
+      if (!error && data) setDbAddOns(data);
+    };
     fetchPlans();
+    fetchAddOns();
   }, []);
 
   const displayPlans = dbPlans.length > 0 ? dbPlans.map(p => {
@@ -232,6 +242,18 @@ export const SaaSLandingPage: React.FC = () => {
       popular: false,
     },
   ];
+
+  const fallbackAddOns = [
+    { id: 'extra_branch', name: 'Extra Branch Location', description: 'Open another branch on your current plan, with its own stock, sales and reports.', monthly_price: 499, unit_label: 'per branch / month' },
+    { id: 'extra_staff', name: 'Extra Staff Account', description: 'Add another cashier, manager or kitchen login with its own role and permissions.', monthly_price: 99, unit_label: 'per account / month' },
+  ];
+  const addOns = (dbAddOns ?? fallbackAddOns).map((a) => ({
+    name: a.name,
+    desc: a.description,
+    price: `₱${Number(a.monthly_price).toLocaleString()}`,
+    unit: a.unit_label,
+    icon: a.id === 'extra_branch' ? Store : a.id === 'extra_staff' ? Users : Plus,
+  }));
 
   const coreFeatures = [
     { title: 'Sales and checkout', desc: 'A cashier screen that keeps recording sales when the internet drops, and deducts ingredients by recipe.', icon: ReceiptText },
@@ -419,6 +441,41 @@ export const SaaSLandingPage: React.FC = () => {
               </div>
             ))}
           </div>
+
+          {/* Add-ons: extend a paid plan without upgrading */}
+          {addOns.length > 0 && (
+          <div className="mt-14">
+            <div className="max-w-2xl mb-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#B8470A]">Add-ons</p>
+              <h3 className="font-odyssey-display font-medium text-[22px] leading-[30px] mt-2">Need a little more? Keep your plan and add what you need.</h3>
+              <p className="text-[15px] leading-[24px] text-[#45546A] mt-2">Available on Starter, Professional and Enterprise. Billed monthly on top of your plan.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {addOns.map((a) => {
+                const Icon = a.icon;
+                return (
+                  <div key={a.name} className="rounded-2xl bg-white border border-[#DCE1E8] p-6 flex flex-col sm:flex-row sm:items-center gap-5">
+                    <div className="w-12 h-12 rounded-xl bg-[#ECE7DE] flex items-center justify-center shrink-0">
+                      <Icon className="w-6 h-6 text-[#152839]" strokeWidth={2} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-odyssey-display font-medium text-[18px] leading-[26px]">{a.name}</p>
+                      <p className="text-sm leading-[22px] text-[#45546A] mt-1">{a.desc}</p>
+                    </div>
+                    <div className="sm:text-right shrink-0">
+                      <span className="font-odyssey-display font-bold text-[28px] leading-[36px]">{a.price}</span>
+                      <p className="text-sm text-[#5F6A7C]">{a.unit}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-sm text-[#5F6A7C] mt-4">
+              Adding a lot? Upgrading to the next plan is often cheaper and unlocks more features.{' '}
+              <button onClick={goApply} className="font-semibold text-[#152839] underline underline-offset-2 hover:text-[#B8470A]">Talk to us</button>
+            </p>
+          </div>
+          )}
         </div>
       </section>
 

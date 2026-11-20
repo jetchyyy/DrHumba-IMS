@@ -95,6 +95,16 @@ interface PlanRecord {
   updated_at?: string;
 }
 
+interface AddOnRecord {
+  id: string;
+  name: string;
+  description: string;
+  monthly_price: number;
+  unit_label: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
 export const SuperAdminDashboard: React.FC = () => {
   const { signOut, profile } = useAuth();
   const { confirm, showSuccess, showError } = useModal();
@@ -109,6 +119,8 @@ export const SuperAdminDashboard: React.FC = () => {
   const [applications, setApplications] = useState<ApplicationRecord[]>([]);
   const [qrCodes, setQrCodes] = useState<QRCodeRecord[]>([]);
   const [plans, setPlans] = useState<PlanRecord[]>([]);
+  const [addOns, setAddOns] = useState<AddOnRecord[]>([]);
+  const [savingAddOnId, setSavingAddOnId] = useState<string | null>(null);
 
   // Dialog Modals
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -250,6 +262,10 @@ export const SuperAdminDashboard: React.FC = () => {
       // Fetch Subscription Plans
       const { data: plansData } = await supabase.from('subscription_plans').select('*').order('monthly_price', { ascending: true });
       setPlans((plansData as PlanRecord[]) || []);
+
+      // Fetch Add-ons
+      const { data: addOnData } = await supabase.from('subscription_addons').select('*').order('sort_order', { ascending: true });
+      setAddOns((addOnData as AddOnRecord[]) || []);
     } catch (err) {
       console.error('Error loading admin portal data:', err);
     } finally {
@@ -673,6 +689,38 @@ export const SuperAdminDashboard: React.FC = () => {
       showError(err.message || 'Failed to update plan configurations.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const updateAddOnDraft = (id: string, patch: Partial<AddOnRecord>) => {
+    setAddOns(prev => prev.map(a => (a.id === id ? { ...a, ...patch } : a)));
+  };
+
+  const handleSaveAddOn = async (addOn: AddOnRecord) => {
+    if (!addOn.name.trim() || !(addOn.monthly_price >= 0)) {
+      showError('Add-on needs a name and a price of 0 or more.');
+      return;
+    }
+    setSavingAddOnId(addOn.id);
+    try {
+      const { error } = await supabase
+        .from('subscription_addons')
+        .update({
+          name: addOn.name.trim(),
+          description: addOn.description.trim(),
+          monthly_price: addOn.monthly_price,
+          unit_label: addOn.unit_label.trim(),
+          is_active: addOn.is_active,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', addOn.id);
+      if (error) throw error;
+      showSuccess(`Add-on "${addOn.name}" saved.`);
+    } catch (err: any) {
+      console.error(err);
+      showError(err.message || 'Failed to save add-on.');
+    } finally {
+      setSavingAddOnId(null);
     }
   };
 
@@ -1285,6 +1333,58 @@ export const SuperAdminDashboard: React.FC = () => {
                     </CardContent>
                   </Card>
                 ))
+              )}
+            </div>
+
+            {/* Add-ons CMS */}
+            <div className="border-t border-[#DCE1E8] pt-6 space-y-4">
+              <div>
+                <h2 className="text-base font-odyssey-display font-bold tracking-tight text-[#152839] uppercase">Add-ons</h2>
+                <p className="text-[10px] text-[#5F6A7C] font-semibold uppercase tracking-wider mt-1">Extra branches and staff sold on top of a plan. Shown on the landing page when active.</p>
+              </div>
+              {addOns.length === 0 ? (
+                <p className="text-[#5F6A7C] text-xs">No add-ons found. Run the subscription_addons migration.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {addOns.map(addOn => (
+                    <Card key={addOn.id} className="bg-white border-[#DCE1E8]">
+                      <CardContent className="p-5 space-y-3">
+                        <div className="flex justify-between items-center">
+                          <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-wider bg-[#FF6F07]/10 text-[#B8470A] border-[#FF6F07]/50">
+                            {addOn.id}
+                          </Badge>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-[#5F6A7C] uppercase font-semibold">Show on landing page</span>
+                            <InlineSwitch checked={addOn.is_active} onChange={(checked: boolean) => updateAddOnDraft(addOn.id, { is_active: checked })} />
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Name</Label>
+                          <Input value={addOn.name} onChange={(e) => updateAddOnDraft(addOn.id, { name: e.target.value })} className="bg-white border-[#DCE1E8]" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Description</Label>
+                          <Input value={addOn.description} onChange={(e) => updateAddOnDraft(addOn.id, { description: e.target.value })} className="bg-white border-[#DCE1E8]" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Monthly Price (PHP)</Label>
+                            <Input type="number" min={0} value={addOn.monthly_price} onChange={(e) => updateAddOnDraft(addOn.id, { monthly_price: Number(e.target.value) })} className="bg-white border-[#DCE1E8]" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Unit Label</Label>
+                            <Input value={addOn.unit_label} onChange={(e) => updateAddOnDraft(addOn.id, { unit_label: e.target.value })} className="bg-white border-[#DCE1E8]" />
+                          </div>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button onClick={() => handleSaveAddOn(addOn)} disabled={savingAddOnId === addOn.id} className="bg-[#152839] hover:bg-[#1f3a52] text-[#F9F8F3] font-bold h-9">
+                            {savingAddOnId === addOn.id ? 'Saving...' : 'Save Add-on'}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               )}
             </div>
           </div>
