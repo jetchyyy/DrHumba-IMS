@@ -202,6 +202,7 @@ export const SuperAdminDashboard: React.FC = () => {
     sales_history: 'Sales History Log',
     z_read_history: 'Z-Read Compliance Reports',
     expenses: 'Expense Tracker',
+    service_charge_tracker: 'Service Charge Tracker',
     inventory: 'Inventory Catalog',
     global_inventory: 'Global Stock Ledger',
     receiving: 'Receiving Sheets',
@@ -411,13 +412,16 @@ export const SuperAdminDashboard: React.FC = () => {
     }
   };
 
-  // 3a. Quick Toggle Table Management for Tenant
-  const handleToggleTenantTableService = async (tenantItem: TenantRecord) => {
-    const currentVal = Boolean(tenantItem.features?.table_management);
+  const toggleTenantFeatureFlag = async (
+    tenantItem: TenantRecord,
+    featureKey: string,
+    label: string,
+    currentVal: boolean
+  ) => {
     const nextVal = !currentVal;
     const updatedFeatures = {
       ...(tenantItem.features || {}),
-      table_management: nextVal,
+      [featureKey]: nextVal,
     };
 
     try {
@@ -430,40 +434,25 @@ export const SuperAdminDashboard: React.FC = () => {
         .eq('id', tenantItem.id);
 
       if (error) throw error;
-      showSuccess(`Table Management ${nextVal ? 'enabled' : 'disabled'} for "${tenantItem.name}".`);
+      showSuccess(`${label} ${nextVal ? 'enabled' : 'disabled'} for "${tenantItem.name}".`);
       setTenants(prev => prev.map(t => t.id === tenantItem.id ? { ...t, features: updatedFeatures } : t));
     } catch (err: any) {
-      console.error('Failed to toggle Table Management for tenant:', err);
-      showError(err.message || 'Failed to toggle Table Management.');
+      console.error(`Failed to toggle ${label} for tenant:`, err);
+      showError(err.message || `Failed to toggle ${label}.`);
     }
   };
+
+  // 3a. Quick Toggle Table Management for Tenant
+  const handleToggleTenantTableService = (tenantItem: TenantRecord) =>
+    toggleTenantFeatureFlag(tenantItem, 'table_management', 'Table Management', Boolean(tenantItem.features?.table_management));
 
   // 3a.1 Quick Toggle Shift Management for Tenant
-  const handleToggleTenantShiftManagement = async (tenantItem: TenantRecord) => {
-    const currentVal = Boolean(tenantItem.features?.shift_management);
-    const nextVal = !currentVal;
-    const updatedFeatures = {
-      ...(tenantItem.features || {}),
-      shift_management: nextVal,
-    };
+  const handleToggleTenantShiftManagement = (tenantItem: TenantRecord) =>
+    toggleTenantFeatureFlag(tenantItem, 'shift_management', 'Shift Control', Boolean(tenantItem.features?.shift_management));
 
-    try {
-      const { error } = await supabase
-        .from('tenants')
-        .update({
-          features: updatedFeatures,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', tenantItem.id);
-
-      if (error) throw error;
-      showSuccess(`Shift Control ${nextVal ? 'enabled' : 'disabled'} for "${tenantItem.name}".`);
-      setTenants(prev => prev.map(t => t.id === tenantItem.id ? { ...t, features: updatedFeatures } : t));
-    } catch (err: any) {
-      console.error('Failed to toggle Shift Management for tenant:', err);
-      showError(err.message || 'Failed to toggle Shift Management.');
-    }
-  };
+  // 3a.2 Quick Toggle Service Charge Tracker for Tenant (enabled by default unless explicitly false)
+  const handleToggleTenantServiceCharge = (tenantItem: TenantRecord) =>
+    toggleTenantFeatureFlag(tenantItem, 'service_charge_tracker', 'Service Charge Tracker', tenantItem.features?.service_charge_tracker !== false);
 
   // 3b. Export Tenant Data
   const handleExportTenant = async (tenant: TenantRecord) => {
@@ -890,6 +879,7 @@ export const SuperAdminDashboard: React.FC = () => {
                     <TableHead className="text-[#45546A] text-center">Quotas (Branches/Users)</TableHead>
                     <TableHead className="text-[#45546A] text-center">Table Service</TableHead>
                     <TableHead className="text-[#45546A] text-center">Shift Control</TableHead>
+                    <TableHead className="text-[#45546A] text-center">Service Charge</TableHead>
                     <TableHead className="text-[#45546A] text-center">Status</TableHead>
                     <TableHead className="text-[#45546A] text-right">Actions</TableHead>
                   </TableRow>
@@ -897,11 +887,11 @@ export const SuperAdminDashboard: React.FC = () => {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center text-[#5F6A7C] py-12">Loading tenant registries...</TableCell>
+                      <TableCell colSpan={10} className="text-center text-[#5F6A7C] py-12">Loading tenant registries...</TableCell>
                     </TableRow>
                   ) : tenants.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center text-[#5F6A7C] py-12">No tenants found.</TableCell>
+                      <TableCell colSpan={10} className="text-center text-[#5F6A7C] py-12">No tenants found.</TableCell>
                     </TableRow>
                   ) : (
                     tenants.map(t => (
@@ -986,6 +976,26 @@ export const SuperAdminDashboard: React.FC = () => {
                             <span className={`w-1.5 h-1.5 rounded-full ${t.features?.shift_management ? 'bg-[#FF6F07]' : 'bg-[#5F6A7C]'}`} />
                             {t.features?.shift_management ? 'Enabled' : 'Disabled'}
                           </button>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {(() => {
+                            const isServiceChargeEnabled = t.features?.service_charge_tracker !== false;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleTenantServiceCharge(t)}
+                                title={`Click to ${isServiceChargeEnabled ? 'disable' : 'enable'} Service Charge Tracker for ${t.name}`}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
+                                  isServiceChargeEnabled
+                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/20'
+                                    : 'bg-white border-[#DCE1E8] text-[#5F6A7C] hover:text-[#152839] hover:border-[#DCE1E8]'
+                                }`}
+                              >
+                                <span className={`w-1.5 h-1.5 rounded-full ${isServiceChargeEnabled ? 'bg-emerald-400' : 'bg-[#5F6A7C]'}`} />
+                                {isServiceChargeEnabled ? 'Enabled' : 'Disabled'}
+                              </button>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell className="text-center">
                           <Badge variant={t.status === 'suspended' ? "destructive" : "default"} className="uppercase text-[9px] tracking-wider">
@@ -1815,7 +1825,9 @@ export const SuperAdminDashboard: React.FC = () => {
               <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Feature Permissions</Label>
               <div className="grid grid-cols-1 gap-2.5 max-h-48 overflow-y-auto pr-1">
                 {Object.entries(FEATURE_LABELS).map(([key, label]) => {
-                  const isEnabled = !!editPlanFeatures[key];
+                  const isEnabled = key === 'service_charge_tracker'
+                    ? editPlanFeatures[key] !== false
+                    : !!editPlanFeatures[key];
                   return (
                     <div key={key} className="flex justify-between items-center bg-[#F9F8F3] p-2 rounded-lg border border-[#DCE1E8]">
                       <span className="text-xs text-[#152839]">{label}</span>

@@ -37,7 +37,7 @@ import { FloatingNotifications } from './FloatingNotifications';
 import { getTerminalConfig } from '../lib/offlineService';
 import { usePendingApprovalCounts } from '../hooks/usePendingApprovalCounts';
 import { getAllowedTabIds } from '../lib/navPermissions';
-import { Lock, Unlock } from 'lucide-react';
+import { Coins, Lock, Unlock } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -61,6 +61,7 @@ export const useNavItems = () => {
     { id: 'sales-history', name: 'Sales History', icon: History },
     { id: 'z-read-history', name: 'Z-Read History', icon: ClipboardList },
     { id: 'expenses', name: 'Expense Tracker', icon: ExpensesIcon },
+    { id: 'service-charge', name: 'Service Charge Tracker', icon: Coins },
     { id: 'inventory', name: 'Inventory Items', icon: Package },
     { id: 'global-inventory', name: 'Overall Stock', icon: Boxes },
     { id: 'receiving', name: 'Stock Receiving', icon: FilePlus },

@@ -193,7 +193,7 @@ export const UserManagement: React.FC = () => {
 
   const ROLE_DEFAULTS: Record<string, string[]> = {
     super_admin: [
-      'dashboard', 'pos', 'queue-caller', 'sales-history', 'z-read-history', 'expenses', 'inventory', 'global-inventory',
+      'dashboard', 'pos', 'queue-caller', 'sales-history', 'z-read-history', 'expenses', 'service-charge', 'inventory', 'global-inventory',
       'receiving', 'transfers', 'transfers_dispatch', 'transfers_receive', 'adjustments', 'portioning',
       'transactions', 'kitchen-receipts', 'recipes', 'branches', 'table-management', 'analytics', 'audit-logs', 'users', 'settings',
       'action_buttons', 'sales_void', 'view_service_charge'
@@ -204,7 +204,7 @@ export const UserManagement: React.FC = () => {
       'action_buttons', 'restrict_adjustment_edits'
     ],
     branch_manager: [
-      'dashboard', 'pos', 'sales-history', 'z-read-history', 'expenses', 'inventory', 'global-inventory',
+      'dashboard', 'pos', 'sales-history', 'z-read-history', 'expenses', 'service-charge', 'inventory', 'global-inventory',
       'transfers', 'transfers_receive', 'adjustments', 'recipes', 'table-management', 'analytics', 'settings',
       'sales_void', 'restrict_adjustment_edits'
     ],
@@ -214,7 +214,7 @@ export const UserManagement: React.FC = () => {
     ],
     auditor: [
       'dashboard', 'inventory', 'global-inventory', 'transfers', 'adjustments', 'recipes', 'branches',
-      'analytics', 'audit-logs', 'expenses', 'transactions', 'settings', 'restrict_adjustment_edits'
+      'analytics', 'audit-logs', 'expenses', 'service-charge', 'transactions', 'settings', 'restrict_adjustment_edits'
     ],
   };
 
@@ -225,6 +225,7 @@ export const UserManagement: React.FC = () => {
     'sales-history': 'sales_history',
     'z-read-history': 'z_read_history',
     expenses: 'expenses',
+    'service-charge': 'service_charge_tracker',
     inventory: 'inventory',
     'global-inventory': 'global_inventory',
     receiving: 'receiving',
@@ -262,6 +263,7 @@ export const UserManagement: React.FC = () => {
     { id: 'sales-history', name: 'Sales History' },
     { id: 'z-read-history', name: 'Z-Read History' },
     { id: 'expenses', name: 'Expense Tracker' },
+    { id: 'service-charge', name: 'Service Charge Tracker' },
     { id: 'inventory', name: 'Inventory Items' },
     { id: 'global-inventory', name: 'Overall Stock' },
     { id: 'receiving', name: 'Stock Receiving' },

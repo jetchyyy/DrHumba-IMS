@@ -19,6 +19,7 @@ export const TAB_FEATURE_KEYS: Record<string, string> = {
   users: 'users',
   settings: 'settings',
   expenses: 'expenses',
+  'service-charge': 'service_charge_tracker',
 };
 
 export interface NavPermissionProfile {
@@ -54,6 +55,7 @@ export function getAllowedTabIds(
     { id: 'sales-history', show: true },
     { id: 'z-read-history', show: true },
     { id: 'expenses', show: ['super_admin', 'branch_manager', 'auditor'].includes(role) },
+    { id: 'service-charge', show: ['super_admin', 'branch_manager', 'auditor'].includes(role) },
     { id: 'inventory', show: true },
     { id: 'global-inventory', show: ['super_admin', 'inventory_manager', 'auditor'].includes(role) },
     { id: 'receiving', show: ['super_admin', 'inventory_manager'].includes(role) },

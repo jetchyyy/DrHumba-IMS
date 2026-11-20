@@ -30,6 +30,7 @@ import { Settings } from './components/Settings';
 import { SalesHistory } from './components/SalesHistory';
 import { ZReadHistory } from './components/ZReadHistory';
 import { Expenses } from './components/Expenses';
+import { ServiceChargeTracker } from './components/ServiceChargeTracker';
 import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen';
 import { KitchenReceipts } from './components/KitchenReceipts';
 import { TableManagement } from './components/TableManagement';
@@ -674,6 +675,7 @@ const AppContent: React.FC = () => {
     users:            'users',
     settings:         'settings',
     expenses:         'expenses',
+    'service-charge': 'service_charge_tracker',
   };
 
   const isFeatureAllowed = (tabId: string): boolean => {
@@ -791,6 +793,8 @@ const AppContent: React.FC = () => {
         return <Analytics />;
       case 'expenses':
         return <Expenses />;
+      case 'service-charge':
+        return <ServiceChargeTracker />;
       case 'audit-logs':
         return <AuditLogs />;
       case 'users':

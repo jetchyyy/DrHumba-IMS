@@ -47,3 +47,43 @@ test('resolveEffectiveTab keeps dashboard when user has dashboard access', () =>
   const allowed = ['dashboard', 'pos', 'settings'];
   assert.equal(resolveEffectiveTab('dashboard', allowed), 'dashboard');
 });
+
+test('getAllowedTabIds includes service-charge for super_admin, branch_manager, and auditor by default', () => {
+  for (const role_name of ['super_admin', 'branch_manager', 'auditor']) {
+    const allowed = getAllowedTabIds({ role_name }, { is_restaurant: true, features: {} });
+    assert.equal(allowed.includes('service-charge'), true, `expected service-charge for ${role_name}`);
+  }
+  for (const role_name of ['cashier', 'inventory_manager']) {
+    const allowed = getAllowedTabIds({ role_name }, { is_restaurant: true, features: {} });
+    assert.equal(allowed.includes('service-charge'), false, `expected no service-charge for ${role_name}`);
+  }
+});
+
+test('getAllowedTabIds hides service-charge when features.service_charge_tracker is false even if in allowed_tabs', () => {
+  const allowed = getAllowedTabIds(
+    {
+      role_name: 'super_admin',
+      allowed_tabs: ['dashboard', 'service-charge', 'expenses'],
+    },
+    {
+      is_restaurant: true,
+      features: { service_charge_tracker: false, expenses: true },
+    }
+  );
+  assert.equal(allowed.includes('service-charge'), false);
+  assert.deepEqual(allowed, ['dashboard', 'expenses']);
+});
+
+test('getAllowedTabIds allows service-charge for cashier when explicitly granted in allowed_tabs and feature enabled', () => {
+  const allowed = getAllowedTabIds(
+    {
+      role_name: 'cashier',
+      allowed_tabs: ['pos', 'service-charge'],
+    },
+    {
+      is_restaurant: true,
+      features: { pos: true, service_charge_tracker: true },
+    }
+  );
+  assert.deepEqual(allowed, ['pos', 'service-charge']);
+});
