@@ -36,14 +36,18 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from 
 import { FloatingNotifications } from './FloatingNotifications';
 import { getTerminalConfig } from '../lib/offlineService';
 import { usePendingApprovalCounts } from '../hooks/usePendingApprovalCounts';
-import { getAllowedTabIds } from '../lib/navPermissions';
-import { Coins, Lock, Unlock } from 'lucide-react';
+import { getAllowedTabIds, getAllowedWorkforceTabIds, isWorkforceTab } from '../lib/navPermissions';
+import { Coins, Lock, Unlock, LayoutGrid, ScrollText, Clock, CalendarDays, CalendarOff, CalendarCheck, CalendarClock, ClipboardCheck, UserRound, LayoutTemplate, MapPin, Tablet } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   isAppLocked?: boolean;
   onOpenLockDialog?: (mode: 'lock' | 'unlock') => void;
+  /** Name of the module being used, shown above the menu. */
+  moduleName?: string;
+  /** Opens the module picker; omitted when the user has only one module. */
+  onSwitchModule?: () => void;
 }
 
 // The shared nav items list — used by both desktop sidebar & mobile components
@@ -86,6 +90,28 @@ export const useNavItems = () => {
     .map(tab => ({ ...tab, locked: false }));
 };
 
+// Workforce module nav items (separate sidebar list; never mixed into Operations)
+const useWorkforceNavItems = () => {
+  const { profile } = useAuth();
+  const { tenant } = useTenant();
+  if (!profile) return [];
+  const allowedIds = new Set(getAllowedWorkforceTabIds(profile, tenant));
+  const tabs = [
+    { id: 'wf-time-clock', name: 'My Time Clock', icon: Clock },
+    { id: 'wf-my-schedule', name: 'My Schedule', icon: CalendarDays },
+    { id: 'wf-my-leave', name: 'My Leave', icon: CalendarOff },
+    { id: 'wf-kiosk', name: 'Branch Time Clock', icon: Tablet },
+    { id: 'wf-schedule', name: 'Schedule Board', icon: CalendarClock },
+    { id: 'wf-attendance', name: 'Attendance', icon: ClipboardCheck },
+    { id: 'wf-leave', name: 'Leave Requests', icon: CalendarCheck },
+    { id: 'wf-staff', name: 'Staff Directory', icon: UserRound },
+    { id: 'wf-shift-templates', name: 'Shift Templates', icon: LayoutTemplate },
+    { id: 'wf-settings', name: 'Branch Geofence', icon: MapPin },
+    { id: 'wf-audit', name: 'Audit Log', icon: ScrollText },
+  ];
+  return tabs.filter(tab => allowedIds.has(tab.id)).map(tab => ({ ...tab, locked: false }));
+};
+
 // ── Inner nav content (shared between desktop sidebar & mobile sheet) ─────────
 const NavContent: React.FC<{
   activeTab: string;
@@ -95,8 +121,10 @@ const NavContent: React.FC<{
   onToggleCollapse?: () => void;
   isAppLocked?: boolean;
   onOpenLockDialog?: (mode: 'lock' | 'unlock') => void;
+  moduleName?: string;
+  onSwitchModule?: () => void;
 }> = ({
-  activeTab, setActiveTab, onNavigate, isCollapsed, onToggleCollapse, isAppLocked, onOpenLockDialog
+  activeTab, setActiveTab, onNavigate, isCollapsed, onToggleCollapse, isAppLocked, onOpenLockDialog, moduleName, onSwitchModule
 }) => {
   const { counts, isApprover } = usePendingApprovalCounts();
   const { profile, selectedBranch, setSelectedBranch, branches, signOut } = useAuth();
@@ -104,7 +132,11 @@ const NavContent: React.FC<{
   const { theme, toggleTheme } = useTheme();
   const { confirm } = useModal();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const navItems = useNavItems();
+  const opsNavItems = useNavItems();
+  const workforceNavItems = useWorkforceNavItems();
+  const isWorkforceModule = isWorkforceTab(activeTab) && workforceNavItems.length > 0;
+  const navItems = isWorkforceModule ? workforceNavItems : opsNavItems;
+
 
   const [terminalConfig, setTerminalConfig] = useState<any>(null);
 
@@ -210,6 +242,27 @@ const NavContent: React.FC<{
         )}
       </div>
 
+
+      {/* Current module + switch (scales to any number of modules) */}
+      {onSwitchModule && (
+        <div className={`px-4 pt-3 ${isCollapsed ? 'flex justify-center' : ''}`}>
+          {isCollapsed ? (
+            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => { onSwitchModule(); onNavigate?.(); }} title={`${moduleName || 'Module'}: switch module`} aria-label="Switch module">
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+          ) : (
+            <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Module</p>
+                <p className="text-sm font-semibold truncate">{moduleName || '—'}</p>
+              </div>
+              <Button variant="ghost" size="sm" className="h-8 px-2 flex-shrink-0" onClick={() => { onSwitchModule(); onNavigate?.(); }}>
+                <LayoutGrid className="h-4 w-4 mr-1.5" /> Switch
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
@@ -348,7 +401,7 @@ const NavContent: React.FC<{
 };
 
 // ── Desktop Sidebar ───────────────────────────────────────────────────────────
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAppLocked, onOpenLockDialog }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAppLocked, onOpenLockDialog, moduleName, onSwitchModule }) => {
   const { profile } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   
@@ -363,20 +416,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isApp
         onToggleCollapse={() => setIsCollapsed(!isCollapsed)}
         isAppLocked={isAppLocked}
         onOpenLockDialog={onOpenLockDialog}
+        moduleName={moduleName}
+        onSwitchModule={onSwitchModule}
       />
     </aside>
   );
 };
 
 // ── Mobile Top Header + Sheet Drawer ─────────────────────────────────────────
-export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAppLocked, onOpenLockDialog }) => {
+export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAppLocked, onOpenLockDialog, moduleName, onSwitchModule }) => {
   const [open, setOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { profile, selectedBranch } = useAuth();
   const { tenant } = useTenant();
 
   const navItems = useNavItems();
-  const currentTab = navItems.find(t => t.id === activeTab);
+  const workforceNavItems = useWorkforceNavItems();
+  const currentTab = navItems.find(t => t.id === activeTab) || workforceNavItems.find(t => t.id === activeTab);
   const CurrentIcon = currentTab?.icon || LayoutDashboard;
   
   const [terminalConfig, setTerminalConfig] = useState<any>(null);
@@ -415,6 +471,8 @@ export const MobileHeader: React.FC<SidebarProps> = ({ activeTab, setActiveTab, 
                 setOpen(false);
                 onOpenLockDialog?.(mode);
               }}
+              moduleName={moduleName}
+              onSwitchModule={onSwitchModule}
             />
           </SheetContent>
         </Sheet>
@@ -476,14 +534,28 @@ const BOTTOM_TABS = [
   { id: 'settings', icon: SettingsIcon, label: 'Settings' },
 ];
 
+const WORKFORCE_BOTTOM_LABELS: Record<string, string> = {
+  'wf-time-clock': 'Clock',
+  'wf-my-schedule': 'My Shifts',
+  'wf-my-leave': 'Leave',
+  'wf-leave': 'Leave',
+  'wf-kiosk': 'Kiosk',
+  'wf-schedule': 'Board',
+  'wf-attendance': 'Attendance',
+};
+
 interface MobileBottomNavProps extends SidebarProps {
   isVisible?: boolean;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, setActiveTab, isVisible = true }) => {
   const navItems = useNavItems();
+  const workforceNavItems = useWorkforceNavItems();
+  const inWorkforce = isWorkforceTab(activeTab) && workforceNavItems.length > 0;
   // Only show bottom tabs the user has access to
-  const visibleBottomTabs = BOTTOM_TABS.filter(bt => navItems.some(n => n.id === bt.id));
+  const visibleBottomTabs = inWorkforce
+    ? workforceNavItems.slice(0, 5).map(t => ({ id: t.id, icon: t.icon, label: WORKFORCE_BOTTOM_LABELS[t.id] || t.name }))
+    : BOTTOM_TABS.filter(bt => navItems.some(n => n.id === bt.id));
 
   return (
     <nav className={`md:hidden fixed bottom-6 left-4 right-4 z-40 bg-background/95 backdrop-blur-sm border rounded-2xl shadow-lg transition-all duration-300 ${isVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-24 opacity-0 pointer-events-none'}`}>

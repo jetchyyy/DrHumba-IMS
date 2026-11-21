@@ -14,6 +14,7 @@ import { Badge } from './ui/badge';
 import { useModal } from '../contexts/ModalContext';
 import { useTenant } from '../contexts/TenantContext';
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { WorkforceAccessPicker } from './workforce/WorkforceAccessPicker';
 
 interface ProfileRecord {
   id: string;
@@ -1076,6 +1077,13 @@ export const UserManagement: React.FC = () => {
                   })}
                 </div>
               </div>
+
+              <WorkforceAccessPicker
+                tabs={allowedTabs}
+                setTabs={setAllowedTabs}
+                roleName={role === 'custom' ? customRole : role}
+                idPrefix="create-wf"
+              />
             </div>
 
             <DialogFooter className="p-6 border-t shrink-0">
@@ -1291,6 +1299,13 @@ export const UserManagement: React.FC = () => {
                   })}
                 </div>
               </div>
+
+              <WorkforceAccessPicker
+                tabs={editAllowedTabs}
+                setTabs={setEditAllowedTabs}
+                roleName={editRole === 'custom' ? editCustomRole : editRole}
+                idPrefix="edit-wf"
+              />
             </div>
 
             <DialogFooter className="p-6 border-t shrink-0">

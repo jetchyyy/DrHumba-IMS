@@ -103,3 +103,78 @@ export function resolveEffectiveTab(currentTab: string, allowedTabIds: string[])
   if (allowedTabIds.includes(currentTab)) return currentTab;
   return allowedTabIds[0];
 }
+
+// ── Workforce module (staff scheduling + time clock) ─────────────────────────
+// Kept separate from getAllowedTabIds so the Operations sidebar is unchanged.
+// Hidden entirely unless the tenant has features.staff_scheduling === true.
+
+export const WORKFORCE_TAB_IDS = [
+  'wf-time-clock',
+  'wf-kiosk',
+  'wf-my-schedule',
+  'wf-my-leave',
+  'wf-schedule',
+  'wf-attendance',
+  'wf-leave',
+  'wf-staff',
+  'wf-shift-templates',
+  'wf-settings',
+  'wf-audit',
+] as const;
+
+/**
+ * Stored in profiles.allowed_tabs once an admin customises a user's Workforce
+ * access, so "no Workforce screens" can be told apart from "use role defaults".
+ */
+export const WORKFORCE_CUSTOM_MARKER = 'wf-custom';
+
+export function isWorkforceTab(tabId: string): boolean {
+  return tabId.startsWith('wf-');
+}
+
+export function isWorkforceEnabled(tenant: NavPermissionTenant | null | undefined): boolean {
+  return Boolean(tenant?.features?.staff_scheduling);
+}
+
+const WORKFORCE_ROLE_DEFAULTS: Record<string, string[]> = {
+  'wf-kiosk': ['super_admin', 'branch_manager', 'cashier'],
+  'wf-leave': ['super_admin', 'branch_manager', 'auditor'],
+  'wf-schedule': ['super_admin', 'branch_manager', 'auditor'],
+  'wf-attendance': ['super_admin', 'branch_manager', 'auditor'],
+  'wf-staff': ['super_admin', 'branch_manager'],
+  'wf-shift-templates': ['super_admin', 'branch_manager'],
+  'wf-settings': ['super_admin', 'branch_manager'],
+  'wf-audit': ['super_admin', 'branch_manager', 'auditor'],
+};
+const WORKFORCE_SELF_SERVICE = new Set(['wf-time-clock', 'wf-my-schedule', 'wf-my-leave']);
+
+/** Workforce tabs a role gets when the admin has not customised access. */
+export function getWorkforceRoleDefaults(role: string): string[] {
+  return WORKFORCE_TAB_IDS.filter(id =>
+    WORKFORCE_SELF_SERVICE.has(id) || (WORKFORCE_ROLE_DEFAULTS[id]?.includes(role) ?? false)
+  );
+}
+
+/** True when the admin has set this user's Workforce access by hand. */
+export function hasCustomWorkforceAccess(allowedTabs: string[] | null | undefined): boolean {
+  return Array.isArray(allowedTabs) && allowedTabs.some(isWorkforceTab);
+}
+
+/**
+ * Ordered Workforce tab IDs for the user. With no customisation, everyone gets
+ * the self-service tabs (time clock, own schedule, own leave) plus their role's
+ * management tabs. Once an admin customises access in Staff Management, the user
+ * gets exactly the ticked tabs. Super Admins always get everything.
+ */
+export function getAllowedWorkforceTabIds(
+  profile: NavPermissionProfile | null | undefined,
+  tenant: NavPermissionTenant | null | undefined
+): string[] {
+  if (!profile || !isWorkforceEnabled(tenant)) return [];
+  const role = profile.role_name;
+  if (role !== 'super_admin' && hasCustomWorkforceAccess(profile.allowed_tabs)) {
+    const picked = new Set(profile.allowed_tabs!);
+    return WORKFORCE_TAB_IDS.filter(id => picked.has(id));
+  }
+  return getWorkforceRoleDefaults(role);
+}

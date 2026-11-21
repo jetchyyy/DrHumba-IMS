@@ -215,6 +215,7 @@ export const SuperAdminDashboard: React.FC = () => {
     branches: 'Branch Management',
     table_management: 'Table Management & Dining',
     shift_management: 'Shift Control (Morning/Mid/Night)',
+    staff_scheduling: 'Workforce: Staff Scheduling & Time Clock',
     analytics: 'Analytics Charts',
     audit_logs: 'System Audit Logs',
     users: 'Staff Management Tab',
@@ -1641,9 +1642,29 @@ export const SuperAdminDashboard: React.FC = () => {
                 />
               </div>
 
+              <div className="p-3.5 rounded-xl border border-[#DCE1E8] bg-[#F9F8F3] flex items-center justify-between">
+                <div className="space-y-0.5 pr-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-[#152839]">Workforce: Scheduling & Time Clock</span>
+                    <Badge variant="outline" className={`text-[9px] font-bold uppercase tracking-wider ${
+                      editFeatures.staff_scheduling ? 'border-emerald-500/40 text-emerald-700 bg-emerald-500/10' : 'border-[#DCE1E8] text-[#5F6A7C]'
+                    }`}>
+                      {editFeatures.staff_scheduling ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-[#45546A] leading-relaxed">
+                    Adds a separate Workforce sidebar: staff schedules with recurring shifts, and GPS-checked time in/out.
+                  </p>
+                </div>
+                <InlineSwitch
+                  checked={Boolean(editFeatures.staff_scheduling)}
+                  onChange={(checked: boolean) => setEditFeatures({ ...editFeatures, staff_scheduling: checked })}
+                />
+              </div>
+
               <Label className="text-xs font-bold uppercase tracking-wider text-[#45546A]">Other Feature Access Flags</Label>
               <div className="grid grid-cols-2 gap-3 p-4 border border-[#DCE1E8] rounded-xl bg-[#F9F8F3] max-h-48 overflow-y-auto">
-                {Object.keys(FEATURE_LABELS).filter(k => k !== 'table_management' && k !== 'shift_management').map(key => {
+                {Object.keys(FEATURE_LABELS).filter(k => k !== 'table_management' && k !== 'shift_management' && k !== 'staff_scheduling').map(key => {
                   const isEnabled = editFeatures[key] !== false; // default true if not configured
                   return (
                     <div key={key} className="flex items-center justify-between bg-white p-2 rounded-lg border border-[#DCE1E8]">

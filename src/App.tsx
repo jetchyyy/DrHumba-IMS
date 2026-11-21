@@ -35,7 +35,35 @@ import { ActiveBranchSplashScreen } from './components/ActiveBranchSplashScreen'
 import { KitchenReceipts } from './components/KitchenReceipts';
 import { TableManagement } from './components/TableManagement';
 import { isPosLocked as readPosLockedState } from './lib/posLock';
-import { getAllowedTabIds, resolveEffectiveTab } from './lib/navPermissions';
+import { getAllowedTabIds, isWorkforceTab, resolveEffectiveTab } from './lib/navPermissions';
+import { allModuleTabs, getAvailableModules, moduleForTab, type AvailableModule } from './lib/appModules';
+import { ModuleChooser } from './components/ModuleChooser';
+
+// The module picked after login. Kept for this browser tab only, so every new
+// login (or new tab) asks again, while a page refresh does not.
+const MODULE_KEY = 'ims_active_module';
+const readChosenModule = (): string | null => {
+  try { return sessionStorage.getItem(MODULE_KEY); } catch { return null; }
+};
+const writeChosenModule = (id: string | null) => {
+  try {
+    if (id) sessionStorage.setItem(MODULE_KEY, id);
+    else sessionStorage.removeItem(MODULE_KEY);
+  } catch { /* storage unavailable */ }
+};
+
+// Workforce screens load on demand so the POS bundle does not grow.
+const TimeClock = React.lazy(() => import('./components/workforce/TimeClock'));
+const KioskClock = React.lazy(() => import('./components/workforce/KioskClock'));
+const MySchedule = React.lazy(() => import('./components/workforce/MySchedule'));
+const ScheduleBoard = React.lazy(() => import('./components/workforce/ScheduleBoard'));
+const AttendanceReport = React.lazy(() => import('./components/workforce/AttendanceReport'));
+const StaffDirectory = React.lazy(() => import('./components/workforce/StaffDirectory'));
+const ShiftTemplates = React.lazy(() => import('./components/workforce/ShiftTemplates'));
+const WorkforceSettings = React.lazy(() => import('./components/workforce/WorkforceSettings'));
+const MyLeave = React.lazy(() => import('./components/workforce/MyLeave'));
+const LeaveManagement = React.lazy(() => import('./components/workforce/LeaveManagement'));
+const WorkforceAudit = React.lazy(() => import('./components/workforce/WorkforceAudit'));
 import { PosLockDialog } from './components/pos/PosLockDialog';
 import { useNetworkStatus } from './hooks/use-network-status';
 import { Pig404 } from './components/Pig404';
@@ -141,7 +169,41 @@ const AppContent: React.FC = () => {
     [profile, tenant]
   );
 
-  const effectiveTab = profile ? resolveEffectiveTab(activeTab, allowedTabIds) : activeTab;
+  const modules = React.useMemo(() => getAvailableModules(profile, tenant), [profile, tenant]);
+  const [chosenModule, setChosenModuleState] = useState<string | null>(() => readChosenModule());
+  const setChosenModule = React.useCallback((id: string | null) => {
+    writeChosenModule(id);
+    setChosenModuleState(id);
+  }, []);
+
+  // Operations tabs first so the fallback tab is still an Operations tab.
+  const effectiveTab = profile
+    ? resolveEffectiveTab(activeTab, allModuleTabs(modules))
+    : activeTab;
+  const currentModule = moduleForTab(effectiveTab, modules);
+
+  const pickModule = (m: AvailableModule) => {
+    setChosenModule(m.id);
+    setActiveTab(m.tabs[0]);
+  };
+
+  // Keep the open tab and the chosen module in step:
+  // - after a refresh (or first load) the tab moves into the chosen module;
+  // - opening another module's tab (e.g. from a notification) switches module.
+  const prevTabRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (!profile || !chosenModule) { prevTabRef.current = null; return; }
+    const chosen = modules.find(m => m.id === chosenModule);
+    if (!chosen) return;
+    const prev = prevTabRef.current;
+    prevTabRef.current = effectiveTab;
+    if (chosen.tabs.includes(effectiveTab)) return;
+    if (prev === null || prev === effectiveTab) {
+      setActiveTab(chosen.tabs[0]);
+    } else if (currentModule) {
+      setChosenModule(currentModule.id);
+    }
+  }, [profile, chosenModule, modules, effectiveTab, currentModule, setChosenModule]);
 
   useEffect(() => {
     if (!user) {
@@ -152,6 +214,17 @@ const AppContent: React.FC = () => {
       setActiveTab(effectiveTab);
     }
   }, [user, profile, effectiveTab, activeTab]);
+
+  // Forget the module only when a signed-in user signs out (a page reload starts
+  // with no user for a moment while the session is restored).
+  const hadUserRef = React.useRef(false);
+  useEffect(() => {
+    if (user) { hadUserRef.current = true; return; }
+    if (hadUserRef.current) {
+      hadUserRef.current = false;
+      setChosenModule(null);
+    }
+  }, [user, setChosenModule]);
 
   const handlePosLocked = () => {
     setIsPosLocked(true);
@@ -681,6 +754,9 @@ const AppContent: React.FC = () => {
   const isFeatureAllowed = (tabId: string): boolean => {
     // dashboard is always allowed; platform admins bypass
     if (tabId === 'dashboard') return true;
+    if (isWorkforceTab(tabId)) {
+      return Boolean(tenant?.features?.staff_scheduling);
+    }
     if (tabId === 'table-management') {
       return Boolean(tenant?.features?.table_management);
     }
@@ -801,12 +877,62 @@ const AppContent: React.FC = () => {
         return <UserManagement />;
       case 'settings':
         return <Settings />;
+      case 'wf-time-clock':
+      case 'wf-kiosk':
+      case 'wf-my-schedule':
+      case 'wf-schedule':
+      case 'wf-attendance':
+      case 'wf-staff':
+      case 'wf-shift-templates':
+      case 'wf-my-leave':
+      case 'wf-leave':
+      case 'wf-audit':
+      case 'wf-settings': {
+        const screens: Record<string, React.ReactNode> = {
+          'wf-time-clock': <TimeClock />,
+          'wf-kiosk': <KioskClock />,
+          'wf-my-schedule': <MySchedule />,
+          'wf-schedule': <ScheduleBoard />,
+          'wf-attendance': <AttendanceReport />,
+          'wf-staff': <StaffDirectory />,
+          'wf-shift-templates': <ShiftTemplates />,
+          'wf-settings': <WorkforceSettings />,
+          'wf-my-leave': <MyLeave />,
+          'wf-leave': <LeaveManagement />,
+          'wf-audit': <WorkforceAudit />,
+        };
+        return (
+          <React.Suspense
+            fallback={<div className="flex-1 flex items-center justify-center p-8 text-sm text-muted-foreground">Loading…</div>}
+          >
+            {screens[effectiveTab]}
+          </React.Suspense>
+        );
+      }
       default:
         return <Dashboard setActiveTab={setActiveTab} />;
     }
   };
 
   const shouldHideSidebar = isFullscreen && effectiveTab === 'pos';
+
+  // After login, users with more than one module pick where to work.
+  // A kiosk-locked device skips this and stays in Operations.
+  const needsModulePick = modules.length > 1 && !isPosLocked
+    && !modules.some(m => m.id === chosenModule);
+  if (needsModulePick) {
+    return (
+      <ModuleChooser
+        modules={modules}
+        onPick={pickModule}
+        userName={profile?.full_name?.split(' ')[0] || profile?.email.split('@')[0] || 'there'}
+        orgName={tenant?.name || import.meta.env.VITE_DEFAULT_APP_NAME || 'Dr. Humba'}
+        logoUrl={tenant?.logo_url || import.meta.env.VITE_DEFAULT_LOGO || '/saaslogo.png'}
+        onSignOut={signOut}
+      />
+    );
+  }
+  const switchModule = modules.length > 1 && !isPosLocked ? () => setChosenModule(null) : undefined;
 
   return (
     <div className={`min-h-screen ${effectiveTab === 'pos' ? 'h-screen overflow-hidden' : ''} flex bg-background text-foreground selection:bg-primary/30`}>
@@ -818,6 +944,8 @@ const AppContent: React.FC = () => {
           setActiveTab={setActiveTab}
           isAppLocked={isPosLocked}
           onOpenLockDialog={setLockDialogMode}
+          moduleName={currentModule?.name}
+          onSwitchModule={switchModule}
         />
       )}
 
@@ -829,6 +957,8 @@ const AppContent: React.FC = () => {
             setActiveTab={setActiveTab}
             isAppLocked={isPosLocked}
             onOpenLockDialog={setLockDialogMode}
+            moduleName={currentModule?.name}
+            onSwitchModule={switchModule}
           />
         )}
 
