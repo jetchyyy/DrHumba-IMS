@@ -2,12 +2,35 @@ import { buildKitchenEscPosBytes } from './kitchenReceipt';
 import type { KitchenReceiptTemplate } from './kitchenReceipt';
 
 /**
- * Global State to hold the active device reference once selected.
- * This prevents the user from having to select the printer for every single button click.
+ * Multi-printer Bluetooth engine.
+ *
+ * Each device (tablet / PC) keeps its own list of paired printers in localStorage,
+ * because Web Bluetooth permissions are per browser. Every printer has two roles:
+ *  - receipts: customer receipts, running bills, X/Z and EOD reports
+ *  - kitchen:  kitchen order tickets (the same full ticket is sent to every kitchen printer,
+ *              e.g. one in the kitchen and one at the bar)
  */
-let globalConnectedPrinter: any = null;
-let globalWritePipe: any = null;
+export type PrinterRole = 'receipts' | 'kitchen';
+
+export interface SavedPrinter {
+  id: string;
+  name: string;
+  receipts: boolean;
+  kitchen: boolean;
+}
+
+const STORAGE_KEY = 'bt_printers_v1';
+const CHANGE_EVENT = 'bt-printers-changed';
+
+interface PrinterConnection {
+  device: any;
+  pipe: any | null;
+}
+
+/** Live device handles for this page session, keyed by Bluetooth device id. */
+const connections = new Map<string, PrinterConnection>();
 let isPrinting = false;
+
 const COMMON_PRINTER_SERVICES = [
   'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Dothantech / Deli
   '000018f0-0000-1000-8000-00805f9b34fb', // Generic ESC/POS
@@ -17,6 +40,17 @@ const COMMON_PRINTER_SERVICES = [
   '0000ff00-0000-1000-8000-00805f9b34fb'  // Another generic BLE Serial
 ];
 
+const KNOWN_TX_UUIDS = [
+  '0000ff02-0000-1000-8000-00805f9b34fb', // Priority 1: Common JK-58 / MPT-II transparent serial
+  '00002af1-0000-1000-8000-00805f9b34fb', // Priority 2: Official Bluetooth SIG ESC/POS
+  '49535343-8841-43f4-a8d4-ecbe34729bb3', // Priority 3: ISSC SPP
+  'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f', // Priority 4: Deli / Dothantech
+  '0000ffe1-0000-1000-8000-00805f9b34fb',
+  '0000fec9-0000-1000-8000-00805f9b34fb'
+];
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * Check if the current browser environment supports the Web Bluetooth API.
  * Requires Chromium (Chrome, Edge, Opera) and a secure context (HTTPS or localhost).
@@ -25,13 +59,8 @@ export const isBluetoothSupported = (): boolean => {
   return typeof navigator !== 'undefined' && typeof (navigator as any)?.bluetooth !== 'undefined';
 };
 
-/**
- * Core Global Controller. Call this single function inside EVERY print button
- * event handler throughout the application.
- */
-export const ensureBluetoothPrinter = async () => {
+function getBluetooth(): any {
   const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
-
   if (!nav?.bluetooth) {
     if (typeof window !== 'undefined' && !window.isSecureContext) {
       throw new Error(
@@ -42,162 +71,234 @@ export const ensureBluetoothPrinter = async () => {
       "Web Bluetooth is not supported on this browser (Safari and Firefox do not support Web Bluetooth). Please use Google Chrome, Microsoft Edge, or Opera on Windows, Mac, Linux, ChromeOS, or Android, or use the 'Print Receipt (System)' button."
     );
   }
+  return nav.bluetooth;
+}
 
-  // 1. If we already have it in current page memory, return it
-  if (globalConnectedPrinter) {
-    return globalConnectedPrinter;
+// ─── Saved printer list (per device) ────────────────────────────────────────
+
+export function getSavedPrinters(): SavedPrinter[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((p: any) => p && typeof p.id === 'string') : [];
+  } catch {
+    return [];
   }
+}
 
-  // 2. Try to retrieve previously permitted devices (bypasses popup across page reloads in modern Chrome)
-  if (typeof nav.bluetooth.getDevices === 'function') {
-    try {
-      const devices = await nav.bluetooth.getDevices();
-      if (devices && devices.length > 0) {
-        // Just pick the first previously permitted device. 
-        // The user explicitly granted it access to this site, so it's their intended printer.
-        console.log("Found previously paired device via getDevices():", devices[0].name);
-        globalConnectedPrinter = devices[0];
-        return globalConnectedPrinter;
-      }
-    } catch (err) {
-      console.warn("getDevices() failed or not permitted:", err);
-    }
+function savePrinters(list: SavedPrinter[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  } catch {
+    // Storage blocked (private mode); printers then only last for this session.
   }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(CHANGE_EVENT));
+}
 
-  // 3. Fallback: Request device explicitly (shows pairing popup)
-  console.log("No printer active in state. Initializing device discovery popup...");
-  globalConnectedPrinter = await nav.bluetooth.requestDevice({
+/** Subscribe to printer list / connection changes. Returns an unsubscribe function. */
+export function onPrintersChanged(callback: () => void): () => void {
+  window.addEventListener(CHANGE_EVENT, callback);
+  return () => window.removeEventListener(CHANGE_EVENT, callback);
+}
+
+export function isPrinterConnected(id: string): boolean {
+  return !!connections.get(id)?.device?.gatt?.connected;
+}
+
+function rememberDevice(device: any) {
+  const existing = connections.get(device.id);
+  if (!existing || existing.device !== device) {
+    connections.set(device.id, { device, pipe: null });
+  }
+}
+
+function upsertPrinter(device: any, defaults: Pick<SavedPrinter, 'receipts' | 'kitchen'>): SavedPrinter {
+  const list = getSavedPrinters();
+  const existing = list.find(p => p.id === device.id);
+  if (existing) {
+    if (device.name) existing.name = device.name;
+    savePrinters(list);
+    return existing;
+  }
+  const printer: SavedPrinter = { id: device.id, name: device.name || 'Bluetooth Printer', ...defaults };
+  list.push(printer);
+  savePrinters(list);
+  return printer;
+}
+
+async function requestPrinterDevice(): Promise<any> {
+  return getBluetooth().requestDevice({
     acceptAllDevices: true,
     optionalServices: COMMON_PRINTER_SERVICES
   });
+}
 
-  return globalConnectedPrinter;
-};
+async function getPermittedDevices(): Promise<any[]> {
+  const bluetooth = getBluetooth();
+  if (typeof bluetooth.getDevices !== 'function') return [];
+  try {
+    return (await bluetooth.getDevices()) || [];
+  } catch (err) {
+    console.warn("getDevices() failed or not permitted:", err);
+    return [];
+  }
+}
 
 /**
- * Core Global Controller. Call this single function inside EVERY print button
- * to send raw ESC/POS bytes to the remembered device.
+ * Opens the browser's device picker and adds the chosen printer to this device's list.
+ * The first printer prints everything; additional printers default to kitchen tickets only.
+ * Must be called from a user gesture (button click).
  */
-export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array, isRetry = false): Promise<void> {
-  if (isPrinting && !isRetry) {
-    console.warn("A print job is already in progress. Please wait a moment.");
-    return;
+export async function addBluetoothPrinter(): Promise<SavedPrinter> {
+  const device = await requestPrinterDevice();
+  rememberDevice(device);
+  const isFirst = getSavedPrinters().length === 0;
+  return upsertPrinter(device, { receipts: isFirst, kitchen: true });
+}
+
+export function updateBluetoothPrinter(id: string, patch: Partial<Pick<SavedPrinter, 'name' | 'receipts' | 'kitchen'>>) {
+  savePrinters(getSavedPrinters().map(p => (p.id === id ? { ...p, ...patch } : p)));
+}
+
+export function removeBluetoothPrinter(id: string) {
+  const conn = connections.get(id);
+  try {
+    if (conn?.device?.gatt?.connected) conn.device.gatt.disconnect();
+  } catch {
+    // Ignore disconnect errors
   }
-  if (!isRetry) isPrinting = true;
+  connections.delete(id);
+  savePrinters(getSavedPrinters().filter(p => p.id !== id));
+}
+
+/** Matches saved printers for a role to live device handles available in this session. */
+async function resolvePrinters(role: PrinterRole) {
+  const saved = getSavedPrinters().filter(p => p[role]);
+  const targets: { printer: SavedPrinter; device: any }[] = [];
+  const missing: SavedPrinter[] = [];
+  let permitted: any[] | null = null;
+
+  for (const printer of saved) {
+    let device = connections.get(printer.id)?.device;
+    if (!device) {
+      permitted ??= await getPermittedDevices();
+      device = permitted.find(d => d.id === printer.id);
+      if (device) rememberDevice(device);
+    }
+    if (device) targets.push({ printer, device });
+    else missing.push(printer);
+  }
+  return { saved, targets, missing };
+}
+
+/**
+ * Call at the start of every Bluetooth print button handler (while the click gesture is
+ * still active) so the device picker can open if no printer is reachable yet.
+ */
+export const ensureBluetoothPrinter = async (role: PrinterRole = 'receipts') => {
+  getBluetooth();
+
+  // Legacy / first-run: no printer list yet. Adopt the previously permitted device
+  // (or ask for one) and let it print everything, matching the old single-printer behaviour.
+  if (getSavedPrinters().length === 0) {
+    const permitted = await getPermittedDevices();
+    const device = permitted[0] ?? await requestPrinterDevice();
+    rememberDevice(device);
+    upsertPrinter(device, { receipts: true, kitchen: true });
+    return device;
+  }
+
+  const { saved, targets, missing } = await resolvePrinters(role);
+  if (targets.length > 0) return targets[0].device;
+
+  if (saved.length === 0) {
+    throw new Error(
+      `No Bluetooth printer is set to print ${role === 'kitchen' ? 'kitchen tickets' : 'receipts'} on this device. Assign one in Settings → Printers.`
+    );
+  }
+
+  // Saved printers exist but this browser can't restore them (no getDevices support,
+  // or permission was reset). Ask the user to pick the printer again.
+  const device = await requestPrinterDevice();
+  rememberDevice(device);
+  if (!getSavedPrinters().some(p => p.id === device.id)) {
+    const replaced = missing[0];
+    savePrinters(getSavedPrinters().map(p =>
+      p.id === replaced.id ? { ...p, id: device.id, name: device.name || p.name } : p
+    ));
+  }
+  return device;
+};
+
+// ─── Low-level write ────────────────────────────────────────────────────────
+
+async function openWritePipe(device: any): Promise<any> {
+  if (!device.gatt) {
+    throw new Error("GATT server not found on device.");
+  }
+  console.log(`Connecting to GATT Server: ${device.name}`);
+
+  let services: any[] = [];
+  let connectionAttempts = 3;
+
+  while (connectionAttempts > 0) {
+    try {
+      // Prevent infinite hang on Windows Web Bluetooth zombie objects
+      const server: any = await Promise.race([
+        device.gatt.connect(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("GATT connect timeout. Device may be asleep.")), 4000))
+      ]);
+
+      // Crucial delay: Windows/Chrome needs time before GATT tables are accessible after a reconnect
+      await sleep(1000);
+
+      services = await Promise.race([
+        server.getPrimaryServices(),
+        new Promise<any[]>((_, reject) => setTimeout(() => reject(new Error("GATT services timeout. Device unresponsive.")), 4000))
+      ]);
+      break;
+    } catch (connErr: any) {
+      console.warn(`GATT Services fetch failed (${connectionAttempts} attempts left):`, connErr.message);
+      connectionAttempts--;
+      if (connectionAttempts === 0) throw connErr;
+      // Wait and let the OS settle before trying again
+      await sleep(1500);
+    }
+  }
+
+  const writable: any[] = [];
+  for (const service of services) {
+    try {
+      const characteristics = await service.getCharacteristics();
+      for (const char of characteristics) {
+        console.log(`  -> ${service.uuid} / ${char.uuid} [write:${char.properties.write}, writeWoRes:${char.properties.writeWithoutResponse}]`);
+        if (char.properties.write || char.properties.writeWithoutResponse) writable.push(char);
+      }
+    } catch {
+      // Characteristics discovery not supported or failed for this service
+    }
+  }
+
+  // Prefer known SPP TX characteristics, otherwise the first writable one.
+  const pipe = writable.find(c => KNOWN_TX_UUIDS.includes(c.uuid)) ?? writable[0];
+  if (!pipe) {
+    throw new Error("No available write characteristic pipelines found.");
+  }
+  console.log(`Selected characteristic: ${pipe.uuid}`);
+  return pipe;
+}
+
+async function writeToDevice(device: any, rawEscPosBytes: Uint8Array, isRetry = false): Promise<void> {
+  rememberDevice(device);
+  const conn = connections.get(device.id)!;
 
   try {
-    // 1. Ensure printer is connected (uses existing if available)
-    await ensureBluetoothPrinter();
-
-    // 2. Open live RFCOMM/GATT pipe to execute the print job
-    if (!globalConnectedPrinter.gatt) {
-      throw new Error("GATT server not found on device.");
+    if (!device.gatt?.connected || !conn.pipe) {
+      conn.pipe = await openWritePipe(device);
     }
+    const pipe = conn.pipe;
 
-    if (!globalConnectedPrinter.gatt.connected || !globalWritePipe) {
-      console.log(`Connecting to GATT Server: ${globalConnectedPrinter.name}`);
-
-      let server: any;
-      let services: any[] = [];
-      let connectionAttempts = 3;
-
-      while (connectionAttempts > 0) {
-        try {
-          // Prevent infinite hang on Windows Web Bluetooth zombie objects
-          server = await Promise.race([
-            globalConnectedPrinter.gatt.connect(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("GATT connect timeout. Device may be asleep.")), 4000))
-          ]);
-
-          // Crucial delay: Windows/Chrome needs time before GATT tables are accessible after a reconnect
-          await new Promise(resolve => setTimeout(resolve, 1000));
-
-          services = await Promise.race([
-            server.getPrimaryServices(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("GATT services timeout. Device unresponsive.")), 4000))
-          ]);
-
-          break; // Success
-        } catch (connErr: any) {
-          console.warn(`GATT Services fetch failed (${connectionAttempts} attempts left):`, connErr.message);
-          connectionAttempts--;
-          if (connectionAttempts === 0) throw connErr;
-          // Wait and let the OS settle before trying again
-          await new Promise(resolve => setTimeout(resolve, 1500));
-        }
-      }
-
-      // Find a valid service and write characteristic
-      let writePipe: any = null;
-
-      const knownTxUuids = [
-        '0000ff02-0000-1000-8000-00805f9b34fb', // Priority 1: Common JK-58 / MPT-II transparent serial
-        '00002af1-0000-1000-8000-00805f9b34fb', // Priority 2: Official Bluetooth SIG ESC/POS
-        '49535343-8841-43f4-a8d4-ecbe34729bb3', // Priority 3: ISSC SPP
-        'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f', // Priority 4: Deli / Dothantech
-        '0000ffe1-0000-1000-8000-00805f9b34fb',
-        '0000fec9-0000-1000-8000-00805f9b34fb'
-      ];
-
-      // Debug logging for all discovered services and characteristics
-      console.log("--- Discovering Services & Characteristics ---");
-      for (const service of services) {
-        console.log(`Service: ${service.uuid}`);
-        try {
-          const characteristics = await service.getCharacteristics();
-          for (const char of characteristics) {
-            console.log(`  -> Char: ${char.uuid} [write:${char.properties.write}, writeWoRes:${char.properties.writeWithoutResponse}]`);
-          }
-        } catch {
-          // Characteristics discovery not supported or failed for this service
-        }
-      }
-      console.log("----------------------------------------------");
-
-      // Priority 1: Look for known SPP TX characteristics
-      for (const service of services) {
-        try {
-          const characteristics = await service.getCharacteristics();
-          for (const char of characteristics) {
-            if (knownTxUuids.includes(char.uuid) && (char.properties.write || char.properties.writeWithoutResponse)) {
-              writePipe = char;
-              console.log(`Selected PRIORITY characteristic: ${char.uuid}`);
-              break;
-            }
-          }
-        } catch {
-          // Service characteristics inspection failed; try next service
-        }
-        if (writePipe) break;
-      }
-
-      // Priority 2: Fallback to the first writable characteristic found
-      if (!writePipe) {
-        for (const service of services) {
-          try {
-            const characteristics = await service.getCharacteristics();
-            for (const char of characteristics) {
-              if (char.properties.write || char.properties.writeWithoutResponse) {
-                writePipe = char;
-                console.log(`Selected FALLBACK characteristic: ${char.uuid}`);
-                break;
-              }
-            }
-          } catch {
-            // Service characteristics inspection failed; try next service
-          }
-          if (writePipe) break;
-        }
-      }
-
-      if (!writePipe) {
-        throw new Error("No available write characteristic pipelines found.");
-      }
-      globalWritePipe = writePipe;
-    }
-
-    // 3. Stream the button's specific payload
-    const printerName = (globalConnectedPrinter.name || '').toUpperCase();
+    const printerName = (device.name || '').toUpperCase();
     const isGenericModel = printerName.includes('MPT-II') || printerName.includes('JK-58');
 
     // Use 20 for generic printers that drop large BLE MTUs (like JK-5801H), otherwise preserve 128 for others
@@ -206,52 +307,102 @@ export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array, isR
 
     for (let i = 0; i < rawEscPosBytes.length; i += chunkSize) {
       const chunk = rawEscPosBytes.slice(i, i + chunkSize);
-
       // Prefer writeWithoutResponse if available (some generic devices hang on writeWithResponse)
-      if (globalWritePipe.properties.writeWithoutResponse) {
-        await globalWritePipe.writeValueWithoutResponse(chunk);
+      if (pipe.properties.writeWithoutResponse) {
+        await pipe.writeValueWithoutResponse(chunk);
         // Small delay to prevent hardware buffer overflow
-        await new Promise(resolve => setTimeout(resolve, chunkDelay));
-      } else if (globalWritePipe.properties.write) {
-        await globalWritePipe.writeValueWithResponse(chunk);
+        await sleep(chunkDelay);
+      } else {
+        await pipe.writeValueWithResponse(chunk);
       }
     }
-    console.log("Print job completed successfully.");
-
-    // We intentionally DO NOT disconnect here. 
-    // High-quality printers (like Deli) can maintain the connection for fast consecutive prints.
-    // If a cheap printer (like JK-5802H) drops the connection, the catch block will cleanly reset the state.
-
+    // We intentionally DO NOT disconnect: good printers keep the link for fast consecutive prints.
   } catch (error: any) {
-    console.warn("[WARN] GATT Operation failed:", error.message);
-
-    // Clean up the dead/flaky connection
-    if (globalConnectedPrinter && globalConnectedPrinter.gatt && globalConnectedPrinter.gatt.connected) {
-      try {
-        globalConnectedPrinter.gatt.disconnect();
-      } catch {
-        // Ignore disconnect errors during cleanup
-      }
+    console.warn(`[WARN] GATT Operation failed on ${device.name}:`, error.message);
+    try {
+      if (device.gatt?.connected) device.gatt.disconnect();
+    } catch {
+      // Ignore disconnect errors during cleanup
     }
-    globalWritePipe = null;
+    conn.pipe = null;
 
-    // Auto-retry exactly once if this wasn't already a retry
     if (!isRetry) {
       console.log("Attempting automatic retry to recover Bluetooth connection...");
-      // Wait a tiny bit for OS to clean up the disconnect
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      return await sendToGlobalThermalPrinter(rawEscPosBytes, true);
+      await sleep(1500);
+      return writeToDevice(device, rawEscPosBytes, true);
+    }
+    throw error;
+  } finally {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(CHANGE_EVENT));
+  }
+}
+
+/**
+ * Sends raw ESC/POS bytes to every printer on this device assigned to the given role.
+ * Printers are written one after another; a failure on one printer does not stop the others.
+ */
+export async function sendToGlobalThermalPrinter(rawEscPosBytes: Uint8Array, role: PrinterRole = 'receipts'): Promise<void> {
+  if (isPrinting) {
+    console.warn("A print job is already in progress. Please wait a moment.");
+    return;
+  }
+  isPrinting = true;
+
+  try {
+    await ensureBluetoothPrinter(role);
+    const { targets, missing } = await resolvePrinters(role);
+    const failures = missing.map(p => `${p.name} (not connected — reconnect it in Settings → Printers)`);
+
+    for (const { printer, device } of targets) {
+      try {
+        await writeToDevice(device, rawEscPosBytes);
+      } catch (err: any) {
+        console.error(`[CRITICAL] Printing failed on ${printer.name}:`, err);
+        failures.push(`${printer.name} (${err?.message || 'unknown error'})`);
+      }
     }
 
-    console.error("[CRITICAL] Global Printing Engine Failure after retry:", error);
-    // Reset state on failure so the next button click lets the user re-select the hardware
-    globalConnectedPrinter = null;
+    if (failures.length > 0) {
+      alert(`Printing failed on:\n${failures.join('\n')}`);
+    } else {
+      console.log(`Print job completed on ${targets.length} printer(s).`);
+    }
+  } catch (error: any) {
+    console.error("[CRITICAL] Global Printing Engine Failure:", error);
     alert(`Printing Failed: ${error.message}`);
   } finally {
-    if (!isRetry) {
-      isPrinting = false;
+    isPrinting = false;
+  }
+}
+
+/** Prints a short test slip on one saved printer. Call from a button click. */
+export async function printBluetoothTestPage(id: string): Promise<void> {
+  const printer = getSavedPrinters().find(p => p.id === id);
+  if (!printer) throw new Error('Printer not found.');
+
+  let device = connections.get(id)?.device ?? (await getPermittedDevices()).find(d => d.id === id);
+  if (!device) {
+    // Browser can't restore the saved handle; let the user pick it again.
+    device = await requestPrinterDevice();
+    if (device.id !== id) {
+      savePrinters(getSavedPrinters().map(p => (p.id === id ? { ...p, id: device.id, name: device.name || p.name } : p)));
     }
   }
+
+  const roles = [printer.kitchen && 'Kitchen tickets', printer.receipts && 'Receipts & reports'].filter(Boolean).join(', ') || 'Nothing assigned';
+  const encoder = new TextEncoder();
+  const bytes = new Uint8Array([
+    0x1B, 0x40,             // INIT
+    0x1B, 0x61, 0x01,       // ALIGN CENTER
+    0x1B, 0x45, 0x01,       // BOLD ON
+    ...encoder.encode('TEST PRINT\n'),
+    0x1B, 0x45, 0x00,       // BOLD OFF
+    ...encoder.encode(`${printer.name}\n`),
+    ...encoder.encode(`Prints: ${roles}\n`),
+    ...encoder.encode(`${new Date().toLocaleString()}\n\n\n\n`),
+    0x1D, 0x56, 0x42, 0x00  // CUT
+  ]);
+  await writeToDevice(device, bytes);
 }
 
 /**
@@ -484,7 +635,8 @@ export async function printBluetoothKitchenReceipt(
   template?: Partial<KitchenReceiptTemplate>
 ) {
   const bytes = buildKitchenEscPosBytes(sale, template);
-  await sendToGlobalThermalPrinter(bytes);
+  // Same full ticket goes to every printer assigned to kitchen tickets (e.g. kitchen + bar).
+  await sendToGlobalThermalPrinter(bytes, 'kitchen');
 }
 
 export async function printBluetoothXZReport(summary: any, isZRead: boolean, terminalName: string) {

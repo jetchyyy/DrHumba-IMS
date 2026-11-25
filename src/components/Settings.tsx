@@ -25,6 +25,7 @@ import { Badge } from './ui/badge';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Checkbox } from './ui/checkbox';
+import PrinterSettings from './PrinterSettings';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import {
   settingsService,
@@ -49,7 +50,7 @@ export const Settings: React.FC = () => {
   const { tenant, refreshTenant } = useTenant();
 
   // Navigation active tab
-  const [activeSubTab, setActiveSubTab] = useState<'guide' | 'templates' | 'promotions' | 'terminals' | 'branding' | 'security'>('templates');
+  const [activeSubTab, setActiveSubTab] = useState<'guide' | 'templates' | 'promotions' | 'printers' | 'terminals' | 'branding' | 'security'>('templates');
 
   // Tenant Branding States
   const [businessName, setBusinessName] = useState('');
@@ -610,6 +611,15 @@ export const Settings: React.FC = () => {
           >
             <ImageIcon className="w-3.5 h-3.5 mr-1.5" />
             Customer Screen Promos
+          </Button>
+          <Button
+            variant={activeSubTab === 'printers' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveSubTab('printers')}
+            className="text-xs font-bold"
+          >
+            <FileText className="w-3.5 h-3.5 mr-1.5" />
+            Printers
           </Button>
           {isEditorRole && (
             <Button
@@ -2067,6 +2077,12 @@ WHERE email = 'your-email@example.com';`}</pre>
                   </div>
                 </CardContent>
               </Card>
+            </div>
+          )}
+
+          {activeSubTab === 'printers' && (
+            <div className="max-w-xl mx-auto space-y-6">
+              <PrinterSettings />
             </div>
           )}
 

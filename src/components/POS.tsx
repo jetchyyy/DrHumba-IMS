@@ -831,7 +831,7 @@ export const POS: React.FC<POSProps> = ({
   const handlePrintKitchenBluetooth = async (saleResult: any) => {
     try {
       setIsPrintingKitchenBluetooth(true);
-      await ensureBluetoothPrinter();
+      await ensureBluetoothPrinter('kitchen');
       const settings = await settingsService.getSettings();
       // Pass the payload directly — printBluetoothKitchenReceipt accepts both
       // LastSaleResult and KitchenOrderSentPayload shapes (items field is compatible).
