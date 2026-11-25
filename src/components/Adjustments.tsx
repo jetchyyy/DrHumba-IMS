@@ -72,6 +72,7 @@ export const Adjustments: React.FC = () => {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -79,7 +80,7 @@ export const Adjustments: React.FC = () => {
   
   useEffect(() => {
     setCurrentPage(1);
-  }, [dateFilter, startDate, endDate]);
+  }, [dateFilter, startDate, endDate, statusFilter]);
   
   // Modals state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -670,6 +671,7 @@ export const Adjustments: React.FC = () => {
   };
 
   const filteredAdjustments = adjustments.filter(adj => {
+    if (statusFilter !== 'all' && adj.status !== statusFilter) return false;
     let matchesDate = true;
     const aDate = new Date(adj.created_at);
     const now = new Date();
@@ -775,6 +777,20 @@ export const Adjustments: React.FC = () => {
               <SelectItem value="week">Last 7 Days</SelectItem>
               <SelectItem value="month">Last 30 Days</SelectItem>
               <SelectItem value="custom">Custom Range</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center space-x-2">
+          <span className="text-sm text-muted-foreground font-medium">Status:</span>
+          <Select value={statusFilter} onValueChange={(v: any) => setStatusFilter(v)}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
             </SelectContent>
           </Select>
         </div>
