@@ -33,11 +33,9 @@ export function getBranchInventoryCatalog<T extends BranchInventoryCatalogItem>(
     Boolean(branchId && item.available_branches.includes(branchId))
   );
 
-  const categories = Array.from(new Set(
-    availableItems
-      .map(item => item.category)
-      .filter((category): category is string => Boolean(category))
-  )).sort();
+  const categories = sortCategoriesAlphabetically(
+    availableItems.map(item => item.category)
+  );
 
   return { items: availableItems, categories };
 }
@@ -298,4 +296,41 @@ export function isSalesHistoryRestricted(
   if (!profile) return false;
   if (profile.role_name === 'super_admin' || profile.is_platform_admin) return false;
   return Boolean(profile.allowed_tabs?.includes('restrict_sales_history_own_today'));
+}
+
+export type CategorySortOrder = 'none' | 'asc' | 'desc';
+
+/** Cycle category sort order: none -> asc (A-Z) -> desc (Z-A) -> none. */
+export function nextCategorySortOrder(current: CategorySortOrder): CategorySortOrder {
+  if (current === 'none') return 'asc';
+  if (current === 'asc') return 'desc';
+  return 'none';
+}
+
+/** Deduplicate, drop empty strings, and sort category names A-Z (case-insensitive). */
+export function sortCategoriesAlphabetically(
+  categories: Array<string | null | undefined>
+): string[] {
+  const cleaned = categories
+    .map(c => (typeof c === 'string' ? c.trim() : ''))
+    .filter(c => c.length > 0);
+  return Array.from(new Set(cleaned)).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' })
+  );
+}
+
+/** Sort a list of items by `category` A-Z or Z-A, tie-breaking by `getName(item)` A-Z. */
+export function sortItemsByCategory<T extends { category?: string | null }>(
+  items: T[],
+  order: CategorySortOrder,
+  getName: (item: T) => string
+): T[] {
+  if (order === 'none') return items;
+  return [...items].sort((a, b) => {
+    const cmp = (a.category || '').localeCompare(b.category || '', undefined, {
+      sensitivity: 'base',
+    });
+    if (cmp !== 0) return order === 'asc' ? cmp : -cmp;
+    return getName(a).localeCompare(getName(b), undefined, { sensitivity: 'base' });
+  });
 }

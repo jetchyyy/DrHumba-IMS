@@ -21,12 +21,8 @@ import {
   resolveCartItemKey,
   isKitchenSubmitted,
 } from './pos/tableUtils';
-import {
-  getTerminalConfig,
-  enqueueOfflineSale,
-  getOfflineSalesQueue,
-  dequeueOfflineSale,
-} from '../lib/offlineService';
+import { getTerminalConfig, enqueueOfflineSale, getOfflineSalesQueue, dequeueOfflineSale } from '../lib/offlineService';
+import { sortCategoriesAlphabetically } from '../lib/utils';
 import type { TerminalConfig } from '../lib/offlineService';
 import { settingsService } from '../lib/settingsService';
 import { printXZReport, printQueueNumberTicket, printThermalInvoice, printKitchenReceipt, printRunningBillSlip } from '../lib/printService';
@@ -1662,7 +1658,7 @@ export const POS: React.FC<POSProps> = ({
   // ─── Derived State ─────────────────────────────────────────
 
   const categories = useMemo(
-    () => ['All', ...Array.from(new Set(items.map(i => i.category).filter(Boolean)))],
+    () => ['All', ...sortCategoriesAlphabetically(items.map(i => i.category))],
     [items]
   );
 

@@ -19,6 +19,13 @@ import { DataTablePagination } from "./ui/DataTablePagination";
 import { fetchPortionPackSizes, formatPackSizes, type PortionPackSizes } from '../lib/packSizes';
 import { History, ArrowRightLeft } from 'lucide-react';
 import { ItemMovementHistoryModal, type ItemMovementHistoryTarget } from './ItemMovementHistoryModal';
+import { SortableCategoryHeader } from './ui/SortableCategoryHeader';
+import {
+  type CategorySortOrder,
+  nextCategorySortOrder,
+  sortCategoriesAlphabetically,
+  sortItemsByCategory,
+} from '../lib/utils';
 
 interface InventoryItem {
   id: string;
@@ -55,6 +62,7 @@ export const Inventory: React.FC = () => {
   const [balances, setBalances] = useState<Balance[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [categorySort, setCategorySort] = useState<CategorySortOrder>('none');
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -99,8 +107,7 @@ export const Inventory: React.FC = () => {
       : ['Parts', 'Accessories', 'Services', 'Lubricants', 'Apparel', 'Tools', 'General'];
     
     const dbCategories = items.map(i => i.category);
-    const merged = Array.from(new Set([...defaults, ...dbCategories]));
-    return merged.filter(c => c && c.trim().length > 0);
+    return sortCategoriesAlphabetically([...defaults, ...dbCategories]);
   }, [items, isRestaurant]);
 
   const [isCustomUnit, setIsCustomUnit] = useState(false);
@@ -477,14 +484,23 @@ export const Inventory: React.FC = () => {
 
   const displayedItems = branchItems;
 
-  const filteredItems = displayedItems.filter(item => {
-    const matchesSearch = item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          item.sku.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  const filteredItems = sortItemsByCategory(
+    displayedItems.filter(item => {
+      const matchesSearch = item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            item.sku.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    }),
+    categorySort,
+    item => item.item_name
+  );
 
-  const categories = ['All', ...Array.from(new Set(displayedItems.map(i => i.category)))];
+  const toggleCategorySort = () => {
+    setCategorySort(nextCategorySortOrder);
+    setCurrentPage(1);
+  };
+
+  const categories = ['All', ...sortCategoriesAlphabetically(displayedItems.map(i => i.category))];
 
   const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
   const paginatedItems = filteredItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -572,7 +588,7 @@ export const Inventory: React.FC = () => {
                   <TableRow>
                     <TableHead className="pl-6">Item Name</TableHead>
                     <TableHead>SKU</TableHead>
-                    <TableHead>Category</TableHead>
+                    <SortableCategoryHeader sortOrder={categorySort} onToggle={toggleCategorySort} />
                     <TableHead>Reorder Level</TableHead>
                     <TableHead className="text-right">Stock Quantity</TableHead>
                     <TableHead className="text-right">Unit Value</TableHead>
@@ -724,7 +740,7 @@ export const Inventory: React.FC = () => {
                   <TableRow>
                     <TableHead className="pl-6">SKU</TableHead>
                     <TableHead>Item Name</TableHead>
-                    <TableHead>Category</TableHead>
+                    <SortableCategoryHeader sortOrder={categorySort} onToggle={toggleCategorySort} />
                     <TableHead>Base Unit</TableHead>
                     <TableHead>Purchase Unit</TableHead>
                     <TableHead>Conversion</TableHead>

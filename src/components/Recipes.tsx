@@ -3,6 +3,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTenant } from '../contexts/TenantContext';
 import { supabase } from '../lib/supabase';
 import { PlusIcon as Plus, Pencil2Icon as Edit2, ReaderIcon as BookOpen, ReloadIcon as RefreshCw, TrashIcon as Trash2, MagicWandIcon as ChefHat, MagnifyingGlassIcon as Search, EyeOpenIcon as Eye, EyeNoneIcon as EyeOff } from '@radix-ui/react-icons';
+import { SortableCategoryHeader } from './ui/SortableCategoryHeader';
+import {
+  type CategorySortOrder,
+  nextCategorySortOrder,
+  sortCategoriesAlphabetically,
+  sortItemsByCategory,
+} from '../lib/utils';
 import { Card, CardContent } from './ui/card';
 import { Checkbox } from './ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -113,6 +120,7 @@ export const Recipes: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [showInactive, setShowInactive] = useState(false);
+  const [categorySort, setCategorySort] = useState<CategorySortOrder>('none');
 
   // Modals state
   const [showItemModal, setShowItemModal] = useState(false);
@@ -147,8 +155,8 @@ export const Recipes: React.FC = () => {
     const defaults = isRestaurant 
       ? ['Burgers', 'Sides', 'Beverages', 'Desserts'] 
       : ['General', 'Parts', 'Services', 'Labor'];
-    const fromItems = menuItems.map(item => item.category).filter(Boolean);
-    return Array.from(new Set([...defaults, ...fromItems, ...sessionCategories]));
+    const fromItems = menuItems.map(item => item.category);
+    return sortCategoriesAlphabetically([...defaults, ...fromItems, ...sessionCategories]);
   }, [menuItems, sessionCategories, isRestaurant]);
 
   // Keep track of which inventory items are already linked to catalog items
@@ -679,7 +687,7 @@ export const Recipes: React.FC = () => {
   };
 
   const filteredMenuItems = useMemo(() => {
-    return menuItems.filter(item => {
+    const filtered = menuItems.filter(item => {
       // 1. Search term match
       const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                             item.sku.toLowerCase().includes(searchTerm.toLowerCase());
@@ -692,7 +700,14 @@ export const Recipes: React.FC = () => {
       
       return matchesSearch && matchesCategory && matchesStatus;
     });
-  }, [menuItems, searchTerm, selectedCategoryFilter, showInactive]);
+
+    return sortItemsByCategory(filtered, categorySort, item => item.name);
+  }, [menuItems, searchTerm, selectedCategoryFilter, showInactive, categorySort]);
+
+  const toggleCategorySort = () => {
+    setCategorySort(nextCategorySortOrder);
+    setCurrentPage(1);
+  };
 
   const isEditor = profile && ['super_admin', 'inventory_manager'].includes(profile.role_name);
 
@@ -786,7 +801,7 @@ export const Recipes: React.FC = () => {
               <TableRow>
                 <TableHead className="pl-6">{isRestaurant ? "Menu Dish" : "Product / Service"}</TableHead>
                 <TableHead>SKU</TableHead>
-                <TableHead>Category</TableHead>
+                <SortableCategoryHeader sortOrder={categorySort} onToggle={toggleCategorySort} />
                 <TableHead className="text-right">Price</TableHead>
                 <TableHead className="text-right">{isRestaurant ? "Ingredient Cost" : "Estimated Cost"}</TableHead>
                 <TableHead className="text-right">Profit (Margin)</TableHead>

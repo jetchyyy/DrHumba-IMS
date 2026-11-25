@@ -12,6 +12,13 @@ import { Badge } from './ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from './ui/sheet';
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { fetchPortionPackSizes, formatPackSizes } from '../lib/packSizes';
+import { SortableCategoryHeader } from './ui/SortableCategoryHeader';
+import {
+  type CategorySortOrder,
+  nextCategorySortOrder,
+  sortCategoriesAlphabetically,
+  sortItemsByCategory,
+} from '../lib/utils';
 
 interface BranchBalance {
   branch_id: string;
@@ -43,6 +50,7 @@ export const GlobalInventory: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [categorySort, setCategorySort] = useState<CategorySortOrder>('none');
   const [selectedBranchId, setSelectedBranchId] = useState('All');
   const [viewMode, setViewMode] = useState<'matrix' | 'summary'>('matrix');
   const [splitViewItem, setSplitViewItem] = useState<GlobalStockItem | null>(null);
@@ -149,7 +157,7 @@ export const GlobalInventory: React.FC = () => {
     }
   }, [branches]);
 
-  const categories = ['All', ...new Set(stockItems.map(item => item.category))];
+  const categories = ['All', ...sortCategoriesAlphabetically(stockItems.map(item => item.category))];
 
   const itemsWithDisplayValues = stockItems.map(item => {
     if (selectedBranchId === 'All') {
@@ -169,13 +177,22 @@ export const GlobalInventory: React.FC = () => {
     }
   });
 
-  const filteredItems = itemsWithDisplayValues.filter(item => {
-    const matchesSearch = 
-      item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.sku.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  const filteredItems = sortItemsByCategory(
+    itemsWithDisplayValues.filter(item => {
+      const matchesSearch = 
+        item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.sku.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    }),
+    categorySort,
+    item => item.item_name
+  );
+
+  const toggleCategorySort = () => {
+    setCategorySort(nextCategorySortOrder);
+    setCurrentPage(1);
+  };
 
   const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
   const paginatedItems = filteredItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -375,7 +392,7 @@ export const GlobalInventory: React.FC = () => {
                 <TableRow>
                   <TableHead className="min-w-[100px] pl-6">SKU</TableHead>
                   <TableHead className="min-w-[200px]">Item Name</TableHead>
-                  <TableHead className="min-w-[110px]">Category</TableHead>
+                  <SortableCategoryHeader sortOrder={categorySort} onToggle={toggleCategorySort} className="min-w-[110px]" />
 
                   {isMatrix ? (
                     <>
