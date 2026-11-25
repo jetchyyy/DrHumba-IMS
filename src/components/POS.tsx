@@ -2553,6 +2553,9 @@ export const POS: React.FC<POSProps> = ({
                         <h4 className={`text-sm font-bold transition-colors line-clamp-2 ${isOutOfStock ? 'text-muted-foreground' : 'group-hover:text-primary'
                           }`}>{item.name}</h4>
                         <span className="text-xs text-muted-foreground font-mono mt-0.5 block">{item.sku}</span>
+                        {item.description && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2" title={item.description}>{item.description}</p>
+                        )}
                       </div>
                       <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/40">
                         <div className="flex flex-col">

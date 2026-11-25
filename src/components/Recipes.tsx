@@ -69,6 +69,7 @@ interface MenuItem {
   name: string;
   sku: string;
   category: string;
+  description?: string | null;
   price: number;
   cost_price?: number;
   status: 'active' | 'inactive';
@@ -128,6 +129,7 @@ export const Recipes: React.FC = () => {
 
   // Menu Item Form state
   const [itemName, setItemName] = useState('');
+  const [description, setDescription] = useState('');
   const [sku, setSku] = useState('');
   const [category, setCategory] = useState(isRestaurant ? 'Burgers' : 'General');
   const [foodpandaPrice, setFoodpandaPrice] = useState<number | ''>('');
@@ -202,7 +204,7 @@ export const Recipes: React.FC = () => {
       let menuQuery = supabase
         .from('menu_items')
         .select(`
-          id, name, sku, category, price, cost_price, status, is_available, type, inventory_item_id, available_branches, foodpanda_price, grab_price, stock_enforcement_mode,
+          id, name, sku, category, description, price, cost_price, status, is_available, type, inventory_item_id, available_branches, foodpanda_price, grab_price, stock_enforcement_mode,
           recipes (
             id,
             instructions,
@@ -280,6 +282,7 @@ export const Recipes: React.FC = () => {
   const handleOpenItemCreate = () => {
     setSelectedItem(null);
     setItemName('');
+    setDescription('');
     setSku(`MEN-${Math.random().toString(36).substring(2, 7).toUpperCase()}`);
     setCategory(isRestaurant ? 'Burgers' : 'General');
     setIsCustomCategory(false);
@@ -310,6 +313,7 @@ export const Recipes: React.FC = () => {
   const handleOpenItemEdit = async (item: MenuItem) => {
     setSelectedItem(item);
     setItemName(item.name);
+    setDescription(item.description || '');
     setSku(item.sku);
     setCategory(item.category);
     setIsCustomCategory(false);
@@ -449,6 +453,7 @@ export const Recipes: React.FC = () => {
         name: itemName.trim(),
         sku: sku.trim(),
         category: trimmedCategory,
+        description: description.trim() || null,
         price: resolvedMenuPrice,
         cost_price: productType === 'restaurant' ? 0 : Number(costPrice),
         status: itemStatus,
@@ -963,6 +968,18 @@ export const Recipes: React.FC = () => {
                       onChange={(e) => setItemName(e.target.value)} 
                       placeholder={isRestaurant ? "e.g. Classic Beef Burger" : "e.g. Inner Tube 26x1.95 / Repair Labor"} 
                     />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Menu Description <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    <Textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder={isRestaurant ? "e.g. Juicy beef patty with cheddar, lettuce and house sauce" : "Short description shown on the menu"}
+                      rows={2}
+                      maxLength={300}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Shown under the item name on the POS menu. Leave blank to hide.</p>
                   </div>
 
                   {!isRestaurant && (

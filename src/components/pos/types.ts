@@ -7,6 +7,7 @@ export interface MenuItem {
   name: string;
   sku: string;
   category: string;
+  description?: string | null;
   price: number;
   is_available: boolean;
   foodpanda_price?: number | null;
