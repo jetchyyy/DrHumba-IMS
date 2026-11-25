@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/fetchAllRows';
 import {
   DollarSign,
   Layers,
@@ -150,24 +151,21 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
       const prevStartIso = new Date(currentStartMs - durationMs).toISOString();
       const prevEndIso = new Date(currentStartMs - 1).toISOString();
 
-      let salesQuery = supabase
-        .from('sales')
-        .select('total_amount')
-        .eq('status', 'completed')
-        .gte('created_at', startIso)
-        .lte('created_at', endIso);
+      // Each query is paged through fetchAllRows so totals aren't capped at Supabase's 1000-row limit.
+      const buildSalesQuery = (fromIso: string, toIso: string) => () => {
+        let q = supabase
+          .from('sales')
+          .select('id, total_amount', { count: 'exact' })
+          .eq('status', 'completed')
+          .gte('created_at', fromIso)
+          .lte('created_at', toIso);
+        if (selectedBranchId !== 'ALL') q = q.eq('branch_id', selectedBranchId);
+        return q.order('id');
+      };
 
-      let prevSalesQuery = supabase
-        .from('sales')
-        .select('total_amount')
-        .eq('status', 'completed')
-        .gte('created_at', prevStartIso)
-        .lte('created_at', prevEndIso);
-
-      if (selectedBranchId !== 'ALL') {
-        salesQuery = salesQuery.eq('branch_id', selectedBranchId);
-        prevSalesQuery = prevSalesQuery.eq('branch_id', selectedBranchId);
-      }
+      // All branches are needed: the stock grid shows every branch's quantity.
+      const buildBalancesQuery = () =>
+        supabase.from('inventory_balances').select('*', { count: 'exact' }).order('branch_id').order('item_id');
 
       const [
         { data: salesData, error: salesError },
@@ -177,12 +175,12 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
         { data: alerts, error: alertsError },
         { data: pendingTransfers, error: transfersError }
       ] = await Promise.all([
-        salesQuery,
-        prevSalesQuery,
-        supabase.from('inventory_items').select('*').order('item_name'),
-        supabase.from('inventory_balances').select('*'),
-        supabase.rpc('get_inventory_alerts'),
-        supabase.from('transfer_requests').select('id, source_branch_id, target_branch_id').eq('status', 'requested')
+        fetchAllRows<{ total_amount: number }>(buildSalesQuery(startIso, endIso)),
+        fetchAllRows<{ total_amount: number }>(buildSalesQuery(prevStartIso, prevEndIso)),
+        fetchAllRows<any>(() => supabase.from('inventory_items').select('*', { count: 'exact' }).order('item_name').order('id')),
+        fetchAllRows<any>(buildBalancesQuery),
+        fetchAllRows<any>(() => supabase.rpc('get_inventory_alerts', undefined, { count: 'exact' }).order('branch_id').order('item_id')),
+        fetchAllRows<any>(() => supabase.from('transfer_requests').select('id, source_branch_id, target_branch_id', { count: 'exact' }).eq('status', 'requested').order('id'))
       ]);
 
       if (salesError) console.error('Error fetching sales:', salesError);
@@ -269,8 +267,14 @@ export const Dashboard: React.FC<{ setActiveTab: (tab: string) => void }> = ({ s
         setRecentActivity([]);
       }
 
+      const balancesByItem = new Map<string, any[]>();
+      for (const b of balances || []) {
+        const list = balancesByItem.get(b.item_id);
+        if (list) list.push(b); else balancesByItem.set(b.item_id, [b]);
+      }
+
       const grid: ItemStockGrid[] = (items || []).map(item => {
-        const itemBalances = (balances || []).filter(b => b.item_id === item.id);
+        const itemBalances = balancesByItem.get(item.id) || [];
         const stocks: { [branchId: string]: number } = {};
         
         let total = 0;
