@@ -15,6 +15,7 @@ import { useModal } from '../contexts/ModalContext';
 import { useTenant } from '../contexts/TenantContext';
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { WorkforceAccessPicker } from './workforce/WorkforceAccessPicker';
+import { fetchVoidApprovalRequired, saveVoidApprovalRequired } from '../lib/voidApproval';
 
 interface ProfileRecord {
   id: string;
@@ -107,6 +108,13 @@ const ACTION_PERMISSIONS: ActionPermission[] = [
     featureKey: 'sales_history',
   },
   {
+    id: 'sales_void_approve',
+    category: 'Sales & Cashier',
+    name: 'Approve Void Requests',
+    description: 'Approve or reject void requests from other staff when "Require approval for all voids" is turned on. Branch Managers can always approve.',
+    featureKey: 'sales_history',
+  },
+  {
     id: 'view_service_charge',
     category: 'Sales & Cashier',
     name: 'View Service Charge',
@@ -165,6 +173,32 @@ export const UserManagement: React.FC = () => {
   // Transaction processing states
   const [submitting, setSubmitting] = useState(false);
 
+  // Tenant-wide void approval switch
+  const [voidApprovalRequired, setVoidApprovalRequired] = useState(false);
+  const [savingVoidApproval, setSavingVoidApproval] = useState(false);
+
+  useEffect(() => {
+    fetchVoidApprovalRequired()
+      .then(setVoidApprovalRequired)
+      .catch(err => console.error('Failed to load void approval setting:', err));
+  }, [tenant?.id]);
+
+  const handleToggleVoidApproval = async (next: boolean) => {
+    if (!profile?.tenant_id) return;
+    setSavingVoidApproval(true);
+    try {
+      await saveVoidApprovalRequired(next, profile.tenant_id, profile.id);
+      setVoidApprovalRequired(next);
+      showSuccess(next
+        ? 'Void approval is ON. Only Branch Managers and staff with "Approve Void Requests" can void directly; everyone else submits a request.'
+        : 'Void approval is OFF. Staff with "Void Sales" can void directly again.');
+    } catch (err: any) {
+      showError(err.message || 'Could not update the void approval setting.');
+    } finally {
+      setSavingVoidApproval(false);
+    }
+  };
+
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -197,7 +231,7 @@ export const UserManagement: React.FC = () => {
       'dashboard', 'pos', 'queue-caller', 'sales-history', 'z-read-history', 'expenses', 'service-charge', 'inventory', 'global-inventory',
       'receiving', 'transfers', 'transfers_dispatch', 'transfers_receive', 'adjustments', 'portioning',
       'transactions', 'kitchen-receipts', 'recipes', 'branches', 'table-management', 'analytics', 'audit-logs', 'users', 'settings',
-      'action_buttons', 'sales_void', 'view_service_charge'
+      'action_buttons', 'sales_void', 'sales_void_approve', 'view_service_charge'
     ],
     inventory_manager: [
       'dashboard', 'inventory', 'global-inventory', 'receiving', 'transfers', 'transfers_dispatch',
@@ -649,6 +683,30 @@ export const UserManagement: React.FC = () => {
         </div>
       )}
 
+      {isSuperAdmin && (
+        <Card className="mb-6">
+          <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+            <div className="space-y-0.5">
+              <p className="text-sm font-semibold">Require approval for all voids</p>
+              <p className="text-xs text-muted-foreground">
+                When on, cashiers and staff submit void requests instead of voiding directly. Super Admins, Branch Managers,
+                and staff with the <span className="font-semibold">Approve Void Requests</span> permission approve them in Sales History.
+              </p>
+            </div>
+            <label className="flex items-center gap-2 shrink-0 cursor-pointer select-none">
+              <Checkbox
+                checked={voidApprovalRequired}
+                disabled={savingVoidApproval}
+                onCheckedChange={(v) => handleToggleVoidApproval(v === true)}
+              />
+              <span className={`text-xs font-bold ${voidApprovalRequired ? 'text-primary' : 'text-muted-foreground'}`}>
+                {voidApprovalRequired ? 'ON' : 'OFF'}
+              </span>
+            </label>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Search & Filter Bar ── */}
       <div className="mb-4 flex flex-col gap-3">
         <div className="flex flex-col sm:flex-row gap-2">
@@ -791,6 +849,11 @@ export const UserManagement: React.FC = () => {
                               {member.allowed_tabs.includes('restrict_adjustment_edits') && (
                                 <span className="text-[9px] text-amber-600 dark:text-amber-400 font-medium">
                                   Adjustment edits require Admin approval
+                                </span>
+                              )}
+                              {member.allowed_tabs.includes('sales_void_approve') && (
+                                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium">
+                                  Can approve void requests
                                 </span>
                               )}
                             </div>

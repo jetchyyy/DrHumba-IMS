@@ -486,6 +486,21 @@ export const FloatingNotifications: React.FC<FloatingNotificationsProps> = ({ on
                     </div>
                   </button>
                 )}
+                {counts.voids > 0 && (
+                  <button
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-colors group"
+                    onClick={() => { onNavigate?.('sales-history'); setOpen(false); }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileWarning className="w-3.5 h-3.5 text-red-500" />
+                      <span className="text-xs font-medium text-red-400">Void Requests</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-red-400">{counts.voids} pending</span>
+                      <ArrowRight className="w-3 h-3 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </button>
+                )}
               </div>
             </div>
           )}

@@ -24,6 +24,16 @@ import { Textarea } from './ui/textarea';
 import { format } from 'date-fns';
 import { useModal } from '../contexts/ModalContext';
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { canApproveVoids, fetchVoidApprovalRequired, type VoidRequest } from '../lib/voidApproval';
+
+type VoidRequestRow = VoidRequest & {
+  sales: {
+    control_number: string | null;
+    total_amount: number;
+    branches: { name: string } | null;
+    sale_items: { id: string; quantity: number; unit_price: number; menu_items: { name: string } | null }[];
+  } | null;
+};
 
 interface SaleItem {
   id: string;
@@ -340,6 +350,76 @@ export const SalesHistory: React.FC = () => {
   const [voiding, setVoiding] = useState(false);
 
   const canVoid = ['super_admin', 'branch_manager'].includes(profile?.role_name || '') || (profile?.allowed_tabs && profile.allowed_tabs.includes('sales_void'));
+
+  // Optional tenant-wide void approval workflow
+  const isVoidApprover = canApproveVoids(profile);
+  const [voidApprovalRequired, setVoidApprovalRequired] = useState(false);
+  // With approval on, anyone who can't void directly submits a request instead
+  const mustRequestVoid = voidApprovalRequired && (!isVoidApprover || !canVoid);
+  const showVoidAction = canVoid || voidApprovalRequired;
+  const [voidRequests, setVoidRequests] = useState<VoidRequestRow[]>([]);
+  const [showVoidRequests, setShowVoidRequests] = useState(false);
+  const [decidingRequestId, setDecidingRequestId] = useState<string | null>(null);
+  const [rejectNotes, setRejectNotes] = useState<Record<string, string>>({});
+  const pendingVoidRequests = useMemo(() => voidRequests.filter(r => r.status === 'pending'), [voidRequests]);
+  const pendingVoidSaleIds = useMemo(() => new Set(pendingVoidRequests.map(r => r.sale_id)), [pendingVoidRequests]);
+
+  const loadVoidRequests = async () => {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from('void_requests')
+      .select('*, sales (control_number, total_amount, branches:branches!branch_id (name), sale_items (id, quantity, unit_price, menu_items (name)))')
+      .or(`status.eq.pending,decided_at.gte.${since}`)
+      .order('requested_at', { ascending: false })
+      .limit(100);
+    if (error) {
+      // Table missing until the migration is applied; keep the page usable
+      console.error('Error loading void requests:', error);
+      return;
+    }
+    setVoidRequests((data || []) as unknown as VoidRequestRow[]);
+  };
+
+  useEffect(() => {
+    if (!profile) return;
+    fetchVoidApprovalRequired()
+      .then(setVoidApprovalRequired)
+      .catch(err => console.error('Failed to load void approval setting:', err));
+    loadVoidRequests();
+
+    const channel = supabase
+      .channel(`void-requests-${profile.id}-${Math.random().toString(36).slice(2, 8)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'void_requests' }, () => loadVoidRequests())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id]);
+
+  const handleDecideVoidRequest = async (request: VoidRequestRow, approve: boolean) => {
+    const note = (rejectNotes[request.id] || '').trim();
+    if (!approve && note.length < 3) {
+      showError('Enter a rejection reason (at least 3 characters).');
+      return;
+    }
+    setDecidingRequestId(request.id);
+    try {
+      const { error } = await supabase.rpc('fn_decide_void_request', {
+        p_request_id: request.id,
+        p_approve: approve,
+        p_note: approve ? null : note,
+      });
+      if (error) throw error;
+      showSuccess(approve
+        ? 'Void approved. Refunded item stock has been restored to branch inventory.'
+        : 'Void request rejected.');
+      loadVoidRequests();
+      loadSalesData();
+    } catch (err: any) {
+      showError(err.message || 'Could not process the void request.');
+    } finally {
+      setDecidingRequestId(null);
+    }
+  };
 
   const isAdminRole = ['super_admin', 'inventory_manager', 'auditor'].includes(profile?.role_name || '');
   const showServiceCharge = canViewServiceCharge(profile);
@@ -941,13 +1021,18 @@ export const SalesHistory: React.FC = () => {
 
     setVoiding(true);
     try {
-      const { error } = await supabase.rpc('fn_void_sale_items', {
+      const { error } = await supabase.rpc(mustRequestVoid ? 'fn_request_void' : 'fn_void_sale_items', {
         p_sale_id:     voidTarget.id,
         p_items:       itemsPayload,
         p_void_reason: voidReason.trim(),
       });
       if (error) throw error;
-      showSuccess(`Void successful! Refunded item stock has been restored to branch inventory.`);
+      if (mustRequestVoid) {
+        showSuccess('Void request submitted. It will be applied once an approver approves it.');
+        loadVoidRequests();
+      } else {
+        showSuccess(`Void successful! Refunded item stock has been restored to branch inventory.`);
+      }
       setVoidTarget(null);
       loadSalesData();
       if (selectedSale?.id === voidTarget.id) {
@@ -1167,6 +1252,14 @@ export const SalesHistory: React.FC = () => {
         </div>
 
         <div className="flex items-center space-x-2">
+          {(voidApprovalRequired || voidRequests.length > 0) && (
+            <Button variant="outline" onClick={() => setShowVoidRequests(true)} className="font-bold flex items-center gap-2">
+              Void Requests
+              {pendingVoidRequests.length > 0 && (
+                <Badge className="bg-amber-500 text-white hover:bg-amber-500 text-[10px] px-1.5">{pendingVoidRequests.length}</Badge>
+              )}
+            </Button>
+          )}
           <Button onClick={() => setShowEODModal(true)} className="bg-primary hover:bg-primary/90 text-white font-bold flex items-center">
             <FileIcon className="w-4 h-4 mr-2" />
             End of Day Report
@@ -1593,6 +1686,11 @@ export const SalesHistory: React.FC = () => {
                           } className="uppercase text-[9px]">
                             {sale.status}
                           </Badge>
+                          {pendingVoidSaleIds.has(sale.id) && (
+                            <Badge variant="outline" className="mt-1 block w-fit mx-auto text-[9px] uppercase border-amber-500/40 text-amber-500 bg-amber-500/10">
+                              Void pending
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right pr-4">
                           <div className="flex items-center justify-end gap-1">
@@ -1612,14 +1710,14 @@ export const SalesHistory: React.FC = () => {
                               <Eye className="w-4 h-4 mr-1" />
                               View
                             </Button>
-                            {canVoid && sale.status === 'completed' && (
+                            {showVoidAction && sale.status === 'completed' && !pendingVoidSaleIds.has(sale.id) && (
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                                 onClick={(e) => openVoidDialog(sale, e)}
                               >
-                                Void
+                                {mustRequestVoid ? 'Request Void' : 'Void'}
                               </Button>
                             )}
                           </div>
@@ -1651,13 +1749,15 @@ export const SalesHistory: React.FC = () => {
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle className="text-destructive flex items-center justify-between">
-              <span>Void Sale / Line Items</span>
+              <span>{mustRequestVoid ? 'Request Void' : 'Void Sale / Line Items'}</span>
               <Badge variant="outline" className="text-xs">
                 {voidScope === 'all' ? 'Entire Sale Void' : 'Specific Item Void'}
               </Badge>
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Voided items will immediately return their ingredients or product stock to branch inventory.
+              {mustRequestVoid
+                ? 'Your business requires approval for voids. Nothing changes until an approver approves this request.'
+                : 'Voided items will immediately return their ingredients or product stock to branch inventory.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -1864,10 +1964,98 @@ export const SalesHistory: React.FC = () => {
               disabled={voiding || voidReason.trim().length < 3 || totalCalculatedRefund <= 0}
             >
               {voiding
-                ? 'Voiding…'
-                : `Confirm Void (${formatPHP(totalCalculatedRefund)})`}
+                ? (mustRequestVoid ? 'Submitting…' : 'Voiding…')
+                : mustRequestVoid
+                  ? `Submit Void Request (${formatPHP(totalCalculatedRefund)})`
+                  : `Confirm Void (${formatPHP(totalCalculatedRefund)})`}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Void Requests Dialog */}
+      <Dialog open={showVoidRequests} onOpenChange={setShowVoidRequests}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Void Requests</DialogTitle>
+            <DialogDescription className="text-xs">
+              {isVoidApprover
+                ? 'Pending requests and decisions from the last 7 days. Approving applies the void and restores stock immediately.'
+                : 'Your void requests and their decisions from the last 7 days.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {voidRequests.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">No void requests.</p>
+          ) : (
+            <div className="space-y-3">
+              {voidRequests.map(req => {
+                const requester = profilesList.find(p => p.id === req.requested_by)?.email || 'Unknown';
+                const decider = req.decided_by ? (profilesList.find(p => p.id === req.decided_by)?.email || 'Unknown') : null;
+                const saleItems = req.sales?.sale_items || [];
+                const lines = req.items
+                  ? req.items.map(it => {
+                      const si = saleItems.find(s => s.id === it.sale_item_id);
+                      return { name: si?.menu_items?.name || 'Item', qty: it.quantity_to_void };
+                    })
+                  : null;
+                const busy = decidingRequestId === req.id;
+                return (
+                  <div key={req.id} className="border rounded-lg p-3 space-y-2 text-xs">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-mono font-bold">{req.sales?.control_number || req.sale_id.slice(0, 12)}</div>
+                        <div className="text-muted-foreground">
+                          {req.sales?.branches?.name || ''} · by {requester} · {format(new Date(req.requested_at), 'MMM d, h:mm a')}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <Badge variant="outline" className={`uppercase text-[9px] ${
+                          req.status === 'pending' ? 'border-amber-500/40 text-amber-500 bg-amber-500/10'
+                          : req.status === 'approved' ? 'border-emerald-500/40 text-emerald-500 bg-emerald-500/10'
+                          : 'border-destructive/40 text-destructive bg-destructive/10'
+                        }`}>
+                          {req.status}
+                        </Badge>
+                        <div className="font-bold text-destructive mt-1">- {formatPHP(Number(req.refund_amount))}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Items: </span>
+                      {lines ? lines.map(l => `${l.qty} × ${l.name}`).join(', ') : 'Entire sale (all remaining items)'}
+                    </div>
+                    <div><span className="text-muted-foreground">Reason: </span>{req.void_reason}</div>
+                    {req.status !== 'pending' && (
+                      <div className="text-muted-foreground">
+                        {req.status === 'approved' ? 'Approved' : 'Rejected'} by {decider}
+                        {req.decided_at ? ` · ${format(new Date(req.decided_at), 'MMM d, h:mm a')}` : ''}
+                        {req.decision_note ? ` · "${req.decision_note}"` : ''}
+                      </div>
+                    )}
+                    {req.status === 'pending' && isVoidApprover && (
+                      <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                        <Input
+                          placeholder="Rejection reason (required to reject)"
+                          value={rejectNotes[req.id] || ''}
+                          onChange={e => setRejectNotes(prev => ({ ...prev, [req.id]: e.target.value }))}
+                          className="h-8 text-xs"
+                          disabled={busy}
+                        />
+                        <div className="flex gap-2 shrink-0">
+                          <Button size="sm" variant="outline" className="h-8" disabled={busy} onClick={() => handleDecideVoidRequest(req, false)}>
+                            Reject
+                          </Button>
+                          <Button size="sm" variant="destructive" className="h-8" disabled={busy} onClick={() => handleDecideVoidRequest(req, true)}>
+                            {busy ? 'Working…' : 'Approve Void'}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
       {/* Invoice Details Drawer */}
